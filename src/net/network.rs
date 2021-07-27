@@ -1,4 +1,4 @@
-use crate::{executor::Spawner, rand::RandomHandle, time::TimeHandle};
+use crate::{rand::RandomHandle, task::TaskHandle, time::TimeHandle};
 use bytes::Bytes;
 use log::*;
 use std::{
@@ -11,7 +11,7 @@ use std::{
 pub(crate) struct Network {
     rand: RandomHandle,
     time: TimeHandle,
-    spawner: Spawner,
+    task: TaskHandle,
     config: Config,
     endpoints: HashMap<SocketAddr, async_channel::Sender<Message>>,
     clogged: HashSet<SocketAddr>,
@@ -24,11 +24,11 @@ pub struct Config {
 }
 
 impl Network {
-    pub fn new(rand: RandomHandle, time: TimeHandle, spawner: Spawner, config: Config) -> Self {
+    pub fn new(rand: RandomHandle, time: TimeHandle, task: TaskHandle, config: Config) -> Self {
         Self {
             rand,
             time,
-            spawner,
+            task,
             config,
             endpoints: HashMap::new(),
             clogged: HashSet::new(),
@@ -77,10 +77,10 @@ impl Network {
         };
         trace!("delay: {:?}", self.config.send_latency);
         let delay = self.time.sleep(self.config.send_latency);
-        self.spawner.spawn(async move {
+        self.task.spawn(async move {
             delay.await;
             let _ = sender.try_send(msg);
-        })
+        });
     }
 }
 
