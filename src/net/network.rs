@@ -40,21 +40,27 @@ impl Network {
             !self.endpoints.contains_key(&target),
             "address already exists"
         );
+        trace!("insert: {}", target);
         let (sender, recver) = async_channel::unbounded();
         self.endpoints.insert(target, sender);
         recver
     }
 
     pub fn remove(&mut self, target: &SocketAddr) {
+        trace!("remove: {}", target);
         self.endpoints.remove(target);
         self.clogged.remove(target);
     }
 
     pub fn clog(&mut self, target: SocketAddr) {
+        assert!(self.endpoints.contains_key(&target));
+        trace!("clog: {}", target);
         self.clogged.insert(target);
     }
 
     pub fn unclog(&mut self, target: SocketAddr) {
+        assert!(self.endpoints.contains_key(&target));
+        trace!("unclog: {}", target);
         self.clogged.remove(&target);
     }
 

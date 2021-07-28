@@ -4,6 +4,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+// TODO: rewrite executor to support kill and shuffle
+
 pub struct Executor {
     runtime: Runtime,
     start_time: tokio::time::Instant,
@@ -50,6 +52,14 @@ impl TaskHandle {
     {
         self.handle.spawn(future)
     }
+}
+
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(future)
 }
 
 #[cfg(test)]

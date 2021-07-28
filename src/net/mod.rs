@@ -16,7 +16,7 @@ pub struct NetworkRuntime {
 }
 
 impl NetworkRuntime {
-    pub fn new(rand: RandomHandle, time: TimeHandle, task: TaskHandle) -> Self {
+    pub(crate) fn new(rand: RandomHandle, time: TimeHandle, task: TaskHandle) -> Self {
         let config = Config::default();
         let network = Network::new(rand, time, task, config);
         NetworkRuntime {
@@ -96,6 +96,7 @@ mod tests {
             assert_eq!(len, 1);
             assert_eq!(tag, 1);
             assert_eq!(from, addr1);
+            assert_eq!(buf[0], 1);
         });
 
         runtime.block_on(f).unwrap();

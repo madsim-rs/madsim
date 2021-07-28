@@ -1,16 +1,18 @@
 use std::{future::Future, net::SocketAddr};
 use tokio::task::JoinHandle;
 
+mod fs;
 mod net;
 mod rand;
-mod task;
-mod time;
+pub mod task;
+pub mod time;
 
 pub struct Runtime {
     rand: rand::RandomHandle,
     time: time::TimeHandle,
     executor: task::Executor,
     net: net::NetworkRuntime,
+    fs: fs::FileSystemRuntime,
 }
 
 impl Runtime {
@@ -23,11 +25,13 @@ impl Runtime {
         let time = time::TimeHandle::new();
         let executor = task::Executor::new()?;
         let net = net::NetworkRuntime::new(rand.clone(), time.clone(), executor.handle());
+        let fs = fs::FileSystemRuntime::new(rand.clone(), time.clone(), executor.handle());
         Ok(Runtime {
             rand,
             time,
             executor,
             net,
+            fs,
         })
     }
 
@@ -37,11 +41,20 @@ impl Runtime {
             time: self.time.clone(),
             task: self.executor.handle(),
             net: self.net.handle(addr),
+            fs: self.fs.handle(addr),
         }
     }
 
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.executor.block_on(future)
+    }
+
+    pub fn net(&self) -> &net::NetworkRuntime {
+        &self.net
+    }
+
+    pub fn fs(&self) -> &fs::FileSystemRuntime {
+        &self.fs
     }
 }
 
@@ -50,6 +63,7 @@ pub struct Handle {
     time: time::TimeHandle,
     task: task::TaskHandle,
     net: net::NetworkHandle,
+    fs: fs::FileSystemHandle,
 }
 
 impl Handle {
@@ -63,6 +77,10 @@ impl Handle {
 
     pub fn net(&self) -> &net::NetworkHandle {
         &self.net
+    }
+
+    pub fn fs(&self) -> &fs::FileSystemHandle {
+        &self.fs
     }
 }
 
