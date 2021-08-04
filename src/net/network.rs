@@ -1,4 +1,5 @@
-use crate::{rand::RandomHandle, task::TaskHandle, time::TimeHandle};
+use crate::{rand::RandomHandle, time::TimeHandle};
+use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 use log::*;
 use std::{
@@ -11,9 +12,8 @@ use std::{
 pub(crate) struct Network {
     rand: RandomHandle,
     time: TimeHandle,
-    task: TaskHandle,
     config: Config,
-    endpoints: HashMap<SocketAddr, async_channel::Sender<Message>>,
+    endpoints: HashMap<SocketAddr, (Sender<Message>, Receiver<Message>)>,
     clogged: HashSet<SocketAddr>,
 }
 
@@ -24,25 +24,23 @@ pub struct Config {
 }
 
 impl Network {
-    pub fn new(rand: RandomHandle, time: TimeHandle, task: TaskHandle, config: Config) -> Self {
+    pub fn new(rand: RandomHandle, time: TimeHandle, config: Config) -> Self {
         Self {
             rand,
             time,
-            task,
             config,
             endpoints: HashMap::new(),
             clogged: HashSet::new(),
         }
     }
 
-    pub fn insert(&mut self, target: SocketAddr) -> async_channel::Receiver<Message> {
-        assert!(
-            !self.endpoints.contains_key(&target),
-            "address already exists"
-        );
+    pub fn get(&mut self, target: SocketAddr) -> Receiver<Message> {
+        if let Some((_, recver)) = self.endpoints.get(&target) {
+            return recver.clone();
+        }
         trace!("insert: {}", target);
         let (sender, recver) = async_channel::unbounded();
-        self.endpoints.insert(target, sender);
+        self.endpoints.insert(target, (sender, recver.clone()));
         recver
     }
 
@@ -75,16 +73,15 @@ impl Network {
             trace!("drop");
             return;
         }
-        let sender = self.endpoints[&dst].clone();
+        let sender = self.endpoints[&dst].0.clone();
         let msg = Message {
             tag,
             data: Bytes::copy_from_slice(data),
             from: src,
         };
         trace!("delay: {:?}", self.config.send_latency);
-        let delay = self.time.sleep(self.config.send_latency);
-        self.task.spawn(async move {
-            delay.await;
+        let deadline = self.time.now() + self.config.send_latency;
+        self.time.add_timer(deadline, move || {
             let _ = sender.try_send(msg);
         });
     }

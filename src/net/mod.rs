@@ -7,26 +7,37 @@ use std::{
 
 pub use self::network::Config;
 use self::network::{Message, Network};
-use crate::{rand::RandomHandle, task::TaskHandle, time::TimeHandle};
+use crate::{rand::RandomHandle, time::TimeHandle};
 
 mod network;
 
 pub struct NetworkRuntime {
-    network: Arc<Mutex<Network>>,
+    handle: NetworkHandle,
 }
 
 impl NetworkRuntime {
-    pub(crate) fn new(rand: RandomHandle, time: TimeHandle, task: TaskHandle) -> Self {
+    pub(crate) fn new(rand: RandomHandle, time: TimeHandle) -> Self {
         let config = Config::default();
-        let network = Network::new(rand, time, task, config);
-        NetworkRuntime {
-            network: Arc::new(Mutex::new(network)),
-        }
+        let handle = NetworkHandle {
+            network: Arc::new(Mutex::new(Network::new(rand, time, config))),
+        };
+        NetworkRuntime { handle }
     }
 
-    pub fn handle(&self, addr: SocketAddr) -> NetworkHandle {
-        let recver = self.network.lock().unwrap().insert(addr);
-        NetworkHandle {
+    pub fn handle(&self) -> &NetworkHandle {
+        &self.handle
+    }
+}
+
+#[derive(Clone)]
+pub struct NetworkHandle {
+    network: Arc<Mutex<Network>>,
+}
+
+impl NetworkHandle {
+    pub fn local_handle(&self, addr: SocketAddr) -> NetworkLocalHandle {
+        let recver = self.network.lock().unwrap().get(addr);
+        NetworkLocalHandle {
             network: self.network.clone(),
             addr,
             recver,
@@ -35,13 +46,17 @@ impl NetworkRuntime {
 }
 
 #[derive(Clone)]
-pub struct NetworkHandle {
+pub struct NetworkLocalHandle {
     network: Arc<Mutex<Network>>,
     addr: SocketAddr,
     recver: async_channel::Receiver<Message>,
 }
 
-impl NetworkHandle {
+impl NetworkLocalHandle {
+    pub fn current() -> Self {
+        crate::context::net_local_handle()
+    }
+
     // pub async fn connect(&self, dst: SocketAddr) -> io::Result<Endpoint> {
     //     todo!()
     // }
@@ -72,25 +87,26 @@ impl NetworkHandle {
 
 #[cfg(test)]
 mod tests {
+    use super::NetworkLocalHandle;
     use crate::Runtime;
 
     #[test]
     fn send_recv() {
-        crate::init_logger();
-
-        let runtime = Runtime::new().unwrap();
+        let runtime = Runtime::new();
         let addr1 = "0.0.0.1:1".parse().unwrap();
         let addr2 = "0.0.0.2:1".parse().unwrap();
-        let host1 = runtime.handle(addr1);
-        let host2 = runtime.handle(addr2);
+        let host1 = runtime.local_handle(addr1);
+        let host2 = runtime.local_handle(addr2);
 
-        let net = host1.net().clone();
-        host1.spawn(async move {
-            net.send_to(addr2, 1, &[1]).await.unwrap();
-        });
+        host1
+            .spawn(async move {
+                let net = NetworkLocalHandle::current();
+                net.send_to(addr2, 1, &[1]).await.unwrap();
+            })
+            .detach();
 
-        let net = host2.net().clone();
         let f = host2.spawn(async move {
+            let net = NetworkLocalHandle::current();
             let mut buf = vec![0; 0x10];
             let (len, tag, from) = net.recv_from(&mut buf).await.unwrap();
             assert_eq!(len, 1);
@@ -99,6 +115,6 @@ mod tests {
             assert_eq!(buf[0], 1);
         });
 
-        runtime.block_on(f).unwrap();
+        runtime.block_on(f);
     }
 }

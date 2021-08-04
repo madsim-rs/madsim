@@ -7,12 +7,12 @@ description = "Deterministic Simulator for distributed systems."
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1"
 log = "0.4"
 rand = { version = "0.8", features = ["small_rng"] }
 bytes = "1.0"
-tokio = { version = "1.9", features = ["rt", "sync", "time", "test-util"] }
 async-channel = "1.6"
+async-task = "4.0"
+futures = "0.3"
 
 [dev-dependencies]
 env_logger = "0.8"

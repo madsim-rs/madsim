@@ -1,4 +1,4 @@
-use crate::{rand::RandomHandle, task::TaskHandle, time::TimeHandle};
+use crate::{rand::RandomHandle, time::TimeHandle};
 use log::*;
 use std::{
     collections::HashMap,
@@ -9,27 +9,37 @@ use std::{
 };
 
 pub struct FileSystemRuntime {
-    handles: Mutex<HashMap<SocketAddr, FileSystemHandle>>,
-    rand: RandomHandle,
-    time: TimeHandle,
-    task: TaskHandle,
+    handle: FileSystemHandle,
 }
 
 impl FileSystemRuntime {
-    pub(crate) fn new(rand: RandomHandle, time: TimeHandle, task: TaskHandle) -> Self {
-        FileSystemRuntime {
-            handles: Mutex::new(HashMap::new()),
+    pub(crate) fn new(rand: RandomHandle, time: TimeHandle) -> Self {
+        let handle = FileSystemHandle {
+            handles: Arc::new(Mutex::new(HashMap::new())),
             rand,
             time,
-            task,
-        }
+        };
+        FileSystemRuntime { handle }
     }
 
-    pub fn handle(&self, addr: SocketAddr) -> FileSystemHandle {
+    pub fn handle(&self) -> &FileSystemHandle {
+        &self.handle
+    }
+}
+
+#[derive(Clone)]
+pub struct FileSystemHandle {
+    handles: Arc<Mutex<HashMap<SocketAddr, FileSystemLocalHandle>>>,
+    rand: RandomHandle,
+    time: TimeHandle,
+}
+
+impl FileSystemHandle {
+    pub fn local_handle(&self, addr: SocketAddr) -> FileSystemLocalHandle {
         let mut handles = self.handles.lock().unwrap();
         handles
             .entry(addr)
-            .or_insert_with(|| Arc::new(FileSystem::new(addr)))
+            .or_insert_with(|| FileSystemLocalHandle::new(addr))
             .clone()
     }
 
@@ -39,20 +49,23 @@ impl FileSystemRuntime {
     }
 }
 
-pub type FileSystemHandle = Arc<FileSystem>;
-
-pub struct FileSystem {
+#[derive(Clone)]
+pub struct FileSystemLocalHandle {
     addr: SocketAddr,
-    fs: Mutex<HashMap<PathBuf, Arc<INode>>>,
+    fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
 
-impl FileSystem {
+impl FileSystemLocalHandle {
     fn new(addr: SocketAddr) -> Self {
         trace!("fs: new at {}", addr);
-        FileSystem {
+        FileSystemLocalHandle {
             addr,
-            fs: Mutex::new(HashMap::new()),
+            fs: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn current() -> Self {
+        crate::context::fs_local_handle()
     }
 
     pub async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
@@ -157,17 +170,15 @@ impl File {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::Runtime;
-    use std::io::ErrorKind;
 
     #[test]
     fn create_open_read_write() {
-        crate::init_logger();
-
-        let runtime = Runtime::new().unwrap();
-        let host = runtime.handle("0.0.0.1:1".parse().unwrap());
-        let fs = host.fs().clone();
+        let runtime = Runtime::new();
+        let host = runtime.local_handle("0.0.0.1:1".parse().unwrap());
         let f = host.spawn(async move {
+            let fs = FileSystemLocalHandle::current();
             assert_eq!(
                 fs.open("file").await.err().unwrap().kind(),
                 ErrorKind::NotFound
@@ -187,6 +198,6 @@ mod tests {
                 ErrorKind::PermissionDenied
             );
         });
-        runtime.block_on(f).unwrap();
+        runtime.block_on(f);
     }
 }
