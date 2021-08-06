@@ -43,6 +43,11 @@ impl NetworkHandle {
             recver,
         }
     }
+
+    pub fn msg_count(&self) -> usize {
+        warn!("msg_count is unimplemented");
+        0
+    }
 }
 
 #[derive(Clone)]

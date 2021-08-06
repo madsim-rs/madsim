@@ -74,6 +74,22 @@ impl Handle {
     pub fn current() -> Self {
         context::current().expect("no madsim context")
     }
+
+    pub fn kill(&self, addr: SocketAddr) {
+        self.task.kill(addr);
+        // self.net.kill(addr);
+        // self.fs.power_fail(addr);
+    }
+
+    pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
+        LocalHandle {
+            rand: self.rand.clone(),
+            time: self.time.clone(),
+            task: self.task.local_handle(addr),
+            net: self.net.local_handle(addr),
+            fs: self.fs.local_handle(addr),
+        }
+    }
 }
 
 #[derive(Clone)]
