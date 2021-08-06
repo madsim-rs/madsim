@@ -1,12 +1,15 @@
+pub use self::instant::Instant;
+use self::timer::Timer;
 use futures::{future::poll_fn, select, FutureExt};
+pub use std::time::Duration;
 use std::{
-    cmp::Ordering,
-    collections::BinaryHeap,
     future::Future,
     sync::{Arc, Mutex},
     task::Poll,
-    time::{Duration, Instant},
 };
+
+mod instant;
+mod timer;
 
 pub(crate) struct TimeRuntime {
     handle: TimeHandle,
@@ -93,11 +96,6 @@ impl TimeHandle {
 #[derive(Debug, PartialEq)]
 pub struct Elapsed;
 
-pub fn now() -> Instant {
-    let handle = crate::context::time_handle();
-    handle.now()
-}
-
 pub fn sleep(duration: Duration) -> impl Future<Output = ()> {
     let handle = crate::context::time_handle();
     handle.sleep(duration)
@@ -124,7 +122,7 @@ struct ClockHandle {
 #[derive(Debug)]
 struct Clock {
     /// Time basis for which mock time is derived.
-    base: Instant,
+    base: std::time::Instant,
     /// The amount of mock time which has elapsed.
     advance: Duration,
 }
@@ -132,7 +130,7 @@ struct Clock {
 impl ClockHandle {
     fn new() -> Self {
         let clock = Clock {
-            base: Instant::now(),
+            base: std::time::Instant::now(),
             advance: Duration::default(),
         };
         ClockHandle {
@@ -142,66 +140,12 @@ impl ClockHandle {
 
     fn set(&self, time: Instant) {
         let mut inner = self.inner.lock().unwrap();
-        inner.advance = time.duration_since(inner.base);
+        inner.advance = time.into_std().duration_since(inner.base);
     }
 
     fn now(&self) -> Instant {
         let inner = self.inner.lock().unwrap();
-        inner.base + inner.advance
-    }
-}
-
-#[derive(Default)]
-struct Timer {
-    queue: BinaryHeap<Event>,
-}
-
-impl Timer {
-    fn push(&mut self, deadline: Instant, callback: impl FnOnce() + Send + Sync + 'static) {
-        self.queue.push(Event {
-            deadline,
-            callback: Box::new(callback),
-        });
-    }
-
-    fn next_time(&self) -> Option<Instant> {
-        self.queue.peek().map(|e| e.deadline)
-    }
-
-    /// Fire all timers before or at the `time`.
-    fn fire(&mut self, time: Instant) {
-        while let Some(t) = self.next_time() {
-            if t > time {
-                break;
-            }
-            let event = self.queue.pop().unwrap();
-            (event.callback)();
-        }
-    }
-}
-
-struct Event {
-    deadline: Instant,
-    callback: Box<dyn FnOnce() + Send + Sync + 'static>,
-}
-
-impl PartialEq for Event {
-    fn eq(&self, other: &Self) -> bool {
-        self.deadline.eq(&other.deadline)
-    }
-}
-
-impl Eq for Event {}
-
-impl PartialOrd for Event {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        other.deadline.partial_cmp(&self.deadline)
-    }
-}
-
-impl Ord for Event {
-    fn cmp(&self, other: &Event) -> Ordering {
-        other.deadline.cmp(&self.deadline)
+        Instant::from_std(inner.base + inner.advance)
     }
 }
 
@@ -214,13 +158,13 @@ mod tests {
     fn time() {
         let runtime = Runtime::new();
         runtime.block_on(async {
-            let t0 = now();
+            let t0 = Instant::now();
 
             sleep(Duration::from_secs(1)).await;
-            assert_eq!(now(), t0 + Duration::from_secs(1));
+            assert_eq!(t0.elapsed(), Duration::from_secs(1));
 
             sleep_until(t0 + Duration::from_secs(2)).await;
-            assert_eq!(now(), t0 + Duration::from_secs(2));
+            assert_eq!(t0.elapsed(), Duration::from_secs(2));
 
             assert!(
                 timeout(Duration::from_secs(2), sleep(Duration::from_secs(1)))

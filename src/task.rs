@@ -1,4 +1,4 @@
-use super::time::{TimeHandle, TimeRuntime};
+use super::time::{Instant, TimeHandle, TimeRuntime};
 use async_task::{Runnable, Task};
 use std::{
     collections::HashMap,
@@ -11,7 +11,6 @@ use std::{
         mpsc, Arc, Mutex,
     },
     task::{Context, Poll},
-    time::Instant,
 };
 
 pub struct Executor {
@@ -206,7 +205,7 @@ mod tests {
 
         let handle = runtime.handle();
         runtime.block_on(async move {
-            let t0 = time::now();
+            let t0 = Instant::now();
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
             assert_eq!(flag1.load(Ordering::SeqCst), 2);

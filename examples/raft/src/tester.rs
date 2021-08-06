@@ -1,14 +1,16 @@
 use crate::raft::*;
+use log::*;
 use madsim::{
     rand::{self, Rng},
-    time, Handle,
+    time::{self, Instant},
+    Handle,
 };
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    time::{Duration, Instant},
-};
-use log::*;
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub x: u64,
+}
 
 pub struct RaftTester {
     handle: Handle,
@@ -41,7 +43,7 @@ impl RaftTester {
             addrs,
             rafts,
             connected,
-            start_time: time::now(),
+            start_time: Instant::now(),
         }
     }
 
@@ -117,9 +119,9 @@ impl RaftTester {
         self.check_timeout();
 
         // real time
-        let t = time::now() - self.start_time;
+        let t = self.start_time.elapsed();
         // number of RPC sends
-        let nrpc = self.handle.net.msg_count();
+        let nrpc = self.handle.net.stat().msg_count;
 
         // number of Raft agreements reported
         // let s = self.storage.lock().unwrap();
@@ -130,9 +132,9 @@ impl RaftTester {
         info!("  {:?}  {} {} {}", t, self.n, nrpc, ncmds);
     }
 
-    pub fn check_timeout(&self) {
+    fn check_timeout(&self) {
         // enforce a two minute real-time limit on each test
-        if time::now() - self.start_time > Duration::from_secs(120) {
+        if self.start_time.elapsed() > Duration::from_secs(120) {
             panic!("test took longer than 120 seconds");
         }
     }

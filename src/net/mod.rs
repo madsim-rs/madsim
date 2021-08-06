@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub use self::network::Config;
+pub use self::network::{Config, Stat};
 use self::network::{Message, Network};
 use crate::{rand::RandomHandle, time::TimeHandle};
 
@@ -17,9 +17,8 @@ pub struct NetworkRuntime {
 
 impl NetworkRuntime {
     pub(crate) fn new(rand: RandomHandle, time: TimeHandle) -> Self {
-        let config = Config::default();
         let handle = NetworkHandle {
-            network: Arc::new(Mutex::new(Network::new(rand, time, config))),
+            network: Arc::new(Mutex::new(Network::new(rand, time))),
         };
         NetworkRuntime { handle }
     }
@@ -44,9 +43,23 @@ impl NetworkHandle {
         }
     }
 
-    pub fn msg_count(&self) -> usize {
-        warn!("msg_count is unimplemented");
-        0
+    pub fn stat(&self) -> Stat {
+        self.network.lock().unwrap().stat().clone()
+    }
+
+    pub fn set_packet_loss_rate(&self, rate: f64) {
+        let mut network = self.network.lock().unwrap();
+        network.update_config(|cfg| cfg.packet_loss_rate = rate);
+    }
+
+    pub fn connect(&self, addr: SocketAddr) {
+        let mut network = self.network.lock().unwrap();
+        network.unclog(addr);
+    }
+
+    pub fn disconnect(&self, addr: SocketAddr) {
+        let mut network = self.network.lock().unwrap();
+        network.clog(addr);
     }
 }
 
