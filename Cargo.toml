@@ -1,19 +1,5 @@
-[package]
-name = "madsim"
-version = "0.1.0"
-edition = "2018"
-authors = ["Runji Wang <wangrunji0408@163.com>"]
-description = "Deterministic Simulator for distributed systems."
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-log = "0.4"
-rand = { version = "0.8", features = ["small_rng"] }
-bytes = "1.0"
-async-channel = "1.6"
-async-task = "4.0"
-futures = "0.3"
-
-[dev-dependencies]
-env_logger = "0.8"
+[workspace]
+members = [
+    "madsim",
+]
+exclude = ["examples"]
