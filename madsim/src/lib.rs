@@ -116,7 +116,52 @@ impl LocalHandle {
 
 #[cfg(test)]
 fn init_logger() {
+    use env_logger::fmt::Color;
+    use std::io::Write;
     use std::sync::Once;
-    static LOGGER: Once = Once::new();
-    LOGGER.call_once(|| env_logger::init());
+    static LOGGER_INIT: Once = Once::new();
+    LOGGER_INIT.call_once(|| {
+        let mut builder = env_logger::Builder::from_default_env();
+        builder.format(|buf, record| {
+            let mut style = buf.style();
+            style.set_color(Color::Black).set_intense(true);
+            let mut level_style = buf.style();
+            level_style.set_color(match record.level() {
+                log::Level::Error => Color::Red,
+                log::Level::Warn => Color::Yellow,
+                log::Level::Info => Color::Green,
+                log::Level::Debug => Color::Blue,
+                log::Level::Trace => Color::Cyan,
+            });
+            if let Some(time) = crate::context::try_time_handle() {
+                let addr = crate::context::current_addr().unwrap();
+                writeln!(
+                    buf,
+                    "{}{:>5}{}{:.6}s{}{}{}{:>10}{} {}",
+                    style.value('['),
+                    level_style.value(record.level()),
+                    style.value("]["),
+                    time.elapsed().as_secs_f64(),
+                    style.value("]["),
+                    addr,
+                    style.value("]["),
+                    record.target(),
+                    style.value(']'),
+                    record.args()
+                )
+            } else {
+                writeln!(
+                    buf,
+                    "{}{:>5}{}{:>10}{} {}",
+                    style.value('['),
+                    level_style.value(record.level()),
+                    style.value("]["),
+                    record.target(),
+                    style.value(']'),
+                    record.args()
+                )
+            }
+        });
+        builder.init();
+    });
 }

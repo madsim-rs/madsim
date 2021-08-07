@@ -12,6 +12,11 @@ pub(crate) fn current() -> Option<Handle> {
     CONTEXT.with(|ctx| ctx.borrow().clone())
 }
 
+#[cfg(test)]
+pub(crate) fn current_addr() -> Option<SocketAddr> {
+    ADDR.with(|addr| addr.borrow().clone())
+}
+
 pub(crate) fn rand_handle() -> crate::rand::RandomHandle {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().rand.clone())
 }
@@ -20,16 +25,8 @@ pub(crate) fn time_handle() -> crate::time::TimeHandle {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().time.clone())
 }
 
-pub(crate) fn task_handle() -> crate::task::TaskHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().task.clone())
-}
-
-pub(crate) fn net_handle() -> crate::net::NetworkHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().net.clone())
-}
-
-pub(crate) fn fs_handle() -> crate::fs::FileSystemHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().fs.clone())
+pub(crate) fn try_time_handle() -> Option<crate::time::TimeHandle> {
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().map(|h| h.time.clone()))
 }
 
 pub(crate) fn task_local_handle() -> crate::task::TaskLocalHandle {
