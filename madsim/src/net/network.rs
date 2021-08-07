@@ -1,11 +1,12 @@
 use crate::{rand::*, time::TimeHandle};
-use async_channel::{Receiver, Sender};
 use bytes::Bytes;
+use futures::channel::oneshot;
 use log::*;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     ops::Range,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -15,7 +16,7 @@ pub(crate) struct Network {
     time: TimeHandle,
     config: Config,
     stat: Stat,
-    endpoints: HashMap<SocketAddr, (Sender<Message>, Receiver<Message>)>,
+    endpoints: HashMap<SocketAddr, Arc<Mutex<Endpoint>>>,
     clogged: HashSet<SocketAddr>,
 }
 
@@ -59,14 +60,12 @@ impl Network {
         &self.stat
     }
 
-    pub fn get(&mut self, target: SocketAddr) -> Receiver<Message> {
-        if let Some((_, recver)) = self.endpoints.get(&target) {
-            return recver.clone();
+    pub fn insert(&mut self, target: SocketAddr) {
+        if self.endpoints.contains_key(&target) {
+            return;
         }
         trace!("insert: {}", target);
-        let (sender, recver) = async_channel::unbounded();
-        self.endpoints.insert(target, (sender, recver.clone()));
-        recver
+        self.endpoints.insert(target, Default::default());
     }
 
     pub fn remove(&mut self, target: &SocketAddr) {
@@ -98,7 +97,7 @@ impl Network {
             trace!("drop");
             return;
         }
-        let sender = self.endpoints[&dst].0.clone();
+        let ep = self.endpoints[&dst].clone();
         let msg = Message {
             tag,
             data: Bytes::copy_from_slice(data),
@@ -107,9 +106,13 @@ impl Network {
         let latency = self.rand.gen_range(self.config.send_latency.clone());
         trace!("delay: {:?}", latency);
         self.time.add_timer(self.time.now() + latency, move || {
-            let _ = sender.try_send(msg);
+            ep.lock().unwrap().send(msg);
         });
         self.stat.msg_count += 1;
+    }
+
+    pub fn recv(&mut self, dst: SocketAddr, tag: u64) -> oneshot::Receiver<Message> {
+        self.endpoints[&dst].lock().unwrap().recv(tag)
     }
 }
 
@@ -117,4 +120,32 @@ pub struct Message {
     pub tag: u64,
     pub data: Bytes,
     pub from: SocketAddr,
+}
+
+#[derive(Default)]
+struct Endpoint {
+    registered: Vec<(u64, oneshot::Sender<Message>)>,
+    msgs: Vec<Message>,
+}
+
+impl Endpoint {
+    fn send(&mut self, msg: Message) {
+        if let Some(idx) = self.registered.iter().position(|(tag, _)| *tag == msg.tag) {
+            let (_, sender) = self.registered.swap_remove(idx);
+            let _ = sender.send(msg);
+        } else {
+            self.msgs.push(msg);
+        }
+    }
+
+    fn recv(&mut self, tag: u64) -> oneshot::Receiver<Message> {
+        let (tx, rx) = oneshot::channel();
+        if let Some(idx) = self.msgs.iter().position(|msg| tag == msg.tag) {
+            let msg = self.msgs.swap_remove(idx);
+            tx.send(msg).ok().unwrap();
+        } else {
+            self.registered.push((tag, tx));
+        }
+        rx
+    }
 }

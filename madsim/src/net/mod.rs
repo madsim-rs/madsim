@@ -5,9 +5,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use self::network::Network;
 pub use self::network::{Config, Stat};
-use self::network::{Message, Network};
-use crate::{rand::RandomHandle, time::TimeHandle};
+use crate::{rand::*, time::*};
 
 mod network;
 
@@ -18,7 +18,9 @@ pub struct NetworkRuntime {
 impl NetworkRuntime {
     pub(crate) fn new(rand: RandomHandle, time: TimeHandle) -> Self {
         let handle = NetworkHandle {
-            network: Arc::new(Mutex::new(Network::new(rand, time))),
+            network: Arc::new(Mutex::new(Network::new(rand.clone(), time.clone()))),
+            rand,
+            time,
         };
         NetworkRuntime { handle }
     }
@@ -31,15 +33,16 @@ impl NetworkRuntime {
 #[derive(Clone)]
 pub struct NetworkHandle {
     network: Arc<Mutex<Network>>,
+    rand: RandomHandle,
+    time: TimeHandle,
 }
 
 impl NetworkHandle {
     pub fn local_handle(&self, addr: SocketAddr) -> NetworkLocalHandle {
-        let recver = self.network.lock().unwrap().get(addr);
+        self.network.lock().unwrap().insert(addr);
         NetworkLocalHandle {
-            network: self.network.clone(),
+            handle: self.clone(),
             addr,
-            recver,
         }
     }
 
@@ -54,7 +57,7 @@ impl NetworkHandle {
 
     pub fn connect(&self, addr: SocketAddr) {
         let mut network = self.network.lock().unwrap();
-        network.get(addr);
+        network.insert(addr);
         network.unclog(addr);
     }
 
@@ -66,9 +69,8 @@ impl NetworkHandle {
 
 #[derive(Clone)]
 pub struct NetworkLocalHandle {
-    network: Arc<Mutex<Network>>,
+    handle: NetworkHandle,
     addr: SocketAddr,
-    recver: async_channel::Receiver<Message>,
 }
 
 impl NetworkLocalHandle {
@@ -76,23 +78,28 @@ impl NetworkLocalHandle {
         crate::context::net_local_handle()
     }
 
-    // pub async fn connect(&self, dst: SocketAddr) -> io::Result<Endpoint> {
-    //     todo!()
-    // }
-
-    // pub async fn accept(&self) -> io::Result<(Endpoint, SocketAddr)> {
-    //     todo!()
-    // }
-
     pub async fn send_to(&self, dst: SocketAddr, tag: u64, data: &[u8]) -> io::Result<()> {
-        self.network.lock().unwrap().send(self.addr, dst, tag, data);
+        self.handle
+            .network
+            .lock()
+            .unwrap()
+            .send(self.addr, dst, tag, data);
+        // random delay
+        let delay = Duration::from_micros(self.handle.rand.clone().gen_range(0..5));
+        self.handle.time.sleep(delay).await;
         Ok(())
     }
 
-    pub async fn recv_from(&self, data: &mut [u8]) -> io::Result<(usize, u64, SocketAddr)> {
-        let msg = self.recver.recv().await.unwrap();
+    pub async fn recv_from(&self, tag: u64, data: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        let recver = self.handle.network.lock().unwrap().recv(self.addr, tag);
+        let msg = recver.await.unwrap();
+        // copy to buffer
         let len = data.len().min(msg.data.len());
         data[..len].copy_from_slice(&msg.data[..len]);
+        // random delay
+        let delay = Duration::from_micros(self.handle.rand.clone().gen_range(0..5));
+        self.handle.time.sleep(delay).await;
+
         trace!(
             "recv: {} <- {}, tag={}, len={}",
             self.addr,
@@ -100,14 +107,14 @@ impl NetworkLocalHandle {
             msg.tag,
             len
         );
-        Ok((len, msg.tag, msg.from))
+        Ok((len, msg.from))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::NetworkLocalHandle;
-    use crate::Runtime;
+    use crate::{time::*, Runtime};
 
     #[test]
     fn send_recv() {
@@ -121,15 +128,21 @@ mod tests {
             .spawn(async move {
                 let net = NetworkLocalHandle::current();
                 net.send_to(addr2, 1, &[1]).await.unwrap();
+
+                sleep(Duration::from_secs(1)).await;
+                net.send_to(addr2, 2, &[2]).await.unwrap();
             })
             .detach();
 
         let f = host2.spawn(async move {
             let net = NetworkLocalHandle::current();
             let mut buf = vec![0; 0x10];
-            let (len, tag, from) = net.recv_from(&mut buf).await.unwrap();
+            let (len, from) = net.recv_from(2, &mut buf).await.unwrap();
             assert_eq!(len, 1);
-            assert_eq!(tag, 1);
+            assert_eq!(from, addr1);
+            assert_eq!(buf[0], 2);
+            let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
+            assert_eq!(len, 1);
             assert_eq!(from, addr1);
             assert_eq!(buf[0], 1);
         });
