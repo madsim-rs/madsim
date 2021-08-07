@@ -7,6 +7,9 @@ pub mod rand;
 pub mod task;
 pub mod time;
 
+#[cfg(feature = "macros")]
+pub use madsim_macros::{main, test};
+
 pub struct Runtime {
     rand: rand::RandomHandle,
     task: task::Executor,

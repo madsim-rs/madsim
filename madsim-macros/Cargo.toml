@@ -1,0 +1,15 @@
+[package]
+name = "madsim-macros"
+version = "0.1.0"
+edition = "2018"
+authors = ["Runji Wang <wangrunji0408@163.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1"
+syn = { version = "1.0", features = ["full"] }

@@ -10,41 +10,7 @@ use std::time::Duration;
 /// (much more than the paper's range of timeouts).
 const RAFT_ELECTION_TIMEOUT: Duration = Duration::from_millis(1000);
 
-// TODO: #[madsim::test]
-macro_rules! test {
-    {$($name:ident),+} => {
-        // avoid function name conflict
-        mod t {$(
-            #[test]
-            fn $name() {
-                use std::time::SystemTime;
-                let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-                let ret = std::panic::catch_unwind(|| {
-                    let rt = madsim::Runtime::new_with_seed(seed);
-                    rt.block_on(super::$name());
-                });
-                if let Err(e) = ret {
-                    println!("seed={}", seed);
-                    std::panic::resume_unwind(e);
-                }
-            }
-        )+}
-    }
-}
-
-test! {
-    initial_election_2a,
-    reelection_2a,
-    many_election_2a,
-    basic_agree_2b,
-    fail_agree_2b,
-    fail_no_agree_2b,
-    concurrent_starts_2b,
-    rejoin_2b,
-    backup_2b,
-    count_2b
-}
-
+#[madsim::test]
 async fn initial_election_2a() {
     let servers = 3;
     let mut t = RaftTester::new(servers).await;
@@ -72,6 +38,7 @@ async fn initial_election_2a() {
     t.end();
 }
 
+#[madsim::test]
 async fn reelection_2a() {
     let servers = 3;
     let mut t = RaftTester::new(servers).await;
@@ -103,6 +70,7 @@ async fn reelection_2a() {
     t.end();
 }
 
+#[madsim::test]
 async fn many_election_2a() {
     let servers = 7;
     let iters = 10;
@@ -136,6 +104,7 @@ async fn many_election_2a() {
     t.end();
 }
 
+#[madsim::test]
 async fn basic_agree_2b() {
     let servers = 5;
     let mut t = RaftTester::new(servers).await;
@@ -153,6 +122,7 @@ async fn basic_agree_2b() {
     t.end();
 }
 
+#[madsim::test]
 async fn fail_agree_2b() {
     let servers = 3;
     let mut t = RaftTester::new(servers).await;
@@ -183,6 +153,7 @@ async fn fail_agree_2b() {
     t.end();
 }
 
+#[madsim::test]
 async fn fail_no_agree_2b() {
     let servers = 5;
     let mut t = RaftTester::new(servers).await;
@@ -228,6 +199,7 @@ async fn fail_no_agree_2b() {
     t.end();
 }
 
+#[madsim::test]
 async fn concurrent_starts_2b() {
     let servers = 3;
     let mut t = RaftTester::new(servers).await;
@@ -293,6 +265,7 @@ async fn concurrent_starts_2b() {
     t.end();
 }
 
+#[madsim::test]
 async fn rejoin_2b() {
     let servers = 3;
     let mut t = RaftTester::new(servers).await;
@@ -330,6 +303,7 @@ async fn rejoin_2b() {
     t.end();
 }
 
+#[madsim::test]
 async fn backup_2b() {
     let servers = 5;
     let mut t = RaftTester::new(servers).await;
@@ -402,6 +376,7 @@ async fn backup_2b() {
     t.end();
 }
 
+#[madsim::test]
 async fn count_2b() {
     let servers = 3;
     let mut t = RaftTester::new(servers).await;
