@@ -54,6 +54,7 @@ impl NetworkHandle {
 
     pub fn connect(&self, addr: SocketAddr) {
         let mut network = self.network.lock().unwrap();
+        network.get(addr);
         network.unclog(addr);
     }
 

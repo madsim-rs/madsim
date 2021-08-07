@@ -10,3 +10,6 @@ description = "The labs of Raft consensus algorithm on MadSim."
 [dependencies]
 madsim = { path = "../.." }
 log = "0.4"
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+flexbuffers = "2.0"

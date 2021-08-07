@@ -108,8 +108,9 @@ impl TaskHandle {
     /// Kill all tasks of the address.
     pub fn kill(&self, addr: SocketAddr) {
         let mut info = self.info.lock().unwrap();
-        let info = info.remove(&addr).unwrap();
-        info.killed.store(true, Ordering::SeqCst);
+        if let Some(info) = info.remove(&addr) {
+            info.killed.store(true, Ordering::SeqCst);
+        }
     }
 
     pub fn local_handle(&self, addr: SocketAddr) -> TaskLocalHandle {
