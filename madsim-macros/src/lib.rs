@@ -42,14 +42,25 @@ fn parse(
     input.block = syn::parse2(quote! {
         {
             use std::time::SystemTime;
-            let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-            let ret = std::panic::catch_unwind(|| {
-                let rt = madsim::Runtime::new_with_seed(seed);
-                rt.block_on(async #body);
-            });
-            if let Err(e) = ret {
-                println!("seed={}", seed);
-                std::panic::resume_unwind(e);
+            let seed: u64 = if let Ok(seed_str) = std::env::var("MADSIM_TEST_SEED") {
+                seed_str.parse().expect("MADSIM_TEST_SEED should be an integer")
+            } else {
+                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+            };
+            let count: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_NUM") {
+                num_str.parse().expect("MADSIM_TEST_NUM should be an integer")
+            } else {
+                1
+            };
+            for i in 0..count {
+                let ret = std::panic::catch_unwind(|| {
+                    let rt = madsim::Runtime::new_with_seed(seed + i);
+                    rt.block_on(async #body);
+                });
+                if let Err(e) = ret {
+                    println!("seed={}", seed);
+                    std::panic::resume_unwind(e);
+                }
             }
         }
     })
