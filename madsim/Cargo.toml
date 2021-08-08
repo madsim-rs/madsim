@@ -17,6 +17,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 bytes = "1.0"
 async-task = "4.0"
 futures = "0.3"
+naive-timer = "0.2"
 
 [dev-dependencies]
 env_logger = "0.8"

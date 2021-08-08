@@ -1,6 +1,6 @@
 pub use self::instant::Instant;
-use self::timer::Timer;
 use futures::{future::poll_fn, select, FutureExt};
+use naive_timer::Timer;
 pub use std::time::Duration;
 use std::{
     future::Future,
@@ -9,7 +9,6 @@ use std::{
 };
 
 mod instant;
-mod timer;
 
 pub(crate) struct TimeRuntime {
     handle: TimeHandle,
@@ -31,9 +30,9 @@ impl TimeRuntime {
     /// Advance the time and fire timers.
     pub fn advance(&self) -> bool {
         let mut timer = self.handle.timer.lock().unwrap();
-        if let Some(time) = timer.next_time() {
-            timer.fire(time);
-            self.handle.clock.set(time);
+        if let Some(time) = timer.next() {
+            timer.expire(time);
+            self.handle.clock.set_elapsed(time);
             true
         } else {
             false
@@ -97,7 +96,7 @@ impl TimeHandle {
 
     pub fn add_timer(&self, deadline: Instant, callback: impl FnOnce() + Send + Sync + 'static) {
         let mut timer = self.timer.lock().unwrap();
-        timer.push(deadline, callback);
+        timer.add(deadline - self.clock.base(), |_| callback());
     }
 }
 
@@ -146,14 +145,19 @@ impl ClockHandle {
         }
     }
 
-    fn set(&self, time: Instant) {
+    fn set_elapsed(&self, time: Duration) {
         let mut inner = self.inner.lock().unwrap();
-        inner.advance = time.into_std().duration_since(inner.base);
+        inner.advance = time;
     }
 
     fn elapsed(&self) -> Duration {
         let inner = self.inner.lock().unwrap();
         inner.advance
+    }
+
+    fn base(&self) -> Instant {
+        let inner = self.inner.lock().unwrap();
+        Instant::from_std(inner.base)
     }
 
     fn now(&self) -> Instant {
