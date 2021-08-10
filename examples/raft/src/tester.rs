@@ -174,6 +174,7 @@ impl RaftTester {
     /// if retry==false, calls start() only once, in order
     /// to simplify the early Lab 2B tests.
     pub async fn one(&self, cmd: Entry, expected_servers: usize, retry: bool) -> u64 {
+        debug!("one({:?}, {})", cmd, expected_servers);
         let t0 = Instant::now();
         let mut starts = 0;
         while t0.elapsed() < Duration::from_secs(10) {

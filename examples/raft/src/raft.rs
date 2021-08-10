@@ -728,7 +728,7 @@ impl Raft {
         }
         // If RPC request or response contains term T > currentTerm:
         // set currentTerm = T, convert to follower (§5.1)
-        if args.term > self.state.term {
+        if args.term > self.state.term || self.state.role == Role::Candidate {
             self.transfer_state(args.term, Role::Follower, "higher term (<-AE)");
         }
         self.last_apply_entries_received = Instant::now();

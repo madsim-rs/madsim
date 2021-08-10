@@ -119,10 +119,14 @@ fn init_logger() {
     use env_logger::fmt::Color;
     use std::io::Write;
     use std::sync::Once;
+    use std::time::Duration;
     static LOGGER_INIT: Once = Once::new();
     LOGGER_INIT.call_once(|| {
+        let start = std::env::var("MADSIM_LOG_TIME_START")
+            .ok()
+            .map(|s| Duration::from_secs_f64(s.parse::<f64>().unwrap()));
         let mut builder = env_logger::Builder::from_default_env();
-        builder.format(|buf, record| {
+        builder.format(move |buf, record| {
             let mut style = buf.style();
             style.set_color(Color::Black).set_intense(true);
             let mut level_style = buf.style();
@@ -134,6 +138,9 @@ fn init_logger() {
                 log::Level::Trace => Color::Cyan,
             });
             if let Some(time) = crate::context::try_time_handle() {
+                if matches!(start, Some(t0) if time.elapsed() < t0) {
+                    return write!(buf, "");
+                }
                 let addr = crate::context::current_addr().unwrap();
                 writeln!(
                     buf,
