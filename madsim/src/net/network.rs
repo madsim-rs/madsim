@@ -129,12 +129,24 @@ struct Endpoint {
 
 impl Endpoint {
     fn send(&mut self, msg: Message) {
-        if let Some(idx) = self.registered.iter().position(|(tag, _)| *tag == msg.tag) {
-            let (_, sender) = self.registered.swap_remove(idx);
-            let _ = sender.send(msg);
-        } else {
-            self.msgs.push(msg);
+        let mut i = 0;
+        let mut msg = Some(msg);
+        while i < self.registered.len() {
+            if matches!(&msg, Some(msg) if msg.tag == self.registered[i].0) {
+                // tag match, take and try send
+                let (_, sender) = self.registered.swap_remove(i);
+                msg = match sender.send(msg.take().unwrap()) {
+                    Ok(_) => return,
+                    Err(m) => Some(m),
+                };
+                // failed to send, try next
+            } else {
+                // tag mismatch, move to next
+                i += 1;
+            }
         }
+        // failed to match awaiting recv, save
+        self.msgs.push(msg.unwrap());
     }
 
     fn recv(&mut self, tag: u64) -> oneshot::Receiver<Message> {

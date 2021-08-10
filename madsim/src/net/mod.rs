@@ -156,4 +156,38 @@ mod tests {
 
         runtime.block_on(f);
     }
+
+    #[test]
+    fn receiver_drop() {
+        let runtime = Runtime::new();
+        let addr1 = "0.0.0.1:1".parse().unwrap();
+        let addr2 = "0.0.0.2:1".parse().unwrap();
+        let host1 = runtime.local_handle(addr1);
+        let host2 = runtime.local_handle(addr2);
+
+        host1
+            .spawn(async move {
+                let net = NetworkLocalHandle::current();
+                sleep(Duration::from_secs(2)).await;
+                net.send_to(addr2, 1, &[1]).await.unwrap();
+            })
+            .detach();
+
+        let f = host2.spawn(async move {
+            let net = NetworkLocalHandle::current();
+            let mut buf = vec![0; 0x10];
+            timeout(Duration::from_secs(1), net.recv_from(1, &mut buf))
+                .await
+                .err()
+                .unwrap();
+            // timeout and receiver dropped here
+            sleep(Duration::from_secs(2)).await;
+            // receive again should success
+            let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
+            assert_eq!(len, 1);
+            assert_eq!(from, addr1);
+        });
+
+        runtime.block_on(f);
+    }
 }
