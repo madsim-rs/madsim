@@ -1,10 +1,17 @@
 use crate::tester::*;
+use futures::future;
 use log::*;
 use madsim::{
     rand::{self, Rng},
     time,
 };
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 /// The tester generously allows solutions to complete elections in one second
 /// (much more than the paper's range of timeouts).
@@ -169,6 +176,7 @@ async fn fail_no_agree_2b() {
     t.disconnect((leader + 3) % servers);
     let index = t
         .start(leader, Entry { x: 20 })
+        .await
         .expect("leader rejected start")
         .index;
     if index != 2 {
@@ -190,6 +198,7 @@ async fn fail_no_agree_2b() {
     let leader2 = t.check_one_leader().await;
     let index2 = t
         .start(leader2, Entry { x: 30 })
+        .await
         .expect("leader2 rejected start")
         .index;
     assert!((2..=3).contains(&index2), "unexpected index {}", index2);
@@ -213,7 +222,7 @@ async fn concurrent_starts_2b() {
         }
 
         let leader = t.check_one_leader().await;
-        let term = match t.start(leader, Entry { x: 1 }) {
+        let term = match t.start(leader, Entry { x: 1 }).await {
             Err(err) => {
                 warn!("start leader {} meet error {:?}", leader, err);
                 continue;
@@ -223,7 +232,7 @@ async fn concurrent_starts_2b() {
 
         let mut idxes = vec![];
         for ii in 0..5 {
-            match t.start(leader, Entry { x: 100 + ii }) {
+            match t.start(leader, Entry { x: 100 + ii }).await {
                 Err(err) => {
                     warn!("start leader {} meet error {:?}", leader, err);
                 }
@@ -279,9 +288,9 @@ async fn rejoin_2b() {
     t.disconnect(leader1);
 
     // make old leader try to agree on some entries
-    let _ = t.start(leader1, Entry { x: 102 });
-    let _ = t.start(leader1, Entry { x: 103 });
-    let _ = t.start(leader1, Entry { x: 104 });
+    let _ = t.start(leader1, Entry { x: 102 }).await;
+    let _ = t.start(leader1, Entry { x: 103 }).await;
+    let _ = t.start(leader1, Entry { x: 104 }).await;
 
     // new leader commits, also for index=2
     t.one(Entry { x: 103 }, 2, true).await;
@@ -321,7 +330,7 @@ async fn backup_2b() {
 
     // submit lots of commands that won't commit
     for _i in 0..50 {
-        let _ = t.start(leader1, random.gen_entry());
+        let _ = t.start(leader1, random.gen_entry()).await;
     }
 
     time::sleep(RAFT_ELECTION_TIMEOUT / 2).await;
@@ -349,7 +358,7 @@ async fn backup_2b() {
 
     // lots more commands that won't commit
     for _i in 0..50 {
-        let _ = t.start(leader2, random.gen_entry());
+        let _ = t.start(leader2, random.gen_entry()).await;
     }
 
     time::sleep(RAFT_ELECTION_TIMEOUT / 2).await;
@@ -404,7 +413,7 @@ async fn count_2b() {
         total1 = t.rpc_total();
 
         let iters = 10;
-        let (starti, term) = match t.start(leader, Entry { x: 1 }) {
+        let (starti, term) = match t.start(leader, Entry { x: 1 }).await {
             Ok(s) => (s.index, s.term),
             Err(err) => {
                 warn!("start leader {} meet error {:?}", leader, err);
@@ -416,7 +425,7 @@ async fn count_2b() {
         for i in 1..iters + 2 {
             let x = random.gen::<u64>();
             cmds.push(x);
-            match t.start(leader, Entry { x }) {
+            match t.start(leader, Entry { x }).await {
                 Ok(s) => {
                     if s.term != term {
                         // Term changed while starting
@@ -465,6 +474,129 @@ async fn count_2b() {
         "too many RPCs ({}) for 1 second of idleness",
         total3 - total2
     );
+
+    t.end();
+}
+
+#[madsim::test]
+async fn persist1_2c() {
+    let servers = 3;
+    let mut t = RaftTester::new(servers).await;
+
+    info!("Test (2C): basic persistence");
+
+    t.one(Entry { x: 11 }, servers, true).await;
+
+    // crash and re-start all
+    for i in 0..servers {
+        t.start1(i).await;
+    }
+    for i in 0..servers {
+        t.disconnect(i);
+        t.connect(i);
+    }
+
+    t.one(Entry { x: 12 }, servers, true).await;
+
+    let leader1 = t.check_one_leader().await;
+    t.disconnect(leader1);
+    t.start1(leader1).await;
+    t.connect(leader1);
+
+    t.one(Entry { x: 13 }, servers, true).await;
+
+    let leader2 = t.check_one_leader().await;
+    t.disconnect(leader2);
+    t.one(Entry { x: 14 }, servers - 1, true).await;
+    t.start1(leader2).await;
+    t.connect(leader2);
+
+    // wait for leader2 to join before killing i3
+    t.wait(4, servers, None).await;
+
+    let i3 = (t.check_one_leader().await + 1) % servers;
+    t.disconnect(i3);
+    t.one(Entry { x: 15 }, servers - 1, true).await;
+    t.start1(i3).await;
+    t.connect(i3);
+
+    t.one(Entry { x: 16 }, servers, true).await;
+
+    t.end();
+}
+
+#[madsim::test]
+async fn persist2_2c() {
+    let servers = 5;
+    let mut t = RaftTester::new(servers).await;
+
+    info!("Test (2C): more persistence");
+
+    let mut index = 1;
+    for _ in 0..5 {
+        t.one(Entry { x: 10 + index }, servers, true).await;
+        index += 1;
+
+        let leader1 = t.check_one_leader().await;
+
+        t.disconnect((leader1 + 1) % servers);
+        t.disconnect((leader1 + 2) % servers);
+
+        t.one(Entry { x: 10 + index }, servers - 2, true).await;
+        index += 1;
+
+        t.disconnect((leader1 + 0) % servers);
+        t.disconnect((leader1 + 3) % servers);
+        t.disconnect((leader1 + 4) % servers);
+
+        t.start1((leader1 + 1) % servers).await;
+        t.start1((leader1 + 2) % servers).await;
+        t.connect((leader1 + 1) % servers);
+        t.connect((leader1 + 2) % servers);
+
+        time::sleep(RAFT_ELECTION_TIMEOUT).await;
+
+        t.start1((leader1 + 3) % servers).await;
+        t.connect((leader1 + 3) % servers);
+
+        t.one(Entry { x: 10 + index }, servers - 2, true).await;
+        index += 1;
+
+        t.connect((leader1 + 4) % servers);
+        t.connect((leader1 + 0) % servers);
+    }
+
+    t.one(Entry { x: 1000 }, servers, true).await;
+
+    t.end();
+}
+
+#[madsim::test]
+async fn persist3_2c() {
+    let servers = 3;
+    let mut t = RaftTester::new(servers).await;
+
+    info!("Test (2C): partitioned leader and one follower crash, leader restarts");
+
+    t.one(Entry { x: 101 }, 3, true).await;
+
+    let leader = t.check_one_leader().await;
+    t.disconnect((leader + 2) % servers);
+
+    t.one(Entry { x: 102 }, 2, true).await;
+
+    t.crash1((leader + 0) % servers);
+    t.crash1((leader + 1) % servers);
+    t.connect((leader + 2) % servers);
+    t.start1((leader + 0) % servers).await;
+    t.connect((leader + 0) % servers);
+
+    t.one(Entry { x: 103 }, 2, true).await;
+
+    t.start1((leader + 1) % servers).await;
+    t.connect((leader + 1) % servers);
+
+    t.one(Entry { x: 104 }, servers, true).await;
 
     t.end();
 }

@@ -200,9 +200,17 @@ impl RaftHandle {
     ///
     /// There is no guarantee that this command will ever be committed to the
     /// Raft log, since the leader may fail or lose an election.
-    pub fn start(&self, cmd: &[u8]) -> Result<Start> {
-        let mut raft = self.inner.lock().unwrap();
-        raft.start(cmd)
+    pub async fn start(&self, cmd: &[u8]) -> Result<Start> {
+        let (ret, persist) = {
+            let mut raft = self.inner.lock().unwrap();
+            let ret = raft.start(cmd);
+            let persist = ret.as_ref().ok().map(|_| raft.persist());
+            (ret, persist)
+        };
+        if let Some(persist) = persist {
+            persist.await?;
+        }
+        ret
     }
 
     /// The current term of this peer.
@@ -334,7 +342,7 @@ impl Raft {
     /// see paper's Figure 2 for a description of what should be persistent.
     fn persist(&self) -> impl Future<Output = io::Result<()>> {
         // Your code here (2C).
-        debug!("persist");
+        info!("persist");
         let persist = Persist {
             term: self.state.term,
             voted_for: self.voted_for,
@@ -380,8 +388,6 @@ impl Raft {
             term,
             data: data.into(),
         });
-        // TODO: need persist?
-        // self.persist().await;
         info!("{:?} start index {}", self, index);
         Ok(Start { index, term })
     }

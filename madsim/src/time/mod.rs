@@ -64,11 +64,11 @@ impl TimeHandle {
         self.clock.elapsed()
     }
 
-    pub fn sleep(&self, duration: Duration) -> impl Future<Output = ()> {
+    pub fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send {
         self.sleep_until(self.clock.now() + duration)
     }
 
-    pub fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()> {
+    pub fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()> + Send {
         let handle = self.clone();
         poll_fn(move |cx| {
             if handle.clock.now() >= deadline {
@@ -80,6 +80,7 @@ impl TimeHandle {
         })
     }
 
+    // TODO: make it Send
     pub fn timeout<T: Future>(
         &self,
         duration: Duration,
@@ -103,12 +104,12 @@ impl TimeHandle {
 #[derive(Debug, PartialEq)]
 pub struct Elapsed;
 
-pub fn sleep(duration: Duration) -> impl Future<Output = ()> {
+pub fn sleep(duration: Duration) -> impl Future<Output = ()> + Send {
     let handle = crate::context::time_handle();
     handle.sleep(duration)
 }
 
-pub fn sleep_until(deadline: Instant) -> impl Future<Output = ()> {
+pub fn sleep_until(deadline: Instant) -> impl Future<Output = ()> + Send {
     let handle = crate::context::time_handle();
     handle.sleep_until(deadline)
 }

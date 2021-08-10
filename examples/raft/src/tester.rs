@@ -30,6 +30,14 @@ pub const SNAPSHOT_INTERVAL: u64 = 10;
 
 impl RaftTester {
     pub async fn new(n: usize) -> Self {
+        Self::new_ext(n, false).await
+    }
+
+    pub async fn new_with_snapshot(n: usize) -> Self {
+        Self::new_ext(n, true).await
+    }
+
+    async fn new_ext(n: usize, snapshot: bool) -> Self {
         let handle = Handle::current();
         let mut tester = RaftTester {
             n,
@@ -45,7 +53,7 @@ impl RaftTester {
         };
         tester.rpc0 = tester.rpc_total();
         for i in 0..n {
-            let raft = tester.start1_ext(i, false).await;
+            let raft = tester.start1_ext(i, snapshot).await;
             tester.connect(i);
             tester.rafts.push(raft);
         }
@@ -126,8 +134,12 @@ impl RaftTester {
         self.storage.n_committed(index)
     }
 
-    pub fn start(&self, i: usize, cmd: Entry) -> Result<Start> {
-        self.rafts[i].start(&flexbuffers::to_vec(&cmd).unwrap())
+    pub async fn start(&self, i: usize, cmd: Entry) -> Result<Start> {
+        let raft = self.rafts[i].clone();
+        self.handle
+            .local_handle(self.addrs[i])
+            .spawn(async move { raft.start(&flexbuffers::to_vec(&cmd).unwrap()).await })
+            .await
     }
 
     /// wait for at least n servers to commit.
@@ -185,8 +197,7 @@ impl RaftTester {
                 if !self.connected[starts] {
                     continue;
                 }
-                let rf = &self.rafts[starts];
-                match rf.start(&flexbuffers::to_vec(&cmd).unwrap()) {
+                match self.start(starts, cmd.clone()).await {
                     Ok(start) => {
                         index = Some(start.index);
                         break;
@@ -250,20 +261,17 @@ impl RaftTester {
         self.crash1(i);
 
         let addrs = self.addrs.clone();
-        let (raft, mut apply_recver) = self
-            .handle
-            .local_handle(self.addrs[i])
-            .spawn(RaftHandle::new(addrs, i))
-            .await;
+        let handle = self.handle.local_handle(self.addrs[i]);
+        let (raft, mut apply_recver) = handle.spawn(RaftHandle::new(addrs, i)).await;
         let ret = raft.clone();
 
         // listen to messages from Raft indicating newly committed messages.
         let storage = self.storage.clone();
-        madsim::task::spawn(async move {
+        let task = handle.spawn(async move {
             while let Some(cmd) = apply_recver.next().await {
                 match cmd {
                     ApplyMsg::Command { data, index } => {
-                        // debug!("apply {}", index);
+                        debug!("server {} apply {}", i, index);
                         let entry = flexbuffers::from_slice(&data)
                             .expect("committed command is not an entry");
                         storage.push_and_check(i, index, entry);
@@ -280,13 +288,14 @@ impl RaftTester {
                     _ => {}
                 }
             }
-        })
-        .detach();
+        });
+        task.detach();
 
         ret
     }
 
     pub fn crash1(&self, i: usize) {
+        debug!("crash({})", i);
         self.handle.kill(self.addrs[i]);
     }
 
@@ -347,10 +356,11 @@ impl StorageHandle {
             }
         }
         let log = &mut logs[i];
-        if log.len() != index as usize {
+        if index as usize > log.len() {
             panic!("server {} apply out of order {}", i, index);
+        } else if index as usize == log.len() {
+            log.push(entry);
         }
-        log.push(entry);
     }
 
     /// How many servers think a log entry is committed?
