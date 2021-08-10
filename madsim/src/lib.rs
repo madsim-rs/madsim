@@ -23,7 +23,7 @@ impl Runtime {
     }
 
     pub fn new_with_seed(seed: u64) -> Self {
-        #[cfg(test)]
+        #[cfg(feature = "logger")]
         crate::init_logger();
 
         let rand = rand::RandomHandle::new_with_seed(seed);
@@ -114,7 +114,7 @@ impl LocalHandle {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "logger")]
 fn init_logger() {
     use env_logger::fmt::Color;
     use std::io::Write;

@@ -1,5 +1,5 @@
 use super::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     any::{Any, TypeId},
     convert::TryInto,
@@ -26,6 +26,22 @@ impl NetworkLocalHandle {
         let (len, from) = self.recv_from(rsp_tag, buf).await?;
         assert_eq!(from, dst);
         let rsp = flexbuffers::from_slice(&buf[..len]).unwrap();
+        Ok(rsp)
+    }
+
+    pub async fn call_owned<Req, Rsp>(self, dst: SocketAddr, request: Req) -> io::Result<Rsp>
+    where
+        Req: Serialize + Any,
+        Rsp: DeserializeOwned,
+    {
+        let req_tag: u64 = unsafe { transmute(TypeId::of::<Req>()) };
+        let rsp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
+        let mut data = flexbuffers::to_vec(request).unwrap();
+        data.extend_from_slice(&rsp_tag.to_ne_bytes()[..]);
+        self.send_to(dst, req_tag, &data).await?;
+        let (rsp, from) = self.recv_from_vec(rsp_tag).await?;
+        assert_eq!(from, dst);
+        let rsp = flexbuffers::from_slice(&rsp).unwrap();
         Ok(rsp)
     }
 

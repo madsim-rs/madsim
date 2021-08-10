@@ -34,7 +34,7 @@ impl RaftTester {
         let mut tester = RaftTester {
             n,
             addrs: (0..n)
-                .map(|i| SocketAddr::from(([0, 0, 0, i as _], 0)))
+                .map(|i| SocketAddr::from(([0, 0, 1, i as _], 0)))
                 .collect::<Vec<_>>(),
             rafts: vec![], // construct later
             connected: vec![false; n],
@@ -46,6 +46,7 @@ impl RaftTester {
         tester.rpc0 = tester.rpc_total();
         for i in 0..n {
             let raft = tester.start1_ext(i, false).await;
+            tester.connect(i);
             tester.rafts.push(raft);
         }
         tester
@@ -54,11 +55,11 @@ impl RaftTester {
     /// Check that there's exactly one leader.
     /// Try a few times in case re-elections are needed.
     pub async fn check_one_leader(&self) -> usize {
+        debug!("check_one_leader");
         let mut random = rand::rng();
         let mut leaders = HashMap::<u64, Vec<usize>>::new();
         for _iters in 0..10 {
-            let ms = 450 + (random.gen::<u64>() % 100);
-            time::sleep(Duration::from_millis(ms)).await;
+            time::sleep(Duration::from_millis(random.gen_range(450..550))).await;
 
             for (i, connected) in self.connected.iter().enumerate() {
                 if !connected {
@@ -101,6 +102,7 @@ impl RaftTester {
 
     /// Check that there's no leader
     pub fn check_no_leader(&self) {
+        debug!("check_no_leader");
         for (i, connected) in self.connected.iter().enumerate() {
             if !connected {
                 continue;
@@ -116,7 +118,7 @@ impl RaftTester {
     }
 
     pub fn rpc_total(&self) -> u64 {
-        self.handle.net.stat().msg_count
+        self.handle.net.stat().msg_count / 2
     }
 
     /// How many servers think a log entry is committed?
@@ -124,7 +126,7 @@ impl RaftTester {
         self.storage.n_committed(index)
     }
 
-    pub fn start(&self, i: usize, cmd: Entry) -> Result<Start, Error> {
+    pub fn start(&self, i: usize, cmd: Entry) -> Result<Start> {
         self.rafts[i].start(&flexbuffers::to_vec(&cmd).unwrap())
     }
 
@@ -246,13 +248,11 @@ impl RaftTester {
     async fn start1_ext(&mut self, i: usize, snapshot: bool) -> RaftHandle {
         self.crash1(i);
 
-        self.handle.net.connect(self.addrs[i]);
-
         let addrs = self.addrs.clone();
         let (raft, mut apply_recver) = self
             .handle
             .local_handle(self.addrs[i])
-            .spawn(async move { RaftHandle::new(addrs, i) })
+            .spawn(RaftHandle::new(addrs, i))
             .await;
         let ret = raft.clone();
 
@@ -267,14 +267,13 @@ impl RaftTester {
                             .expect("committed command is not an entry");
                         storage.push_and_check(i, index, entry);
                         if snapshot && (index + 1) % SNAPSHOT_INTERVAL == 0 {
-                            raft.snapshot(index, &data);
+                            raft.snapshot(index, &data).await.unwrap();
                         }
                     }
                     ApplyMsg::Snapshot { data, index, term } if snapshot => {
                         // debug!("install snapshot {}", index);
-                        if raft.cond_install_snapshot(term, index, &data) {
-                            todo!();
-                        }
+                        // if raft.cond_install_snapshot(term, index, &data) {
+                        todo!();
                     }
                     // ignore other types of ApplyMsg
                     _ => {}

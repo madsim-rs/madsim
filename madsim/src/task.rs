@@ -1,5 +1,6 @@
 use super::time::{Instant, TimeHandle, TimeRuntime};
-use async_task::{Runnable, Task};
+use async_task::Runnable;
+pub use async_task::Task;
 use std::{
     collections::HashMap,
     future::Future,

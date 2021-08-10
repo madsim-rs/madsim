@@ -12,7 +12,7 @@ pub(crate) fn current() -> Option<Handle> {
     CONTEXT.with(|ctx| ctx.borrow().clone())
 }
 
-#[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn current_addr() -> Option<SocketAddr> {
     ADDR.with(|addr| addr.borrow().clone())
 }
