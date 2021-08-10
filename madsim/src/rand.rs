@@ -18,6 +18,11 @@ impl RandomHandle {
         let mut lock = self.rng.lock().unwrap();
         lock.gen_bool(probability)
     }
+
+    pub fn with<T>(&self, f: impl FnOnce(&mut rngs::SmallRng) -> T) -> T {
+        let mut lock = self.rng.lock().unwrap();
+        f(&mut *lock)
+    }
 }
 
 pub fn rng() -> RandomHandle {

@@ -10,6 +10,8 @@ pub use self::network::{Config, Stat};
 use crate::{rand::*, time::*};
 
 mod network;
+#[cfg(feature = "rpc")]
+mod rpc;
 
 pub struct NetworkRuntime {
     handle: NetworkHandle,
@@ -85,19 +87,24 @@ impl NetworkLocalHandle {
             .unwrap()
             .send(self.addr, dst, tag, data);
         // random delay
-        let delay = Duration::from_micros(self.handle.rand.clone().gen_range(0..5));
+        let delay = Duration::from_micros(self.handle.rand.with(|rng| rng.gen_range(0..5)));
         self.handle.time.sleep(delay).await;
         Ok(())
     }
 
-    pub async fn recv_from(&self, tag: u64, data: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+    pub async fn recv_from(&self, tag: u64, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        let (data, from) = self.recv_from_vec(tag).await?;
+        // copy to buffer
+        let len = buf.len().min(data.len());
+        buf[..len].copy_from_slice(&data[..len]);
+        Ok((len, from))
+    }
+
+    async fn recv_from_vec(&self, tag: u64) -> io::Result<(Vec<u8>, SocketAddr)> {
         let recver = self.handle.network.lock().unwrap().recv(self.addr, tag);
         let msg = recver.await.unwrap();
-        // copy to buffer
-        let len = data.len().min(msg.data.len());
-        data[..len].copy_from_slice(&msg.data[..len]);
         // random delay
-        let delay = Duration::from_micros(self.handle.rand.clone().gen_range(0..5));
+        let delay = Duration::from_micros(self.handle.rand.with(|rng| rng.gen_range(0..5)));
         self.handle.time.sleep(delay).await;
 
         trace!(
@@ -105,9 +112,9 @@ impl NetworkLocalHandle {
             self.addr,
             msg.from,
             msg.tag,
-            len
+            msg.data.len(),
         );
-        Ok((len, msg.from))
+        Ok((msg.data, msg.from))
     }
 }
 

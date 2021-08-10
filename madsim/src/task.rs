@@ -140,6 +140,14 @@ pub struct TaskLocalHandle {
 impl TaskLocalHandle {
     pub fn spawn<F>(&self, future: F) -> Task<F::Output>
     where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_local(future)
+    }
+
+    pub fn spawn_local<F>(&self, future: F) -> Task<F::Output>
+    where
         F: Future + 'static,
         F::Output: 'static,
     {
@@ -164,6 +172,15 @@ where
 {
     let handle = crate::context::task_local_handle();
     handle.spawn(future)
+}
+
+pub fn spawn_local<F>(future: F) -> Task<F::Output>
+where
+    F: Future + 'static,
+    F::Output: 'static,
+{
+    let handle = crate::context::task_local_handle();
+    handle.spawn_local(future)
 }
 
 #[cfg(test)]

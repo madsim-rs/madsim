@@ -1,5 +1,4 @@
 use crate::{rand::*, time::TimeHandle};
-use bytes::Bytes;
 use futures::channel::oneshot;
 use log::*;
 use std::{
@@ -100,7 +99,7 @@ impl Network {
         let ep = self.endpoints[&dst].clone();
         let msg = Message {
             tag,
-            data: Bytes::copy_from_slice(data),
+            data: data.into(),
             from: src,
         };
         let latency = self.rand.gen_range(self.config.send_latency.clone());
@@ -118,7 +117,7 @@ impl Network {
 
 pub struct Message {
     pub tag: u64,
-    pub data: Bytes,
+    pub data: Vec<u8>,
     pub from: SocketAddr,
 }
 

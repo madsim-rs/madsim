@@ -107,8 +107,8 @@ pub struct LocalHandle {
 impl LocalHandle {
     pub fn spawn<F>(&self, future: F) -> async_task::Task<F::Output>
     where
-        F: Future + 'static,
-        F::Output: 'static,
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
         self.task.spawn(future)
     }
