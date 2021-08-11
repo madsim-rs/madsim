@@ -52,9 +52,9 @@ impl NetworkHandle {
         self.network.lock().unwrap().stat().clone()
     }
 
-    pub fn set_packet_loss_rate(&self, rate: f64) {
+    pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
         let mut network = self.network.lock().unwrap();
-        network.update_config(|cfg| cfg.packet_loss_rate = rate);
+        network.update_config(f);
     }
 
     pub fn connect(&self, addr: SocketAddr) {

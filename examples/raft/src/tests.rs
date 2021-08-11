@@ -659,6 +659,87 @@ async fn figure_8_2c() {
     t.end();
 }
 
+#[madsim::test]
+async fn unreliable_agree_2c() {
+    let servers = 5;
+
+    let t = Arc::new(RaftTester::new(servers).await);
+    info!("Test (2C): unreliable agreement");
+
+    t.set_unreliable(true);
+    let mut dones = vec![];
+    for iters in 1..50 {
+        for j in 0..4 {
+            let x = (100 * iters) + j;
+            let t = t.clone();
+            let future = async move { t.one(Entry { x }, 1, true).await };
+            dones.push(madsim::task::spawn_local(future));
+        }
+        t.one(Entry { x: iters }, 1, true).await;
+    }
+    t.set_unreliable(false);
+
+    future::join_all(dones).await;
+    t.one(Entry { x: 100 }, servers, true).await;
+
+    t.end();
+}
+
+#[madsim::test]
+async fn figure_8_unreliable_2c() {
+    let servers = 5;
+    let mut t = RaftTester::new(servers).await;
+    t.set_unreliable(true);
+    info!("Test (2C): Figure 8 (unreliable)");
+
+    let mut random = rand::rng();
+    t.one(random.gen_entry(), 1, true).await;
+
+    let mut nup = servers;
+    for iters in 0..1000 {
+        // TODO: long_reordering
+        // if iters == 200 {
+        //     t.set_long_reordering(true);
+        // }
+        let mut leader = None;
+        for i in 0..servers {
+            if t.start(i, random.gen_entry()).await.is_ok() && t.is_connected(i) {
+                leader = Some(i);
+            }
+        }
+
+        let delay = if random.gen_bool(0.1) {
+            random.gen_range(Duration::from_millis(0)..RAFT_ELECTION_TIMEOUT / 2)
+        } else {
+            random.gen_range(Duration::from_millis(0)..Duration::from_millis(13))
+        };
+        time::sleep(delay).await;
+
+        if let Some(leader) = leader {
+            if random.gen_range(0..1000) < (RAFT_ELECTION_TIMEOUT.as_millis() as usize) / 2 {
+                t.disconnect(leader);
+                nup -= 1;
+            }
+        }
+
+        if nup < 3 {
+            let s = random.gen_range(0..servers);
+            if !t.is_connected(s) {
+                t.connect(s);
+                nup += 1;
+            }
+        }
+    }
+
+    for i in 0..servers {
+        t.connect(i);
+    }
+
+    t.one(random.gen_entry(), servers, true).await;
+
+    t.end();
+}
+
 trait GenEntry {
     fn gen_entry(&mut self) -> Entry;
 }

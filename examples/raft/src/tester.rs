@@ -120,8 +120,19 @@ impl RaftTester {
         }
     }
 
+    /// Set the network unreliable.
+    ///
+    /// Delay from 1ms to 27ms. Drop the packet with a probability of 10%.
     pub fn set_unreliable(&self, unreliable: bool) {
-        todo!()
+        self.handle.net.update_config(|cfg| {
+            if unreliable {
+                cfg.packet_loss_rate = 0.1;
+                cfg.send_latency = Duration::from_millis(1)..Duration::from_millis(27);
+            } else {
+                cfg.packet_loss_rate = 0.0;
+                cfg.send_latency = Duration::from_millis(1)..Duration::from_millis(10);
+            }
+        })
     }
 
     pub fn is_started(&self, i: usize) -> bool {
@@ -254,6 +265,11 @@ impl RaftTester {
         self.handle.net.connect(self.addrs[i]);
     }
 
+    /// Is server i connected?
+    pub fn is_connected(&self, i: usize) -> bool {
+        self.connected[i]
+    }
+
     /// Start or re-start a Raft.
     pub async fn start1(&mut self, i: usize) {
         self.start1_ext(i, false).await;
@@ -309,7 +325,7 @@ impl RaftTester {
     ///
     /// The fact that we got here means there was no failure.
     /// Print the Passed message, and some performance numbers.
-    pub fn end(self) {
+    pub fn end(&self) {
         self.check_timeout();
 
         // real time
