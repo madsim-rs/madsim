@@ -20,7 +20,7 @@ const RAFT_ELECTION_TIMEOUT: Duration = Duration::from_millis(1000);
 #[madsim::test]
 async fn initial_election_2a() {
     let servers = 3;
-    let mut t = RaftTester::new(servers).await;
+    let t = RaftTester::new(servers).await;
 
     info!("Test (2A): initial election");
 
@@ -114,7 +114,7 @@ async fn many_election_2a() {
 #[madsim::test]
 async fn basic_agree_2b() {
     let servers = 5;
-    let mut t = RaftTester::new(servers).await;
+    let t = RaftTester::new(servers).await;
     info!("Test (2B): basic agreement");
 
     let iters = 3;
@@ -211,7 +211,7 @@ async fn fail_no_agree_2b() {
 #[madsim::test]
 async fn concurrent_starts_2b() {
     let servers = 3;
-    let mut t = RaftTester::new(servers).await;
+    let t = RaftTester::new(servers).await;
 
     info!("Test (2B): concurrent start()s");
     let mut success = false;
@@ -388,7 +388,7 @@ async fn backup_2b() {
 #[madsim::test]
 async fn count_2b() {
     let servers = 3;
-    let mut t = RaftTester::new(servers).await;
+    let t = RaftTester::new(servers).await;
     info!("Test (2B): RPC counts aren't too high");
 
     t.check_one_leader().await;

@@ -231,9 +231,9 @@ impl RaftHandle {
     /// the snapshot on `apply_ch`.
     pub async fn cond_install_snapshot(
         &self,
-        last_included_term: u64,
-        last_included_index: u64,
-        snapshot: &[u8],
+        _last_included_term: u64,
+        _last_included_index: u64,
+        _snapshot: &[u8],
     ) -> bool {
         true
     }
@@ -634,7 +634,7 @@ impl Raft {
         // and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
         assert!(self.state.is_leader());
         let mut match_index = self.match_index.clone();
-        match_index.sort();
+        match_index.sort_unstable();
         let majority = self.peers.len() - self.peers.len() / 2;
         let commit_index = match_index[majority];
         if commit_index <= self.commit_index || self.log[commit_index].term != self.state.term {
@@ -807,7 +807,7 @@ impl Raft {
                 data: vec![],
             });
         }
-        self.snapshot = args.data.into();
+        self.snapshot = args.data;
         // 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
         self.update_commit(prev_index);
 
