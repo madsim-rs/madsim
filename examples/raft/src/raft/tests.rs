@@ -1,4 +1,4 @@
-use crate::tester::*;
+use super::tester::*;
 use futures::future;
 use log::*;
 use madsim::{
