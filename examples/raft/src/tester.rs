@@ -304,8 +304,9 @@ impl RaftTester {
                     }
                     ApplyMsg::Snapshot { data, index, term } if snapshot => {
                         // debug!("install snapshot {}", index);
-                        // if raft.cond_install_snapshot(term, index, &data) {
-                        todo!();
+                        if raft.cond_install_snapshot(term, index, &data).await {
+                            storage.snapshot(i, index);
+                        }
                     }
                     // ignore other types of ApplyMsg
                     _ => {}
@@ -347,7 +348,7 @@ impl RaftTester {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub x: u64,
 }
@@ -355,20 +356,20 @@ pub struct Entry {
 #[derive(Clone)]
 struct StorageHandle {
     /// copy of each server's committed entries
-    logs: Arc<Mutex<Vec<Vec<Entry>>>>,
+    logs: Arc<Mutex<Vec<Vec<Option<Entry>>>>>,
 }
 
 impl StorageHandle {
     fn new(n: usize) -> Self {
         StorageHandle {
-            logs: Arc::new(Mutex::new(vec![vec![Entry { x: 0 }]; n])),
+            logs: Arc::new(Mutex::new(vec![vec![None]; n])),
         }
     }
 
     fn push_and_check(&self, i: usize, index: u64, entry: Entry) {
         let mut logs = self.logs.lock().unwrap();
         for (j, log) in logs.iter().enumerate() {
-            if let Some(old) = log.get(index as usize) {
+            if let Some(Some(old)) = log.get(index as usize) {
                 // some server has already committed a different value for this entry!
                 assert_eq!(
                     *old, entry,
@@ -381,8 +382,13 @@ impl StorageHandle {
         if index as usize > log.len() {
             panic!("server {} apply out of order {}", i, index);
         } else if index as usize == log.len() {
-            log.push(entry);
+            log.push(Some(entry));
         }
+    }
+
+    fn snapshot(&self, i: usize, index: u64) {
+        let mut logs = self.logs.lock().unwrap();
+        logs[i].resize(index as usize + 1, None);
     }
 
     /// How many servers think a log entry is committed?
@@ -390,16 +396,16 @@ impl StorageHandle {
         let mut count = 0;
         let mut cmd = None;
         for log in self.logs.lock().unwrap().iter() {
-            let cmd1 = log.get(index as usize).cloned();
-            if cmd1.is_some() {
-                if count > 0 && cmd != cmd1 {
-                    panic!(
-                        "committed values do not match: index {:?}, {:?}, {:?}",
-                        index, cmd, cmd1
+            if let Some(&Some(cmd1)) = log.get(index as usize) {
+                if let Some(cmd) = cmd {
+                    assert_eq!(
+                        cmd, cmd1,
+                        "committed values do not match: index {:?}",
+                        index
                     );
                 }
                 count += 1;
-                cmd = cmd1;
+                cmd = Some(cmd1);
             }
         }
         (count, cmd)

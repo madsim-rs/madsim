@@ -740,6 +740,91 @@ async fn figure_8_unreliable_2c() {
     t.end();
 }
 
+async fn snap_common(disconnect: bool, reliable: bool, crash: bool) {
+    const MAX_LOG_SIZE: usize = 2000;
+
+    let iters = 30;
+    let servers = 3;
+    let mut t = RaftTester::new_with_snapshot(servers).await;
+    t.set_unreliable(!reliable);
+
+    let mut random = rand::rng();
+    t.one(random.gen_entry(), servers, true).await;
+    let mut leader1 = t.check_one_leader().await;
+
+    for i in 0..iters {
+        let mut victim = (leader1 + 1) % servers;
+        let mut sender = leader1;
+        if i % 3 == 1 {
+            sender = (leader1 + 1) % servers;
+            victim = leader1;
+        }
+
+        if disconnect {
+            t.disconnect(victim);
+            t.one(random.gen_entry(), servers - 1, true).await;
+        }
+        if crash {
+            t.crash1(victim);
+            t.one(random.gen_entry(), servers - 1, true).await;
+        }
+        // send enough to get a snapshot
+        for _ in 0..=SNAPSHOT_INTERVAL {
+            let _ = t.start(sender, random.gen_entry()).await;
+        }
+        // let applier threads catch up with the Start()'s
+        t.one(random.gen_entry(), servers - 1, true).await;
+
+        // TODO: check log size
+        // assert!(t.log_size() < MAX_LOG_SIZE, "log size too large");
+
+        if disconnect {
+            // reconnect a follower, who maybe behind and
+            // needs to receive a snapshot to catch up.
+            t.connect(victim);
+            t.one(random.gen_entry(), servers, true).await;
+            leader1 = t.check_one_leader().await;
+        }
+        if crash {
+            t.start1_snapshot(victim).await;
+            t.connect(victim);
+            t.one(random.gen_entry(), servers, true).await;
+            leader1 = t.check_one_leader().await;
+        }
+    }
+    t.end();
+}
+
+#[madsim::test]
+async fn snapshot_basic_2d() {
+    info!("Test (2D): snapshots basic");
+    snap_common(false, true, false).await;
+}
+
+#[madsim::test]
+async fn snapshot_install_2d() {
+    info!("Test (2D): install snapshots (disconnect)");
+    snap_common(true, true, false).await;
+}
+
+#[madsim::test]
+async fn snapshot_install_unreliable_2d() {
+    info!("Test (2D): install snapshots (disconnect+unreliable)");
+    snap_common(true, false, false).await;
+}
+
+#[madsim::test]
+async fn snapshot_install_crash_2d() {
+    info!("Test (2D): install snapshots (crash)");
+    snap_common(false, true, true).await;
+}
+
+#[madsim::test]
+async fn snapshot_install_unreliable_crash_2d() {
+    info!("Test (2D): install snapshots (unreliable+crash)");
+    snap_common(false, false, true).await;
+}
+
 trait GenEntry {
     fn gen_entry(&mut self) -> Entry;
 }
