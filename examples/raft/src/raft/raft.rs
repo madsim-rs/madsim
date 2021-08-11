@@ -342,7 +342,7 @@ impl Raft {
     /// see paper's Figure 2 for a description of what should be persistent.
     fn persist(&self) -> impl Future<Output = io::Result<()>> {
         // Your code here (2C).
-        info!("persist");
+        debug!("persist");
         let persist = Persist {
             term: self.state.term,
             voted_for: self.voted_for,

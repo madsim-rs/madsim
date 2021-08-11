@@ -52,12 +52,14 @@ impl Logs {
 impl Index<usize> for Logs {
     type Output = Log;
     fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).unwrap_or_else(|| panic!(
-            "index {} out of range {}..{}",
-            index,
-            self.offset,
-            self.len()
-        ))
+        self.get(index).unwrap_or_else(|| {
+            panic!(
+                "index {} out of range {}..{}",
+                index,
+                self.offset,
+                self.len()
+            )
+        })
     }
 }
 

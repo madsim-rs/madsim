@@ -17,6 +17,7 @@ pub(crate) struct Network {
     stat: Stat,
     endpoints: HashMap<SocketAddr, Arc<Mutex<Endpoint>>>,
     clogged: HashSet<SocketAddr>,
+    clogged_link: HashSet<(SocketAddr, SocketAddr)>,
 }
 
 #[derive(Debug)]
@@ -48,6 +49,7 @@ impl Network {
             stat: Stat::default(),
             endpoints: HashMap::new(),
             clogged: HashSet::new(),
+            clogged_link: HashSet::new(),
         }
     }
 
@@ -85,12 +87,27 @@ impl Network {
         self.clogged.remove(&target);
     }
 
+    pub fn clog_link(&mut self, src: SocketAddr, dst: SocketAddr) {
+        assert!(self.endpoints.contains_key(&src));
+        assert!(self.endpoints.contains_key(&dst));
+        trace!("clog: {} -> {}", src, dst);
+        self.clogged_link.insert((src, dst));
+    }
+
+    pub fn unclog_link(&mut self, src: SocketAddr, dst: SocketAddr) {
+        assert!(self.endpoints.contains_key(&src));
+        assert!(self.endpoints.contains_key(&dst));
+        trace!("unclog: {} -> {}", src, dst);
+        self.clogged_link.remove(&(src, dst));
+    }
+
     pub fn send(&mut self, src: SocketAddr, dst: SocketAddr, tag: u64, data: &[u8]) {
         trace!("send: {} -> {}, tag={}, len={}", src, dst, tag, data.len());
         assert!(self.endpoints.contains_key(&src));
         if !self.endpoints.contains_key(&dst)
             || self.clogged.contains(&src)
             || self.clogged.contains(&dst)
+            || self.clogged_link.contains(&(src, dst))
             || self.rand.should_fault(self.config.packet_loss_rate)
         {
             trace!("drop");

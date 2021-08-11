@@ -67,6 +67,20 @@ impl NetworkHandle {
         let mut network = self.network.lock().unwrap();
         network.clog(addr);
     }
+
+    pub fn connect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
+        let mut network = self.network.lock().unwrap();
+        network.insert(addr1);
+        network.insert(addr2);
+        network.unclog_link(addr1, addr2);
+        network.unclog_link(addr2, addr1);
+    }
+
+    pub fn disconnect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
+        let mut network = self.network.lock().unwrap();
+        network.clog_link(addr1, addr2);
+        network.clog_link(addr2, addr1);
+    }
 }
 
 #[derive(Clone)]

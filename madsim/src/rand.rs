@@ -1,5 +1,5 @@
-pub use rand::Rng;
 use rand::{rngs, RngCore};
+pub use rand::{seq, Rng};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
