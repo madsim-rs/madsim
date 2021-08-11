@@ -1,4 +1,4 @@
-use std::{future::Future, net::SocketAddr};
+use std::{future::Future, net::SocketAddr, time::Duration};
 
 mod context;
 pub mod fs;
@@ -56,6 +56,10 @@ impl Runtime {
             net: self.net.handle().local_handle(addr),
             fs: self.fs.handle().local_handle(addr),
         }
+    }
+
+    pub fn set_time_limit(&mut self, limit: Duration) {
+        self.task.set_time_limit(limit);
     }
 
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
@@ -119,7 +123,6 @@ fn init_logger() {
     use env_logger::fmt::Color;
     use std::io::Write;
     use std::sync::Once;
-    use std::time::Duration;
     static LOGGER_INIT: Once = Once::new();
     LOGGER_INIT.call_once(|| {
         let start = std::env::var("MADSIM_LOG_TIME_START")

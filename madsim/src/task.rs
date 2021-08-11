@@ -12,12 +12,14 @@ use std::{
         mpsc, Arc, Mutex,
     },
     task::{Context, Poll},
+    time::Duration,
 };
 
 pub struct Executor {
     queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
     handle: TaskHandle,
     time: TimeRuntime,
+    time_limit: Option<Duration>,
 }
 
 #[derive(Debug)]
@@ -36,6 +38,7 @@ impl Executor {
                 sender,
             },
             time: TimeRuntime::new(),
+            time_limit: None,
         }
     }
 
@@ -45,6 +48,10 @@ impl Executor {
 
     pub fn time_handle(&self) -> &TimeHandle {
         self.time.handle()
+    }
+
+    pub fn set_time_limit(&mut self, limit: Duration) {
+        self.time_limit = Some(limit);
     }
 
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
@@ -73,6 +80,13 @@ impl Executor {
             }
             let going = self.time.advance();
             assert!(going, "no events, the task will block forever");
+            if let Some(limit) = self.time_limit {
+                assert!(
+                    self.time.handle().elapsed() < limit,
+                    "time limit exceeded: {:?}",
+                    limit
+                )
+            }
         }
     }
 

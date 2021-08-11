@@ -52,9 +52,15 @@ fn parse(
             } else {
                 1
             };
+            let time_limit_s: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_TIME_LIMIT") {
+                num_str.parse().expect("MADSIM_TEST_TIME_LIMIT should be an integer")
+            } else {
+                300
+            };
             for i in 0..count {
                 let ret = std::panic::catch_unwind(|| {
-                    let rt = madsim::Runtime::new_with_seed(seed + i);
+                    let mut rt = madsim::Runtime::new_with_seed(seed + i);
+                    rt.set_time_limit(Duration::from_secs(time_limit_s));
                     rt.block_on(async #body);
                 });
                 if let Err(e) = ret {
