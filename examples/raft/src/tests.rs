@@ -601,6 +601,64 @@ async fn persist3_2c() {
     t.end();
 }
 
+/// Test the scenarios described in Figure 8 of the extended Raft paper. Each
+/// iteration asks a leader, if there is one, to insert a command in the Raft
+/// log.  If there is a leader, that leader will fail quickly with a high
+/// probability (perhaps without committing the command), or crash after a while
+/// with low probability (most likey committing the command).  If the number of
+/// alive servers isn't enough to form a majority, perhaps start a new server.
+/// The leader in a new term may try to finish replicating log entries that
+/// haven't been committed yet.
+#[madsim::test]
+async fn figure_8_2c() {
+    let servers = 5;
+    let mut t = RaftTester::new(servers).await;
+
+    info!("Test (2C): Figure 8");
+
+    let mut random = rand::rng();
+    t.one(random.gen_entry(), 1, true).await;
+
+    let mut nup = servers;
+    for _iters in 0..1000 {
+        let mut leader = None;
+        for i in 0..servers {
+            if t.is_started(i) && t.start(i, random.gen_entry()).await.is_ok() {
+                leader = Some(i);
+            }
+        }
+
+        let delay = if random.gen_bool(0.1) {
+            random.gen_range(Duration::from_millis(0)..RAFT_ELECTION_TIMEOUT / 2)
+        } else {
+            random.gen_range(Duration::from_millis(0)..Duration::from_millis(13))
+        };
+        time::sleep(delay).await;
+
+        if let Some(leader) = leader {
+            t.crash1(leader);
+            nup -= 1;
+        }
+
+        if nup < 3 {
+            let s = random.gen_range(0..servers);
+            if !t.is_started(s) {
+                t.start1(s).await;
+                nup += 1;
+            }
+        }
+    }
+
+    for i in 0..servers {
+        if !t.is_started(i) {
+            t.start1(i).await;
+        }
+    }
+    t.one(random.gen_entry(), servers, true).await;
+
+    t.end();
+}
+
 trait GenEntry {
     fn gen_entry(&mut self) -> Entry;
 }

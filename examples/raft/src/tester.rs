@@ -18,7 +18,7 @@ pub struct RaftTester {
     handle: Handle,
     n: usize,
     addrs: Vec<SocketAddr>,
-    rafts: Vec<RaftHandle>,
+    rafts: Vec<Option<RaftHandle>>,
     connected: Vec<bool>,
     storage: StorageHandle,
     // stat
@@ -44,7 +44,7 @@ impl RaftTester {
             addrs: (0..n)
                 .map(|i| SocketAddr::from(([0, 0, 1, i as _], 0)))
                 .collect::<Vec<_>>(),
-            rafts: vec![], // construct later
+            rafts: vec![None; n],
             connected: vec![false; n],
             storage: StorageHandle::new(n),
             t0: Instant::now(),
@@ -53,9 +53,8 @@ impl RaftTester {
         };
         tester.rpc0 = tester.rpc_total();
         for i in 0..n {
-            let raft = tester.start1_ext(i, snapshot).await;
+            tester.start1_ext(i, snapshot).await;
             tester.connect(i);
-            tester.rafts.push(raft);
         }
         tester
     }
@@ -73,7 +72,7 @@ impl RaftTester {
                 if !connected {
                     continue;
                 }
-                let raft = &self.rafts[i];
+                let raft = &self.rafts[i].as_ref().unwrap();
                 if raft.is_leader() {
                     leaders.entry(raft.term()).or_default().push(i);
                 }
@@ -98,7 +97,7 @@ impl RaftTester {
             if !connected {
                 continue;
             }
-            let xterm = self.rafts[i].term();
+            let xterm = self.rafts[i].as_ref().unwrap().term();
             if term == 0 {
                 term = xterm;
             } else if term != xterm {
@@ -115,14 +114,22 @@ impl RaftTester {
             if !connected {
                 continue;
             }
-            if self.rafts[i].is_leader() {
+            if self.rafts[i].as_ref().unwrap().is_leader() {
                 panic!("expected no leader, but {} claims to be leader", i);
             }
         }
     }
 
+    pub fn set_unreliable(&self, unreliable: bool) {
+        todo!()
+    }
+
+    pub fn is_started(&self, i: usize) -> bool {
+        self.rafts[i].is_some()
+    }
+
     pub fn term(&self, i: usize) -> u64 {
-        self.rafts[i].term()
+        self.rafts[i].as_ref().unwrap().term()
     }
 
     pub fn rpc_total(&self) -> u64 {
@@ -135,7 +142,7 @@ impl RaftTester {
     }
 
     pub async fn start(&self, i: usize, cmd: Entry) -> Result<Start> {
-        let raft = self.rafts[i].clone();
+        let raft = self.rafts[i].as_ref().unwrap().clone();
         self.handle
             .local_handle(self.addrs[i])
             .spawn(async move { raft.start(&flexbuffers::to_vec(&cmd).unwrap()).await })
@@ -156,7 +163,7 @@ impl RaftTester {
                 to *= 2;
             }
             if let Some(start_term) = start_term {
-                for rf in self.rafts.iter() {
+                for rf in self.rafts.iter().filter_map(|x| x.as_ref()) {
                     if rf.term() > start_term {
                         // someone has moved on
                         // can no longer guarantee that we'll "win"
@@ -194,7 +201,7 @@ impl RaftTester {
             let mut index = None;
             for _ in 0..self.n {
                 starts = (starts + 1) % self.n;
-                if !self.connected[starts] {
+                if !self.connected[starts] || !self.is_started(starts) {
                     continue;
                 }
                 match self.start(starts, cmd.clone()).await {
@@ -249,21 +256,21 @@ impl RaftTester {
 
     /// Start or re-start a Raft.
     pub async fn start1(&mut self, i: usize) {
-        self.rafts[i] = self.start1_ext(i, false).await;
+        self.start1_ext(i, false).await;
     }
 
     /// Start or re-start a Raft with snapshot.
     pub async fn start1_snapshot(&mut self, i: usize) {
-        self.rafts[i] = self.start1_ext(i, true).await;
+        self.start1_ext(i, true).await;
     }
 
-    async fn start1_ext(&mut self, i: usize, snapshot: bool) -> RaftHandle {
+    async fn start1_ext(&mut self, i: usize, snapshot: bool) {
         self.crash1(i);
 
         let addrs = self.addrs.clone();
         let handle = self.handle.local_handle(self.addrs[i]);
         let (raft, mut apply_recver) = handle.spawn(RaftHandle::new(addrs, i)).await;
-        let ret = raft.clone();
+        self.rafts[i] = Some(raft.clone());
 
         // listen to messages from Raft indicating newly committed messages.
         let storage = self.storage.clone();
@@ -290,13 +297,12 @@ impl RaftTester {
             }
         });
         task.detach();
-
-        ret
     }
 
-    pub fn crash1(&self, i: usize) {
+    pub fn crash1(&mut self, i: usize) {
         debug!("crash({})", i);
         self.handle.kill(self.addrs[i]);
+        self.rafts[i] = None;
     }
 
     /// End a test.
