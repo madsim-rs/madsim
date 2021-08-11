@@ -56,7 +56,7 @@ jobs:
           command: test
           args: --release --no-fail-fast
 
-  build-raft:
+  test-raft:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
@@ -65,5 +65,7 @@ jobs:
           profile: minimal
           toolchain: stable
       - uses: actions/checkout@v2
-      - name: Build
-        run: cd examples/raft && cargo build
+      - name: Test
+        run: |
+          cd examples/raft
+          RUST_LOG=raft::tester=info cargo test --release --no-fail-fast
