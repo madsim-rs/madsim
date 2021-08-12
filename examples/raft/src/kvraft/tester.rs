@@ -132,6 +132,10 @@ impl Tester {
     pub fn connect_client(&self, id: ClerkId, to: &[usize]) {
         debug!("connect {:?} to {:?}", id, to);
         let addr = id.to_addr();
+        self.handle.net.connect(addr);
+        for i in 0..self.n {
+            self.handle.net.disconnect2(addr, self.addrs[i]);
+        }
         for &i in to {
             self.handle.net.connect2(addr, self.addrs[i]);
         }

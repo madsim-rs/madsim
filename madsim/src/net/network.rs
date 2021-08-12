@@ -65,39 +65,39 @@ impl Network {
         if self.endpoints.contains_key(&target) {
             return;
         }
-        trace!("insert: {}", target);
+        debug!("insert: {}", target);
         self.endpoints.insert(target, Default::default());
     }
 
     pub fn remove(&mut self, target: &SocketAddr) {
-        trace!("remove: {}", target);
+        debug!("remove: {}", target);
         self.endpoints.remove(target);
         self.clogged.remove(target);
     }
 
     pub fn clog(&mut self, target: SocketAddr) {
         assert!(self.endpoints.contains_key(&target));
-        trace!("clog: {}", target);
+        debug!("clog: {}", target);
         self.clogged.insert(target);
     }
 
     pub fn unclog(&mut self, target: SocketAddr) {
         assert!(self.endpoints.contains_key(&target));
-        trace!("unclog: {}", target);
+        debug!("unclog: {}", target);
         self.clogged.remove(&target);
     }
 
     pub fn clog_link(&mut self, src: SocketAddr, dst: SocketAddr) {
         assert!(self.endpoints.contains_key(&src));
         assert!(self.endpoints.contains_key(&dst));
-        trace!("clog: {} -> {}", src, dst);
+        debug!("clog: {} -> {}", src, dst);
         self.clogged_link.insert((src, dst));
     }
 
     pub fn unclog_link(&mut self, src: SocketAddr, dst: SocketAddr) {
         assert!(self.endpoints.contains_key(&src));
         assert!(self.endpoints.contains_key(&dst));
-        trace!("unclog: {} -> {}", src, dst);
+        debug!("unclog: {} -> {}", src, dst);
         self.clogged_link.remove(&(src, dst));
     }
 
@@ -108,9 +108,12 @@ impl Network {
             || self.clogged.contains(&src)
             || self.clogged.contains(&dst)
             || self.clogged_link.contains(&(src, dst))
-            || self.rand.should_fault(self.config.packet_loss_rate)
         {
-            trace!("drop");
+            trace!("no connection");
+            return;
+        }
+        if self.rand.should_fault(self.config.packet_loss_rate) {
+            trace!("packet loss");
             return;
         }
         let ep = self.endpoints[&dst].clone();
