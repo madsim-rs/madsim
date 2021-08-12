@@ -256,6 +256,14 @@ impl RaftHandle {
 
     /// Restore previously persisted state.
     async fn restore(&self) -> io::Result<()> {
+        match fs::read("snapshot").await {
+            Ok(snapshot) => {
+                let mut this = self.inner.lock().unwrap();
+                this.snapshot = snapshot;
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
         match fs::read("state").await {
             Ok(state) => {
                 let persist: Persist = flexbuffers::from_slice(&state).unwrap();
@@ -264,15 +272,8 @@ impl RaftHandle {
                 this.voted_for = persist.voted_for;
                 this.log = persist.log;
                 let commit_index = this.log.begin();
+                // NOTE: should load snapshot before update_commit
                 this.update_commit(commit_index);
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-        match fs::read("snapshot").await {
-            Ok(snapshot) => {
-                let mut this = self.inner.lock().unwrap();
-                this.snapshot = snapshot;
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),

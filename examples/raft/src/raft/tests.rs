@@ -775,8 +775,8 @@ async fn snap_common(disconnect: bool, reliable: bool, crash: bool) {
         // let applier threads catch up with the Start()'s
         t.one(random.gen_entry(), servers - 1, true).await;
 
-        // TODO: check log size
-        // assert!(t.log_size() < MAX_LOG_SIZE, "log size too large");
+        let log_size = t.log_size();
+        assert!(log_size < MAX_LOG_SIZE, "log size too large: {}", log_size);
 
         if disconnect {
             // reconnect a follower, who maybe behind and

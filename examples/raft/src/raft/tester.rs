@@ -147,6 +147,15 @@ impl RaftTester {
         self.handle.net.stat().msg_count / 2
     }
 
+    /// Maximum log size across all servers
+    pub fn log_size(&self) -> usize {
+        self.addrs
+            .iter()
+            .map(|&addr| self.handle.fs.get_file_size(addr, "state").unwrap())
+            .max()
+            .unwrap() as usize
+    }
+
     /// How many servers think a log entry is committed?
     pub fn n_committed(&self, index: u64) -> (usize, Option<Entry>) {
         self.storage.n_committed(index)

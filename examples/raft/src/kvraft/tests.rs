@@ -116,7 +116,7 @@ async fn generic_test(
                 while !done.load(Ordering::Relaxed) {
                     if rng.gen_bool(0.5) {
                         let nv = format!("x {} {} y", cli, j);
-                        debug!("{}: client new append {}", cli, nv);
+                        debug!("{}: client new append {:?}", cli, nv);
                         // predict effect of append(k, val) if old value is prev.
                         last += &nv;
                         ck.append(&key, &nv).await;
@@ -124,11 +124,7 @@ async fn generic_test(
                     } else {
                         debug!("{}: client new get {:?}", cli, key);
                         let v = ck.get(&key).await;
-                        assert_eq!(
-                            v, last,
-                            "get wrong value, key {:?}, wanted:\n{:?}\n, got\n{:?}",
-                            key, last, v
-                        );
+                        assert_eq!(v, last, "get wrong value, key {:?}", key);
                     }
                 }
                 j
@@ -197,8 +193,8 @@ async fn generic_test(
             debug!("read from clients {}", i);
             let j = task.await;
             if j < 10 {
-                debug!(
-                    "Warning: client {} managed to perform only {} put operations in 1 sec?",
+                warn!(
+                    "client {} managed to perform only {} put operations in 1 sec?",
                     i, j
                 );
             }
@@ -317,8 +313,8 @@ async fn test_one_partition_3a() {
     .fuse();
 
     select! {
-        _ = put => warn!("put in minority completed"),
-        _ = get => warn!("get in minority completed"),
+        _ = put => panic!("put in minority completed"),
+        _ = get => panic!("get in minority completed"),
         _ = time::sleep(Duration::from_secs(1)).fuse() => {}
     }
 

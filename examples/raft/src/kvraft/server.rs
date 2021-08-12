@@ -2,7 +2,7 @@ use super::msg::*;
 use crate::raft;
 use futures::{channel::oneshot, StreamExt};
 use madsim::{
-    net,
+    fs, net,
     rand::{self, Rng},
     task,
     time::{timeout, Duration},
@@ -20,7 +20,7 @@ pub struct KvServer {
     me: usize,
     // { index -> (id, sender) }
     pending_rpcs: Arc<Mutex<HashMap<u64, (u64, oneshot::Sender<String>)>>>,
-    bg_task: task::Task<()>,
+    _bg_task: task::Task<()>,
 }
 
 impl fmt::Debug for KvServer {
@@ -43,7 +43,7 @@ impl KvServer {
         ));
         let pending_rpcs0 = pending_rpcs.clone();
         let rf0 = rf.clone();
-        let bg_task = task::spawn(async move {
+        let _bg_task = task::spawn(async move {
             let mut state = State::default();
             let mut state_index;
             while let Some(msg) = apply_ch.next().await {
@@ -71,8 +71,7 @@ impl KvServer {
                 }
                 // snapshot if needed
                 if let Some(size) = max_raft_state {
-                    // TODO: if persister.raft_state().len() >= size
-                    if state_index % 100 == 0 {
+                    if fs::metadata("state").await.map(|m| m.len()).unwrap_or(0) >= size as u64 {
                         let data = flexbuffers::to_vec(&state).unwrap();
                         rf0.snapshot(state_index, &data).await.unwrap();
                     }
@@ -84,7 +83,7 @@ impl KvServer {
             rf,
             me,
             pending_rpcs,
-            bg_task,
+            _bg_task,
         });
         this.start_rpc_server();
         this

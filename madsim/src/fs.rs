@@ -47,6 +47,16 @@ impl FileSystemHandle {
     pub fn power_fail(&self, _addr: SocketAddr) {
         todo!()
     }
+
+    pub fn get_file_size(&self, addr: SocketAddr, path: impl AsRef<Path>) -> Result<u64> {
+        let path = path.as_ref();
+        let handle = self.handles.lock().unwrap()[&addr].clone();
+        let fs = handle.fs.lock().unwrap();
+        let inode = fs.get(path).ok_or_else(|| {
+            Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
+        })?;
+        Ok(inode.metadata().len())
+    }
 }
 
 #[derive(Clone)]
@@ -74,10 +84,7 @@ impl FileSystemLocalHandle {
         let fs = self.fs.lock().unwrap();
         let inode = fs
             .get(path)
-            .ok_or(Error::new(
-                ErrorKind::NotFound,
-                format!("file not found: {:?}", path),
-            ))?
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path)))?
             .clone();
         Ok(File {
             inode,
@@ -99,6 +106,16 @@ impl FileSystemLocalHandle {
             can_write: true,
         })
     }
+
+    pub async fn metadata(&self, path: impl AsRef<Path>) -> Result<Metadata> {
+        let path = path.as_ref();
+        let fs = self.fs.lock().unwrap();
+        let inode = fs.get(path).ok_or(Error::new(
+            ErrorKind::NotFound,
+            format!("file not found: {:?}", path),
+        ))?;
+        Ok(inode.metadata())
+    }
 }
 
 struct INode {
@@ -116,6 +133,12 @@ impl INode {
 
     fn truncate(&self) {
         self.data.write().unwrap().clear();
+    }
+
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            len: self.data.read().unwrap().len() as u64,
+        }
     }
 }
 
@@ -188,6 +211,10 @@ impl File {
         // TODO: random delay
         Ok(())
     }
+
+    pub async fn metadata(&self) -> Result<Metadata> {
+        Ok(self.inode.metadata())
+    }
 }
 
 /// Read the entire contents of a file into a bytes vector.
@@ -197,6 +224,22 @@ pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     let data = file.inode.data.read().unwrap().clone();
     // TODO: random delay
     Ok(data)
+}
+
+/// Given a path, query the file system to get information about a file, directory, etc.
+pub async fn metadata(path: impl AsRef<Path>) -> Result<Metadata> {
+    let handle = FileSystemLocalHandle::current();
+    handle.metadata(path).await
+}
+
+pub struct Metadata {
+    len: u64,
+}
+
+impl Metadata {
+    pub fn len(&self) -> u64 {
+        self.len
+    }
 }
 
 #[cfg(test)]

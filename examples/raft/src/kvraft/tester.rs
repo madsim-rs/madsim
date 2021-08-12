@@ -68,12 +68,20 @@ impl Tester {
 
     /// Maximum log size across all servers
     pub fn log_size(&self) -> usize {
-        todo!()
+        self.addrs
+            .iter()
+            .map(|&addr| self.handle.fs.get_file_size(addr, "state").unwrap())
+            .max()
+            .unwrap() as usize
     }
 
     /// Maximum snapshot size across all servers
     pub fn snapshot_size(&self) -> usize {
-        todo!()
+        self.addrs
+            .iter()
+            .map(|&addr| self.handle.fs.get_file_size(addr, "snapshot").unwrap())
+            .max()
+            .unwrap() as usize
     }
 
     /// Attach server i to servers listed in to
