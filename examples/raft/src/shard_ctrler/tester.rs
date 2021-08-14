@@ -279,7 +279,7 @@ impl Clerk {
         }
         // any un-allocated shards?
         if groups.is_empty() {
-            for (shard, gid) in c.shards.iter().enumerate() {
+            for (shard, gid) in c.shards.iter() {
                 assert!(
                     c.groups.contains_key(gid),
                     "shard {} -> invalid group {}",
@@ -290,12 +290,13 @@ impl Clerk {
         }
         // more or less balanced sharding?
         let mut counts = HashMap::<u64, usize>::new();
-        for &gid in c.shards.iter() {
+        for (_, &gid) in c.shards.iter() {
             *counts.entry(gid).or_default() += 1;
         }
         if !c.groups.is_empty() {
-            let min = c.groups.keys().map(|gid| counts[gid]).min().unwrap();
-            let max = c.groups.keys().map(|gid| counts[gid]).max().unwrap();
+            let counts = c.groups.keys().map(|gid| *counts.get(gid).unwrap_or(&0));
+            let min = counts.clone().min().unwrap();
+            let max = counts.clone().max().unwrap();
             assert!(
                 max <= min + 1,
                 "imbalanced sharding, max {} too much larger than min {}",

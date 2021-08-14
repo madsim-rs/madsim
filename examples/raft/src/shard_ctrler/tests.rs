@@ -20,12 +20,12 @@ macro_rules! groups {
 }
 
 #[madsim::test]
-async fn test_basic_4a() {
+async fn basic_4a() {
     let nservers = 3;
     let t = Tester::new(nservers, false).await;
     let ck = t.make_client(&t.all());
 
-    info!("Test: Basic leave/join ...\n");
+    info!("Test: Basic leave/join ...");
 
     let mut cfa = vec![];
     cfa.push(ck.query().await);
@@ -55,9 +55,9 @@ async fn test_basic_4a() {
     ck.leave(vec![gid2]).await;
     cfa.push(ck.query().await);
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Historical queries ...\n");
+    info!("Test: Historical queries ...");
 
     for s in 0..nservers {
         t.shutdown_server(s);
@@ -69,9 +69,9 @@ async fn test_basic_4a() {
         t.connect_all();
     }
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Move ...\n");
+    info!("Test: Move ...");
 
     let gid3 = 503;
     ck.join(groups!(gid3 => ["3a", "3b", "3c"])).await;
@@ -81,7 +81,7 @@ async fn test_basic_4a() {
         let cf = ck.query().await;
         let shard = if i < N_SHARDS / 2 { gid3 } else { gid4 };
         ck.move_(i, shard).await;
-        if cf.shards[i] != shard {
+        if cf.shards[&i] != shard {
             let cf1 = ck.query().await;
             assert!(cf1.num > cf.num, "Move should increase Tester.Num");
         }
@@ -89,18 +89,14 @@ async fn test_basic_4a() {
     let cf2 = ck.query().await;
     for i in 0..N_SHARDS {
         let shard = if i < N_SHARDS / 2 { gid3 } else { gid4 };
-        assert_eq!(
-            cf2.shards[i], shard,
-            "expected shard {} on gid {} actually {}",
-            i, shard, cf2.shards[i]
-        );
+        assert_eq!(cf2.shards[&i], shard, "shard {} wrong group", i);
     }
     ck.leave(vec![gid3]).await;
     ck.leave(vec![gid4]).await;
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Concurrent leave/join ...\n");
+    info!("Test: Concurrent leave/join ...");
 
     let npara = 10;
     let gids: Vec<u64> = (0..npara).map(|i| i as u64 * 10 + 100).collect();
@@ -118,9 +114,9 @@ async fn test_basic_4a() {
     future::join_all(handles).await;
     ck.check(&gids).await;
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Minimal transfers after joins ...\n");
+    info!("Test: Minimal transfers after joins ...");
 
     let c1 = ck.query().await;
     for i in 0..5 {
@@ -130,17 +126,17 @@ async fn test_basic_4a() {
     }
     let c2 = ck.query().await;
     for i in 1..=npara {
-        assert_eq!(c1.shards.len(), c2.shards.len());
-        for (&s1, &s2) in c1.shards.iter().zip(c2.shards.iter()) {
-            if s2 == i && s1 != i {
-                panic!("non-minimal transfer after Join()s");
-            }
+        for j in 0..c1.shards.len() {
+            assert!(
+                c2.shards[&j] == i && c1.shards[&j] != i,
+                "non-minimal transfer after Join()s"
+            );
         }
     }
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Minimal transfers after leaves ...\n");
+    info!("Test: Minimal transfers after leaves ...");
 
     for i in 0..5 {
         ck.leave(vec![npara + 1 + i]).await;
@@ -148,22 +144,23 @@ async fn test_basic_4a() {
     let c3 = ck.query().await;
     for i in 1..=npara {
         for j in 0..c1.shards.len() {
-            if c2.shards[j] == i && c3.shards[j] != i {
-                panic!("non-minimal transfer after Leave()s");
-            }
+            assert!(
+                c2.shards[&j] == i && c3.shards[&j] != i,
+                "non-minimal transfer after Leave()s"
+            );
         }
     }
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 }
 
 #[madsim::test]
-async fn test_multi_4a() {
+async fn multi_4a() {
     let nservers = 3;
     let t = Tester::new(nservers, false).await;
     let ck = t.make_client(&t.all());
 
-    info!("Test: Multi-group leave/join ...\n");
+    info!("Test: Multi-group leave/join ...");
 
     let mut cfa = vec![];
     cfa.push(ck.query().await);
@@ -200,9 +197,9 @@ async fn test_multi_4a() {
 
     ck.leave(vec![gid2]).await;
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Concurrent multi leave/join ...\n");
+    info!("Test: Concurrent multi leave/join ...");
 
     let npara = 10;
     let gids: Vec<u64> = (0..npara).map(|i| i as u64 + 1000).collect();
@@ -227,9 +224,9 @@ async fn test_multi_4a() {
 
     ck.check(&gids).await;
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Minimal transfers after multijoins ...\n");
+    info!("Test: Minimal transfers after multijoins ...");
 
     let c1 = ck.query().await;
     let mut m = HashMap::new();
@@ -240,32 +237,33 @@ async fn test_multi_4a() {
     ck.join(m).await;
     let c2 = ck.query().await;
     for i in 1..=npara {
-        assert_eq!(c1.shards.len(), c2.shards.len());
-        for (&s1, &s2) in c1.shards.iter().zip(c2.shards.iter()) {
-            if s2 == i && s1 != i {
-                panic!("non-minimal transfer after Join()s");
-            }
+        for j in 0..c1.shards.len() {
+            assert!(
+                c2.shards[&j] == i && c1.shards[&j] != i,
+                "non-minimal transfer after Join()s"
+            );
         }
     }
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Minimal transfers after multileaves ...\n");
+    info!("Test: Minimal transfers after multileaves ...");
 
     let l: Vec<u64> = (0..5).map(|i| npara + 1 + i).collect();
     ck.leave(l).await;
     let c3 = ck.query().await;
     for i in 1..=npara {
         for j in 0..c1.shards.len() {
-            if c2.shards[j] == i && c3.shards[j] != i {
-                panic!("non-minimal transfer after Leave()s");
-            }
+            assert!(
+                c2.shards[&j] == i && c3.shards[&j] != i,
+                "non-minimal transfer after Leave()s"
+            );
         }
     }
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 
-    info!("Test: Check Same config on servers ...\n");
+    info!("Test: Check Same config on servers ...");
 
     let leader = t.leader().expect("Leader not found");
     let c = ck.query().await; // Tester leader claims
@@ -281,5 +279,5 @@ async fn test_multi_4a() {
     let c1 = ck.query().await;
     assert_eq!(c, c1);
 
-    info!("  ... Passed\n");
+    info!("  ... Passed");
 }

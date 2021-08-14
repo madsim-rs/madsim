@@ -11,7 +11,7 @@ pub struct Config {
     /// config number
     pub num: ConfigId,
     /// shard -> gid
-    pub shards: Vec<Gid>,
+    pub shards: HashMap<usize, Gid>,
     /// gid -> servers[]
     pub groups: HashMap<Gid, Vec<String>>,
 }

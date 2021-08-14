@@ -14,11 +14,21 @@ use std::{
 
 pub type ShardCtrler = Server<ShardInfo>;
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ShardInfo {
-    config: Config,
-    // A circular queue with max capacity 50
+    /// The index equals the config number, start from 0.
+    config: Vec<Config>,
+    /// A circular queue with max capacity 50
     ids: Vec<u64>,
+}
+
+impl Default for ShardInfo {
+    fn default() -> Self {
+        ShardInfo {
+            config: vec![Config::default()],
+            ids: vec![],
+        }
+    }
 }
 
 impl State for ShardInfo {
@@ -33,21 +43,33 @@ impl State for ShardInfo {
         self.ids.push(id);
         match cmd {
             // TODO: query specific num
-            Op::Query { .. } => return Some(self.config.clone()),
+            Op::Query { num: None } => {
+                return Some(self.config.last().unwrap().clone());
+            }
+            Op::Query { num: Some(num) } => {
+                return Some(self.config[num as usize].clone());
+            }
             Op::Join { groups } if unique => {
-                self.config.groups.extend(groups);
+                let mut cfg = self.config.last().unwrap().clone();
+                cfg.num += 1;
+                cfg.groups.extend(groups);
+                self.config.push(cfg);
                 // TODO: shard
             }
             Op::Leave { gids } if unique => {
+                let mut cfg = self.config.last().unwrap().clone();
+                cfg.num += 1;
                 for gid in gids {
-                    self.config.groups.remove(&gid);
+                    cfg.groups.remove(&gid);
                 }
+                self.config.push(cfg);
                 // TODO: shard
             }
             Op::Move { shard, gid } if unique => {
-                let new_size = self.config.shards.len().max(shard + 1);
-                self.config.shards.resize(new_size, 0);
-                self.config.shards[shard] = gid;
+                let mut cfg = self.config.last().unwrap().clone();
+                cfg.num += 1;
+                cfg.shards.insert(shard, gid);
+                self.config.push(cfg);
             }
             _ => {}
         }
