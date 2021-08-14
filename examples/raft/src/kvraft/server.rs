@@ -55,11 +55,11 @@ impl<S: State> Server<S> {
             while let Some(msg) = apply_ch.next().await {
                 match msg {
                     raft::ApplyMsg::Snapshot { index, data, .. } => {
-                        state = flexbuffers::from_slice(&data).unwrap();
+                        state = bincode::deserialize(&data).unwrap();
                         state_index = index;
                     }
                     raft::ApplyMsg::Command { index, data } => {
-                        let (id, cmd): (u64, S::Command) = flexbuffers::from_slice(&data).unwrap();
+                        let (id, cmd): (u64, S::Command) = bincode::deserialize(&data).unwrap();
                         let ret = state.apply(id, cmd);
                         state_index = index;
 
@@ -77,7 +77,7 @@ impl<S: State> Server<S> {
                 // snapshot if needed
                 if let Some(size) = max_raft_state {
                     if fs::metadata("state").await.map(|m| m.len()).unwrap_or(0) >= size as u64 {
-                        let data = flexbuffers::to_vec(&state).unwrap();
+                        let data = bincode::serialize(&state).unwrap();
                         rf0.snapshot(state_index, &data).await.unwrap();
                     }
                 }
@@ -127,7 +127,7 @@ impl<S: State> Server<S> {
         debug!("{:?} start: id={} {:?}", self, id, cmd);
         let index = match self
             .rf
-            .start(&flexbuffers::to_vec((id, cmd)).unwrap())
+            .start(&bincode::serialize(&(id, cmd)).unwrap())
             .await
         {
             Ok(s) => s.index,

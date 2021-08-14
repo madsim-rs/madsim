@@ -165,7 +165,7 @@ impl RaftTester {
         let raft = self.rafts[i].as_ref().unwrap().clone();
         self.handle
             .local_handle(self.addrs[i])
-            .spawn(async move { raft.start(&flexbuffers::to_vec(&cmd).unwrap()).await })
+            .spawn(async move { raft.start(&bincode::serialize(&cmd).unwrap()).await })
             .await
     }
 
@@ -304,8 +304,8 @@ impl RaftTester {
                 match cmd {
                     ApplyMsg::Command { data, index } => {
                         debug!("server {} apply {}", i, index);
-                        let entry = flexbuffers::from_slice(&data)
-                            .expect("committed command is not an entry");
+                        let entry =
+                            bincode::deserialize(&data).expect("committed command is not an entry");
                         storage.push_and_check(i, index, entry);
                         if snapshot && (index + 1) % SNAPSHOT_INTERVAL == 0 {
                             raft.snapshot(index, &data).await.unwrap();

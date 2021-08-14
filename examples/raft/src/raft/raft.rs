@@ -266,7 +266,7 @@ impl RaftHandle {
         }
         match fs::read("state").await {
             Ok(state) => {
-                let persist: Persist = flexbuffers::from_slice(&state).unwrap();
+                let persist: Persist = bincode::deserialize(&state).unwrap();
                 let mut this = self.inner.lock().unwrap();
                 this.state.term = persist.term;
                 this.voted_for = persist.voted_for;
@@ -349,7 +349,7 @@ impl Raft {
             voted_for: self.voted_for,
             log: self.log.clone(),
         };
-        let data = flexbuffers::to_vec(&persist).unwrap();
+        let data = bincode::serialize(&persist).unwrap();
 
         async move {
             // FIXME: crash on partial write
