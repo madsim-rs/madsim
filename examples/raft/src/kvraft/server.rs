@@ -124,7 +124,7 @@ impl KvServer {
         self.rf.is_leader()
     }
 
-    async fn get(&self, arg: GetArgs) -> GetReply {
+    async fn get(&self, arg: GetArgs) -> Result<GetReply, Error> {
         // Your code here.
         let cmd = RaftCmd {
             id: rand::rng().gen(),
@@ -134,19 +134,19 @@ impl KvServer {
         };
         let index = match self.rf.start(&flexbuffers::to_vec(&cmd).unwrap()).await {
             Ok(s) => s.index,
-            Err(raft::Error::NotLeader) => return GetReply::WrongLeader,
-            e => panic!("{:?}", e),
+            Err(raft::Error::NotLeader(l)) => return Err(Error::NotLeader(l)),
+            e => unreachable!(),
         };
         let recver = self.register_rpc(index, cmd.id);
         debug!("{:?} start {:?}", self, arg);
-        match timeout(Duration::from_millis(500), recver).await {
-            Err(_) => GetReply::Timeout,
-            Ok(Err(_)) => GetReply::Failed,
-            Ok(Ok(value)) => GetReply::Ok { value },
-        }
+        let value = timeout(Duration::from_millis(500), recver)
+            .await
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::Failed)?;
+        Ok(GetReply { value })
     }
 
-    async fn put_append(&self, arg: PutAppendArgs) -> PutAppendReply {
+    async fn put_append(&self, arg: PutAppendArgs) -> Result<PutAppendReply, Error> {
         // Your code here.
         let cmd = RaftCmd {
             id: arg.id,
@@ -163,16 +163,16 @@ impl KvServer {
         };
         let index = match self.rf.start(&flexbuffers::to_vec(&cmd).unwrap()).await {
             Ok(s) => s.index,
-            Err(raft::Error::NotLeader) => return PutAppendReply::WrongLeader,
-            e => panic!("{:?}", e),
+            Err(raft::Error::NotLeader(l)) => return Err(Error::NotLeader(l)),
+            e => unreachable!(),
         };
         let recver = self.register_rpc(index, cmd.id);
         debug!("{:?} start {:?}", self, arg);
-        match timeout(Duration::from_millis(500), recver).await {
-            Err(_) => PutAppendReply::Timeout,
-            Ok(Err(_)) => PutAppendReply::Failed,
-            Ok(Ok(_)) => PutAppendReply::Ok,
-        }
+        timeout(Duration::from_millis(500), recver)
+            .await
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::Failed)?;
+        Ok(PutAppendReply)
     }
 }
 

@@ -53,8 +53,8 @@ pub struct Start {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("this node is not a leader")]
-    NotLeader,
+    #[error("this node is not a leader, next leader: {0}")]
+    NotLeader(usize),
     #[error("IO error")]
     IO(#[from] io::Error),
 }
@@ -381,7 +381,9 @@ impl Raft {
     fn start(&mut self, data: &[u8]) -> Result<Start> {
         // Your code here (2B).
         if !self.state.is_leader() {
-            return Err(Error::NotLeader);
+            // TODO: next leader
+            let leader = (self.me + 1) % self.peers.len();
+            return Err(Error::NotLeader(leader));
         }
         let index = self.log.len() as u64;
         let term = self.state.term;
@@ -459,8 +461,9 @@ impl Raft {
             .enumerate()
             .filter(|&(idx, _)| idx != self.me)
             .map(|(_, &peer)| {
-                net.clone()
-                    .call_owned::<_, RequestVoteReply>(peer, args.clone())
+                let net = net.clone();
+                let args = args.clone();
+                async move { net.call::<_, RequestVoteReply>(peer, args).await }
             })
             .collect::<FuturesUnordered<_>>();
         let deadline = Instant::now() + Self::generate_election_timeout();
@@ -560,12 +563,16 @@ impl Raft {
                     };
                     match task {
                         Task::InstallSnapshot(args) => {
-                            let reply = select! {
-                                ret = net.clone().call_owned::<_, InstallSnapshotReply>(peer, args).fuse() => match ret {
-                                    Err(_) => continue,
-                                    Ok(x) => x,
-                                },
-                                _ = time::sleep(Self::generate_heartbeat_interval()).fuse() => continue,
+                            let reply = match net
+                                .call_timeout::<_, InstallSnapshotReply>(
+                                    peer,
+                                    args,
+                                    Self::generate_heartbeat_interval(),
+                                )
+                                .await
+                            {
+                                Err(_) => continue,
+                                Ok(x) => x,
                             };
                             let this = try_upgrade!(this);
                             let mut this = lock_and_check_raft!(this, state);
@@ -586,12 +593,16 @@ impl Raft {
                             continue;
                         }
                         Task::AppendEntries(args) => {
-                            let reply = select! {
-                                ret = net.clone().call_owned::<_, AppendEntriesReply>(peer, args).fuse() => match ret {
-                                    Err(_) => continue,
-                                    Ok(x) => x,
-                                },
-                                _ = time::sleep(Self::generate_heartbeat_interval()).fuse() => continue,
+                            let reply = match net
+                                .call_timeout::<_, AppendEntriesReply>(
+                                    peer,
+                                    args,
+                                    Self::generate_heartbeat_interval(),
+                                )
+                                .await
+                            {
+                                Err(_) => continue,
+                                Ok(x) => x,
                             };
                             let this = try_upgrade!(this);
                             let mut this = lock_and_check_raft!(this, state);

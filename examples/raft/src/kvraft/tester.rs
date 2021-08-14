@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{client, server, Error, Result};
+use super::{client, server};
 
 pub struct Tester {
     handle: Handle,
@@ -168,16 +168,16 @@ impl Tester {
         self.servers.lock().unwrap()[i] = Some(kv);
     }
 
-    pub fn leader(&self) -> Result<usize> {
+    pub fn leader(&self) -> Option<usize> {
         let servers = self.servers.lock().unwrap();
         for (i, kv) in servers.iter().enumerate() {
             if let Some(kv) = kv {
                 if kv.is_leader() {
-                    return Ok(i);
+                    return Some(i);
                 }
             }
         }
-        Err(Error::NoLeader)
+        None
     }
 
     /// Partition servers into 2 groups and put current leader in minority

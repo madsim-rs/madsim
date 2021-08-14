@@ -2,42 +2,36 @@ use super::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     any::{Any, TypeId},
+    fmt::Debug,
     // convert::TryInto,
     future::Future,
     mem::transmute,
 };
 
+pub trait Message: Debug + Serialize + DeserializeOwned + Any + Send + Sync {}
+
+impl<T: Debug + Serialize + DeserializeOwned + Any + Send + Sync> Message for T {}
+
 impl NetworkLocalHandle {
-    pub async fn call<'a, Req, Rsp>(
+    pub async fn call_timeout<Req, Rsp>(
         &self,
         dst: SocketAddr,
         request: Req,
-        _buf: &'a mut [u8],
+        timeout: Duration,
     ) -> io::Result<Rsp>
     where
-        Req: Serialize + Any + Send + Sync,
-        Rsp: Deserialize<'a> + Any + Send + Sync,
+        Req: Message,
+        Rsp: Message,
     {
-        let req_tag: u64 = unsafe { transmute(TypeId::of::<Req>()) };
-        let rsp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
-        // let mut data = flexbuffers::to_vec(request).unwrap();
-        // data.extend_from_slice(&rsp_tag.to_ne_bytes()[..]);
-        // self.send_to(dst, req_tag, &data).await?;
-        self.send_to_raw(dst, req_tag, Box::new((rsp_tag, request)))
-            .await?;
-
-        // let (len, from) = self.recv_from(rsp_tag, buf).await?;
-        // let rsp = flexbuffers::from_slice(&buf[..len]).unwrap();
-        let (rsp, from) = self.recv_from_raw(rsp_tag).await?;
-        let rsp = *rsp.downcast::<Rsp>().expect("message type mismatch");
-        assert_eq!(from, dst);
-        Ok(rsp)
+        crate::time::timeout(timeout, self.call(dst, request))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "RPC timeout"))?
     }
 
-    pub async fn call_owned<Req, Rsp>(self, dst: SocketAddr, request: Req) -> io::Result<Rsp>
+    pub async fn call<Req, Rsp>(&self, dst: SocketAddr, request: Req) -> io::Result<Rsp>
     where
-        Req: Serialize + Any + Send + Sync,
-        Rsp: DeserializeOwned + Any + Send + Sync,
+        Req: Message,
+        Rsp: Message,
     {
         let req_tag: u64 = unsafe { transmute(TypeId::of::<Req>()) };
         let rsp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
@@ -55,8 +49,8 @@ impl NetworkLocalHandle {
 
     pub fn add_rpc_handler<Req, Rsp, AsyncFn, Fut>(&self, mut f: AsyncFn)
     where
-        Req: for<'a> Deserialize<'a> + Any + Send + Sync,
-        Rsp: Serialize + Any + Send + Sync,
+        Req: Message,
+        Rsp: Message,
         AsyncFn: FnMut(Req) -> Fut + Send + 'static,
         Fut: Future<Output = Rsp> + Send + 'static,
     {
@@ -108,12 +102,11 @@ mod tests {
 
         let f = host2.spawn(async move {
             let net = NetworkLocalHandle::current();
-            let mut buf = vec![0; 0x10];
 
-            let rsp: u64 = net.call(addr1, 1u64, &mut buf).await.unwrap();
+            let rsp: u64 = net.call(addr1, 1u64).await.unwrap();
             assert_eq!(rsp, 2u64);
 
-            let rsp: u32 = net.call(addr1, 1u32, &mut buf).await.unwrap();
+            let rsp: u32 = net.call(addr1, 1u32).await.unwrap();
             assert_eq!(rsp, 3u32);
         });
 

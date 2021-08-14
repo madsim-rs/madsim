@@ -28,86 +28,67 @@ impl Clerk {
     /// returns "" if the key does not exist.
     /// keeps trying forever in the face of all other errors.
     pub async fn get(&self, key: String) -> String {
-        // You will have to modify this function.
-        let args = GetArgs { key: key.clone() };
-        let net = net::NetworkLocalHandle::current();
-        for i in self.leader.load(Ordering::Relaxed).. {
-            let i = i % self.servers.len();
-            debug!("->{} {:?}", i, args);
-
-            let call = net
-                .clone()
-                .call_owned::<_, GetReply>(self.servers[i], args.clone());
-            match timeout(Duration::from_millis(500), call).await {
-                Err(e) => {
-                    debug!("<-{} {:?}", i, e);
-                    continue;
-                }
-                Ok(Ok(GetReply::WrongLeader)) => {
-                    debug!("<-{} wrong leader", i);
-                    if i == self.servers.len() - 1 {
-                        sleep(Duration::from_millis(100)).await;
-                    }
-                    continue;
-                }
-                Ok(Ok(GetReply::Ok { value })) => {
-                    debug!("<-{} Get({:?})", i, key);
-                    self.leader.store(i, Ordering::Relaxed);
-                    return value;
-                }
-                Ok(e) => {
-                    debug!("<-{} {:?}", i, e);
-                    continue;
-                }
-            }
-        }
-        unreachable!()
+        let args = GetArgs { key };
+        self.call::<_, GetReply>(args).await.value
     }
 
     pub async fn put(&self, key: String, value: String) {
-        self.put_append(key, value, false).await;
-    }
-
-    pub async fn append(&self, key: String, value: String) {
-        self.put_append(key, value, true).await;
-    }
-
-    /// shared by Put and Append.
-    async fn put_append(&self, key: String, value: String, append: bool) {
         let args = PutAppendArgs {
             key,
             value,
-            append,
+            append: false,
             id: rand::rng().gen(),
         };
-        let net = net::NetworkLocalHandle::current();
-        for i in self.leader.load(Ordering::Relaxed).. {
-            let i = i % self.servers.len();
-            debug!("->{} {:?}", i, args);
+        self.call::<_, PutAppendReply>(args).await;
+    }
 
-            let call = net
-                .clone()
-                .call_owned::<_, PutAppendReply>(self.servers[i], args.clone());
-            match timeout(Duration::from_millis(500), call).await {
+    pub async fn append(&self, key: String, value: String) {
+        let args = PutAppendArgs {
+            key,
+            value,
+            append: true,
+            id: rand::rng().gen(),
+        };
+        self.call::<_, PutAppendReply>(args).await;
+    }
+
+    async fn call<Req, Rsp>(&self, args: Req) -> Rsp
+    where
+        Req: net::Message + Clone,
+        Rsp: net::Message,
+    {
+        let net = net::NetworkLocalHandle::current();
+        let mut i = self.leader.load(Ordering::Relaxed);
+        loop {
+            debug!("->{} {:?}", i, args);
+            match net
+                .call_timeout::<Req, Result<Rsp, Error>>(
+                    self.servers[i],
+                    args.clone(),
+                    Duration::from_millis(500),
+                )
+                .await
+            {
+                // client side error
                 Err(e) => {
                     debug!("<-{} {:?}", i, e);
+                    i = (i + 1) % self.servers.len();
                     continue;
                 }
-                Ok(Ok(PutAppendReply::WrongLeader)) => {
-                    debug!("<-{} wrong leader", i);
-                    if i == self.servers.len() - 1 {
-                        sleep(Duration::from_millis(100)).await;
+                // server side error
+                Ok(Err(e)) => {
+                    debug!("<-{} {:?}", i, e);
+                    if let Error::NotLeader(leader) = e {
+                        i = leader;
+                    } else {
+                        i = (i + 1) % self.servers.len();
                     }
                     continue;
                 }
-                Ok(Ok(PutAppendReply::Ok)) => {
+                Ok(Ok(v)) => {
                     debug!("<-{} ok", i);
                     self.leader.store(i, Ordering::Relaxed);
-                    return;
-                }
-                Ok(e) => {
-                    debug!("<-{} {:?}", i, e);
-                    continue;
+                    return v;
                 }
             }
         }
