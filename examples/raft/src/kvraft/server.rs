@@ -10,41 +10,47 @@ use madsim::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fmt,
+    fmt::{self, Debug},
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
-pub struct KvServer {
+pub trait State: Default + net::Message {
+    type Command: net::Message;
+    type Output: net::Message;
+    fn apply(&mut self, id: u64, cmd: Self::Command) -> Self::Output;
+}
+
+pub struct Server<S: State> {
     rf: raft::RaftHandle,
     me: usize,
     // { index -> (id, sender) }
-    pending_rpcs: Arc<Mutex<HashMap<u64, (u64, oneshot::Sender<String>)>>>,
+    pending_rpcs: Arc<Mutex<HashMap<u64, (u64, oneshot::Sender<S::Output>)>>>,
     _bg_task: task::Task<()>,
 }
 
-impl fmt::Debug for KvServer {
+impl<S: State> fmt::Debug for Server<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "KvServer({})", self.me)
+        write!(f, "Server({})", self.me)
     }
 }
 
-impl KvServer {
+impl<S: State> Server<S> {
     pub async fn new(
         servers: Vec<SocketAddr>,
         me: usize,
         max_raft_state: Option<usize>,
-    ) -> Arc<KvServer> {
+    ) -> Arc<Self> {
         // You may need initialization code here.
         let (rf, mut apply_ch) = raft::RaftHandle::new(servers, me).await;
 
         let pending_rpcs = Arc::new(Mutex::new(
-            HashMap::<u64, (u64, oneshot::Sender<String>)>::new(),
+            HashMap::<u64, (u64, oneshot::Sender<S::Output>)>::new(),
         ));
         let pending_rpcs0 = pending_rpcs.clone();
         let rf0 = rf.clone();
-        let _bg_task = task::spawn(async move {
-            let mut state = State::default();
+        let _bg_task = task::spawn_local(async move {
+            let mut state = S::default();
             let mut state_index;
             while let Some(msg) = apply_ch.next().await {
                 match msg {
@@ -53,15 +59,14 @@ impl KvServer {
                         state_index = index;
                     }
                     raft::ApplyMsg::Command { index, data } => {
-                        let cmd: RaftCmd = flexbuffers::from_slice(&data).unwrap();
-                        let cmd_id = cmd.id;
-                        let ret = state.apply(cmd);
+                        let (id, cmd): (u64, S::Command) = flexbuffers::from_slice(&data).unwrap();
+                        let ret = state.apply(id, cmd);
                         state_index = index;
 
                         // send result to RPC
                         let mut pending_rpcs = pending_rpcs0.lock().unwrap();
-                        if let Some((id, sender)) = pending_rpcs.remove(&index) {
-                            if cmd_id == id {
+                        if let Some((id0, sender)) = pending_rpcs.remove(&index) {
+                            if id == id0 {
                                 // message match, success
                                 let _ = sender.send(ret);
                             }
@@ -79,7 +84,7 @@ impl KvServer {
             }
         });
 
-        let this = Arc::new(KvServer {
+        let this = Arc::new(Server {
             rf,
             me,
             pending_rpcs,
@@ -93,19 +98,13 @@ impl KvServer {
         let net = net::NetworkLocalHandle::current();
 
         let this = self.clone();
-        net.add_rpc_handler(move |args: PutAppendArgs| {
+        net.add_rpc_handler(move |(id, cmd): (u64, S::Command)| {
             let this = this.clone();
-            async move { this.put_append(args).await }
-        });
-
-        let this = self.clone();
-        net.add_rpc_handler(move |args: GetArgs| {
-            let this = this.clone();
-            async move { this.get(args).await }
+            async move { this.apply(id, cmd).await }
         });
     }
 
-    fn register_rpc(&self, index: u64, id: u64) -> oneshot::Receiver<String> {
+    fn register_rpc(&self, index: u64, id: u64) -> oneshot::Receiver<S::Output> {
         let (sender, recver) = oneshot::channel();
         self.pending_rpcs
             .lock()
@@ -124,88 +123,55 @@ impl KvServer {
         self.rf.is_leader()
     }
 
-    async fn get(&self, arg: GetArgs) -> Result<GetReply, Error> {
-        // Your code here.
-        let cmd = RaftCmd {
-            id: rand::rng().gen(),
-            op: Op::Get {
-                key: arg.key.clone(),
-            },
-        };
-        let index = match self.rf.start(&flexbuffers::to_vec(&cmd).unwrap()).await {
+    async fn apply(&self, id: u64, cmd: S::Command) -> Result<S::Output, Error> {
+        debug!("{:?} start: id={} {:?}", self, id, cmd);
+        let index = match self
+            .rf
+            .start(&flexbuffers::to_vec((id, cmd)).unwrap())
+            .await
+        {
             Ok(s) => s.index,
             Err(raft::Error::NotLeader(l)) => return Err(Error::NotLeader(l)),
             e => unreachable!(),
         };
-        let recver = self.register_rpc(index, cmd.id);
-        debug!("{:?} start {:?}", self, arg);
-        let value = timeout(Duration::from_millis(500), recver)
+        let recver = self.register_rpc(index, id);
+        let output = timeout(Duration::from_millis(500), recver)
             .await
             .map_err(|_| Error::Timeout)?
             .map_err(|_| Error::Failed)?;
-        Ok(GetReply { value })
-    }
-
-    async fn put_append(&self, arg: PutAppendArgs) -> Result<PutAppendReply, Error> {
-        // Your code here.
-        let cmd = RaftCmd {
-            id: arg.id,
-            op: match arg.append {
-                false => Op::Put {
-                    key: arg.key.clone(),
-                    value: arg.value.clone(),
-                },
-                true => Op::Append {
-                    key: arg.key.clone(),
-                    value: arg.value.clone(),
-                },
-            },
-        };
-        let index = match self.rf.start(&flexbuffers::to_vec(&cmd).unwrap()).await {
-            Ok(s) => s.index,
-            Err(raft::Error::NotLeader(l)) => return Err(Error::NotLeader(l)),
-            e => unreachable!(),
-        };
-        let recver = self.register_rpc(index, cmd.id);
-        debug!("{:?} start {:?}", self, arg);
-        timeout(Duration::from_millis(500), recver)
-            .await
-            .map_err(|_| Error::Timeout)?
-            .map_err(|_| Error::Failed)?;
-        Ok(PutAppendReply)
+        Ok(output)
     }
 }
 
+pub type KvServer = Server<Kv>;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct State {
+pub struct Kv {
     kv: HashMap<String, String>,
     // A circular queue with max capacity 50
     ids: Vec<u64>,
 }
 
-impl State {
-    fn apply(&mut self, cmd: RaftCmd) -> String {
-        let unique = !self.ids.contains(&cmd.id);
+impl State for Kv {
+    type Command = Op;
+    type Output = String;
+
+    fn apply(&mut self, id: u64, cmd: Self::Command) -> Self::Output {
+        let unique = !self.ids.contains(&id);
         if self.ids.len() > 50 {
             self.ids.remove(0);
         }
-        self.ids.push(cmd.id);
-        match cmd.op {
-            Op::Put { key, value } => {
-                // prevent duplicate put
-                if unique {
-                    self.kv.insert(key, value);
-                }
-                "".into()
+        self.ids.push(id);
+        match cmd {
+            Op::Put { key, value } if unique => {
+                self.kv.insert(key, value);
             }
-            Op::Append { key, value } => {
-                // prevent duplicate append
-                if unique {
-                    self.kv.entry(key).or_default().push_str(&value);
-                }
-                "".into()
+            Op::Append { key, value } if unique => {
+                self.kv.entry(key).or_default().push_str(&value);
             }
-            Op::Get { key } => self.kv.get(&key).cloned().unwrap_or_default(),
+            Op::Get { key } => return self.kv.get(&key).cloned().unwrap_or_default(),
+            _ => {}
         }
+        "".into()
     }
 }

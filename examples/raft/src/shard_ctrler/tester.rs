@@ -161,7 +161,7 @@ impl Tester {
         debug!("start_server({})", i);
         let addrs = self.addrs.clone();
         let handle = self.handle.local_handle(self.addrs[i]);
-        let kv = handle.spawn(server::ShardCtrler::new(addrs, i)).await;
+        let kv = handle.spawn(server::ShardCtrler::new(addrs, i, None)).await;
         self.servers.lock().unwrap()[i] = Some(kv);
     }
 
@@ -236,6 +236,7 @@ impl Clerk {
     }
 
     pub async fn query_at(&self, num: u64) -> Config {
+        debug!("query_at: {}", num);
         self.op();
         let ck = self.ck.clone();
         self.handle
@@ -244,6 +245,7 @@ impl Clerk {
     }
 
     pub async fn join(&self, groups: HashMap<u64, Vec<String>>) {
+        debug!("join: {:?}", groups);
         self.op();
         let ck = self.ck.clone();
         self.handle
@@ -252,12 +254,14 @@ impl Clerk {
     }
 
     pub async fn leave(&self, gids: Vec<u64>) {
+        debug!("leave: {:?}", gids);
         self.op();
         let ck = self.ck.clone();
         self.handle.spawn(async move { ck.leave(gids).await }).await
     }
 
-    pub async fn move_(&self, shard: u64, gid: u64) {
+    pub async fn move_(&self, shard: usize, gid: u64) {
+        debug!("move: shard {} -> gid {}", shard, gid);
         self.op();
         let ck = self.ck.clone();
         self.handle
@@ -266,6 +270,7 @@ impl Clerk {
     }
 
     pub async fn check(&self, groups: &[u64]) {
+        debug!("check: {:?}", groups);
         let c = self.query().await;
         assert_eq!(c.groups.len(), groups.len());
         // are the groups as expected?
@@ -288,14 +293,16 @@ impl Clerk {
         for &gid in c.shards.iter() {
             *counts.entry(gid).or_default() += 1;
         }
-        let min = c.groups.keys().map(|gid| counts[gid]).min().unwrap();
-        let max = c.groups.keys().map(|gid| counts[gid]).max().unwrap();
-        assert!(
-            max <= min + 1,
-            "imbalanced sharding, max {} too much larger than min {}",
-            max,
-            min
-        );
+        if !c.groups.is_empty() {
+            let min = c.groups.keys().map(|gid| counts[gid]).min().unwrap();
+            let max = c.groups.keys().map(|gid| counts[gid]).max().unwrap();
+            assert!(
+                max <= min + 1,
+                "imbalanced sharding, max {} too much larger than min {}",
+                max,
+                min
+            );
+        }
     }
 
     fn op(&self) {

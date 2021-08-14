@@ -10,17 +10,13 @@ use std::{
 };
 
 pub struct Clerk {
-    servers: Vec<SocketAddr>,
-    // You will have to modify this struct.
-    leader: AtomicUsize,
+    core: ClerkCore,
 }
 
 impl Clerk {
     pub fn new(servers: Vec<SocketAddr>) -> Clerk {
-        // You'll have to add code here.
         Clerk {
-            servers,
-            leader: AtomicUsize::new(0),
+            core: ClerkCore::new(servers),
         }
     }
 
@@ -28,31 +24,38 @@ impl Clerk {
     /// returns "" if the key does not exist.
     /// keeps trying forever in the face of all other errors.
     pub async fn get(&self, key: String) -> String {
-        let args = GetArgs { key };
-        self.call::<_, GetReply>(args).await.value
+        let id: u64 = rand::rng().gen();
+        let args = Op::Get { key };
+        self.core.call::<_, String>((id, args)).await
     }
 
     pub async fn put(&self, key: String, value: String) {
-        let args = PutAppendArgs {
-            key,
-            value,
-            append: false,
-            id: rand::rng().gen(),
-        };
-        self.call::<_, PutAppendReply>(args).await;
+        let id: u64 = rand::rng().gen();
+        let args = Op::Put { key, value };
+        self.core.call::<_, String>((id, args)).await;
     }
 
     pub async fn append(&self, key: String, value: String) {
-        let args = PutAppendArgs {
-            key,
-            value,
-            append: true,
-            id: rand::rng().gen(),
-        };
-        self.call::<_, PutAppendReply>(args).await;
+        let id: u64 = rand::rng().gen();
+        let args = Op::Append { key, value };
+        self.core.call::<_, String>((id, args)).await;
+    }
+}
+
+pub struct ClerkCore {
+    servers: Vec<SocketAddr>,
+    leader: AtomicUsize,
+}
+
+impl ClerkCore {
+    pub fn new(servers: Vec<SocketAddr>) -> ClerkCore {
+        ClerkCore {
+            servers,
+            leader: AtomicUsize::new(0),
+        }
     }
 
-    async fn call<Req, Rsp>(&self, args: Req) -> Rsp
+    pub async fn call<Req, Rsp>(&self, args: Req) -> Rsp
     where
         Req: net::Message + Clone,
         Rsp: net::Message,

@@ -6,7 +6,7 @@ pub type ConfigId = u64;
 
 // A configuration -- an assignment of shards to groups.
 // Please don't change this.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     /// config number
     pub num: ConfigId,
@@ -17,61 +17,30 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JoinRequest {
-    /// new GID -> servers mappings
-    pub groups: HashMap<Gid, Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum JoinReply {
-    Ok,
-    WrongLeader,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LeaveRequest {
-    pub gids: Vec<Gid>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum LeaveReply {
-    Ok,
-    WrongLeader,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MoveRequest {
-    pub shard: u64,
-    pub gid: Gid,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MoveReply {
-    Ok,
-    WrongLeader,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueryRequest {
-    /// desired config number
-    pub num: ConfigId,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum QueryReply {
-    Ok(Config),
-    WrongLeader,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RaftCmd {
-    pub id: u64,
-    pub op: Op,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Op {
-    Join(JoinRequest),
-    Leave(LeaveRequest),
-    Move(MoveRequest),
+    Query {
+        /// desired config number
+        num: Option<ConfigId>,
+    },
+    Join {
+        /// new GID -> servers mappings
+        groups: HashMap<Gid, Vec<String>>,
+    },
+    Leave {
+        gids: Vec<Gid>,
+    },
+    Move {
+        shard: usize,
+        gid: Gid,
+    },
+}
+
+#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Error {
+    #[error("not leader")]
+    NotLeader(usize),
+    #[error("timeout")]
+    Timeout,
+    #[error("failed to reach consensus")]
+    Failed,
 }

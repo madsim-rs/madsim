@@ -80,7 +80,7 @@ async fn test_basic_4a() {
     for i in 0..N_SHARDS {
         let cf = ck.query().await;
         let shard = if i < N_SHARDS / 2 { gid3 } else { gid4 };
-        ck.move_(i as u64, shard).await;
+        ck.move_(i, shard).await;
         if cf.shards[i] != shard {
             let cf1 = ck.query().await;
             assert!(cf1.num > cf.num, "Move should increase Tester.Num");

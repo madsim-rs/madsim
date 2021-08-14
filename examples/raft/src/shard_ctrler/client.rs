@@ -1,43 +1,43 @@
 use super::msg::*;
-use madsim::{
-    net,
-    rand::{self, Rng},
-    time::*,
-};
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use crate::kvraft::client::ClerkCore;
+use madsim::rand::{self, Rng};
+use std::{collections::HashMap, net::SocketAddr};
 
 pub struct Clerk {
-    servers: Vec<SocketAddr>,
-    // You will have to modify this struct.
-    leader: AtomicUsize,
+    core: ClerkCore,
 }
 
 impl Clerk {
     pub fn new(servers: Vec<SocketAddr>) -> Clerk {
-        // You'll have to add code here.
         Clerk {
-            servers,
-            leader: AtomicUsize::new(0),
+            core: ClerkCore::new(servers),
         }
     }
 
     pub async fn query(&self, num: Option<u64>) -> Config {
-        todo!()
+        let id: u64 = rand::rng().gen();
+        let args = Op::Query { num };
+        self.core
+            .call::<_, Option<Config>>((id, args))
+            .await
+            .unwrap()
     }
 
     pub async fn join(&self, groups: HashMap<Gid, Vec<String>>) {
-        todo!()
+        let id: u64 = rand::rng().gen();
+        let args = Op::Join { groups };
+        self.core.call::<_, Option<Config>>((id, args)).await;
     }
 
     pub async fn leave(&self, gids: Vec<u64>) {
-        todo!()
+        let id: u64 = rand::rng().gen();
+        let args = Op::Leave { gids };
+        self.core.call::<_, Option<Config>>((id, args)).await;
     }
 
-    pub async fn move_(&self, shard: u64, gid: u64) {
-        todo!()
+    pub async fn move_(&self, shard: usize, gid: u64) {
+        let id: u64 = rand::rng().gen();
+        let args = Op::Move { shard, gid };
+        self.core.call::<_, Option<Config>>((id, args)).await;
     }
 }
