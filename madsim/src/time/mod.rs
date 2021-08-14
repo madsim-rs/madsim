@@ -95,7 +95,11 @@ impl TimeHandle {
         }
     }
 
-    pub fn add_timer(&self, deadline: Instant, callback: impl FnOnce() + Send + Sync + 'static) {
+    pub(crate) fn add_timer(
+        &self,
+        deadline: Instant,
+        callback: impl FnOnce() + Send + Sync + 'static,
+    ) {
         let mut timer = self.timer.lock().unwrap();
         timer.add(deadline - self.clock.base(), |_| callback());
     }

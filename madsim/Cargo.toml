@@ -9,7 +9,7 @@ description = "Deterministic Simulator for distributed systems."
 
 [features]
 logger = ["env_logger"]
-rpc = ["serde", "flexbuffers"]
+rpc = ["serde"]
 macros = ["madsim-macros"]
 
 [dependencies]
@@ -20,5 +20,4 @@ async-task = "4.0"
 futures = "0.3"
 naive-timer = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
-flexbuffers = { version = "2.0", optional = true }
 env_logger = { version = "0.9", optional = true }

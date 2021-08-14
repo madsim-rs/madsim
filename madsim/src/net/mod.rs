@@ -5,8 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use self::network::Network;
 pub use self::network::{Config, Stat};
+use self::network::{Network, Payload};
 use crate::{rand::*, time::*};
 
 mod network;
@@ -95,6 +95,19 @@ impl NetworkLocalHandle {
     }
 
     pub async fn send_to(&self, dst: SocketAddr, tag: u64, data: &[u8]) -> io::Result<()> {
+        self.send_to_raw(dst, tag, Box::new(Vec::from(data))).await
+    }
+
+    pub async fn recv_from(&self, tag: u64, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        let (data, from) = self.recv_from_raw(tag).await?;
+        // copy to buffer
+        let data = data.downcast::<Vec<u8>>().expect("message is not data");
+        let len = buf.len().min(data.len());
+        buf[..len].copy_from_slice(&data[..len]);
+        Ok((len, from))
+    }
+
+    async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         self.handle
             .network
             .lock()
@@ -106,28 +119,14 @@ impl NetworkLocalHandle {
         Ok(())
     }
 
-    pub async fn recv_from(&self, tag: u64, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        let (data, from) = self.recv_from_vec(tag).await?;
-        // copy to buffer
-        let len = buf.len().min(data.len());
-        buf[..len].copy_from_slice(&data[..len]);
-        Ok((len, from))
-    }
-
-    async fn recv_from_vec(&self, tag: u64) -> io::Result<(Vec<u8>, SocketAddr)> {
+    async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
         let recver = self.handle.network.lock().unwrap().recv(self.addr, tag);
         let msg = recver.await.unwrap();
         // random delay
         let delay = Duration::from_micros(self.handle.rand.with(|rng| rng.gen_range(0..5)));
         self.handle.time.sleep(delay).await;
 
-        trace!(
-            "recv: {} <- {}, tag={}, len={}",
-            self.addr,
-            msg.from,
-            msg.tag,
-            msg.data.len(),
-        );
+        trace!("recv: {} <- {}, tag={}", self.addr, msg.from, msg.tag);
         Ok((msg.data, msg.from))
     }
 }

@@ -2,6 +2,7 @@ use crate::{rand::*, time::TimeHandle};
 use futures::channel::oneshot;
 use log::*;
 use std::{
+    any::Any,
     collections::{HashMap, HashSet},
     net::SocketAddr,
     ops::Range,
@@ -101,8 +102,8 @@ impl Network {
         self.clogged_link.remove(&(src, dst));
     }
 
-    pub fn send(&mut self, src: SocketAddr, dst: SocketAddr, tag: u64, data: &[u8]) {
-        trace!("send: {} -> {}, tag={}, len={}", src, dst, tag, data.len());
+    pub fn send(&mut self, src: SocketAddr, dst: SocketAddr, tag: u64, data: Payload) {
+        trace!("send: {} -> {}, tag={}", src, dst, tag);
         assert!(self.endpoints.contains_key(&src));
         if !self.endpoints.contains_key(&dst)
             || self.clogged.contains(&src)
@@ -119,7 +120,7 @@ impl Network {
         let ep = self.endpoints[&dst].clone();
         let msg = Message {
             tag,
-            data: data.into(),
+            data,
             from: src,
         };
         let latency = self.rand.gen_range(self.config.send_latency.clone());
@@ -137,9 +138,11 @@ impl Network {
 
 pub struct Message {
     pub tag: u64,
-    pub data: Vec<u8>,
+    pub data: Payload,
     pub from: SocketAddr,
 }
+
+pub type Payload = Box<dyn Any + Send + Sync>;
 
 #[derive(Default)]
 struct Endpoint {
