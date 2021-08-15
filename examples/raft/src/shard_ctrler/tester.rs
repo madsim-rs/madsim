@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{client, msg::Config, server, Error, Result};
+use super::{client, msg::Config, server};
 
 pub struct Tester {
     handle: Handle,
@@ -165,16 +165,16 @@ impl Tester {
         self.servers.lock().unwrap()[i] = Some(kv);
     }
 
-    pub fn leader(&self) -> Result<usize> {
+    pub fn leader(&self) -> Option<usize> {
         let servers = self.servers.lock().unwrap();
         for (i, kv) in servers.iter().enumerate() {
             if let Some(kv) = kv {
                 if kv.is_leader() {
-                    return Ok(i);
+                    return Some(i);
                 }
             }
         }
-        Err(Error::NoLeader)
+        None
     }
 
     /// Partition servers into 2 groups and put current leader in minority
@@ -253,10 +253,11 @@ impl Clerk {
             .await
     }
 
-    pub async fn leave(&self, gids: Vec<u64>) {
+    pub async fn leave(&self, gids: &[u64]) {
         debug!("leave: {:?}", gids);
         self.op();
         let ck = self.ck.clone();
+        let gids = Vec::from(gids);
         self.handle.spawn(async move { ck.leave(gids).await }).await
     }
 

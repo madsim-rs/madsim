@@ -1,4 +1,4 @@
-use super::{msg::Config, tester::*, N_SHARDS};
+use super::{tester::*, N_SHARDS};
 use futures::future;
 use log::*;
 use madsim::{
@@ -48,11 +48,11 @@ async fn basic_4a() {
     let sa2 = cfx.groups[&gid2].as_slice();
     assert_eq!(sa2, ["a", "b", "c"], "wrong servers for gid {}", gid2);
 
-    ck.leave(vec![gid1]).await;
+    ck.leave(&[gid1]).await;
     ck.check(&[gid2]).await;
     cfa.push(ck.query().await);
 
-    ck.leave(vec![gid2]).await;
+    ck.leave(&[gid2]).await;
     cfa.push(ck.query().await);
 
     info!("  ... Passed");
@@ -91,8 +91,8 @@ async fn basic_4a() {
         let shard = if i < N_SHARDS / 2 { gid3 } else { gid4 };
         assert_eq!(cf2.shards[&i], shard, "shard {} wrong group", i);
     }
-    ck.leave(vec![gid3]).await;
-    ck.leave(vec![gid4]).await;
+    ck.leave(&[gid3]).await;
+    ck.leave(&[gid4]).await;
 
     info!("  ... Passed");
 
@@ -108,7 +108,7 @@ async fn basic_4a() {
             let sid2 = format!("s{}b", gid);
             cka.join(groups!(gid + 1000 => [sid1])).await;
             cka.join(groups!(gid => [sid2])).await;
-            cka.leave(vec![gid + 1000]).await;
+            cka.leave(&[gid + 1000]).await;
         }));
     }
     future::join_all(handles).await;
@@ -139,7 +139,7 @@ async fn basic_4a() {
     info!("Test: Minimal transfers after leaves ...");
 
     for i in 0..5 {
-        ck.leave(vec![npara + 1 + i]).await;
+        ck.leave(&[npara + 1 + i]).await;
     }
     let c3 = ck.query().await;
     for i in 1..=npara {
@@ -152,6 +152,8 @@ async fn basic_4a() {
     }
 
     info!("  ... Passed");
+
+    t.end();
 }
 
 #[madsim::test]
@@ -187,7 +189,7 @@ async fn multi_4a() {
     let sa3 = cfx.groups[&gid3].as_slice();
     assert_eq!(sa3, ["j", "k", "l"], "wrong servers for gid {}", gid3);
 
-    ck.leave(vec![gid1, gid3]).await;
+    ck.leave(&[gid1, gid3]).await;
     ck.check(&[gid2]).await;
     cfa.push(ck.query().await);
 
@@ -195,7 +197,7 @@ async fn multi_4a() {
     let sa2 = cfx.groups[&gid2].as_slice();
     assert_eq!(sa2, ["a", "b", "c"], "wrong servers for gid {}", gid2);
 
-    ck.leave(vec![gid2]).await;
+    ck.leave(&[gid2]).await;
 
     info!("  ... Passed");
 
@@ -217,7 +219,7 @@ async fn multi_4a() {
                 gid + 2000 => [format!("{}a", gid + 2000)]
             ))
             .await;
-            cka.leave(vec![gid + 1000, gid + 2000]).await;
+            cka.leave(&[gid + 1000, gid + 2000]).await;
         }));
     }
     future::join_all(handles).await;
@@ -250,7 +252,7 @@ async fn multi_4a() {
     info!("Test: Minimal transfers after multileaves ...");
 
     let l: Vec<u64> = (0..5).map(|i| npara + 1 + i).collect();
-    ck.leave(l).await;
+    ck.leave(&l).await;
     let c3 = ck.query().await;
     for i in 1..=npara {
         for j in 0..c1.shards.len() {
@@ -270,7 +272,7 @@ async fn multi_4a() {
     t.shutdown_server(leader);
 
     let mut attempts = 0;
-    while t.leader().is_ok() {
+    while t.leader().is_some() {
         attempts += 1;
         assert!(attempts < 3, "Leader not found");
         time::sleep(Duration::from_secs(1)).await;
@@ -280,4 +282,6 @@ async fn multi_4a() {
     assert_eq!(c, c1);
 
     info!("  ... Passed");
+
+    t.end();
 }

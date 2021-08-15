@@ -2,9 +2,7 @@ use super::msg::*;
 use crate::raft;
 use futures::{channel::oneshot, StreamExt};
 use madsim::{
-    fs, net,
-    rand::{self, Rng},
-    task,
+    fs, net, task,
     time::{timeout, Duration},
 };
 use serde::{Deserialize, Serialize};
@@ -132,7 +130,7 @@ impl<S: State> Server<S> {
         {
             Ok(s) => s.index,
             Err(raft::Error::NotLeader(l)) => return Err(Error::NotLeader(l)),
-            e => unreachable!(),
+            _ => unreachable!(),
         };
         let recver = self.register_rpc(index, id);
         let output = timeout(Duration::from_millis(500), recver)

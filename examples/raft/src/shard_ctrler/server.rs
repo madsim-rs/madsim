@@ -1,16 +1,6 @@
 use super::msg::*;
 use crate::kvraft::server::{Server, State};
-use madsim::{
-    fs, net,
-    rand::{self, Rng},
-    task,
-    time::{timeout, Duration},
-};
 use serde::{Deserialize, Serialize};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
 
 pub type ShardCtrler = Server<ShardInfo>;
 
@@ -42,7 +32,6 @@ impl State for ShardInfo {
         }
         self.ids.push(id);
         match cmd {
-            // TODO: query specific num
             Op::Query { num: None } => {
                 return Some(self.config.last().unwrap().clone());
             }

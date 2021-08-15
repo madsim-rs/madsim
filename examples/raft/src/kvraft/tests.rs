@@ -220,25 +220,25 @@ async fn generic_test(
 }
 
 #[madsim::test]
-async fn test_basic_3a() {
+async fn basic_3a() {
     // Test: one client (3A) ...
     generic_test("3A", 1, false, false, false, None).await;
 }
 
 #[madsim::test]
-async fn test_concurrent_3a() {
+async fn concurrent_3a() {
     // Test: many clients (3A) ...
     generic_test("3A", 5, false, false, false, None).await;
 }
 
 #[madsim::test]
-async fn test_unreliable_3a() {
+async fn unreliable_3a() {
     // Test: unreliable net, many clients (3A) ...
     generic_test("3A", 5, true, false, false, None).await;
 }
 
 #[madsim::test]
-async fn test_unreliable_one_key_3a() {
+async fn unreliable_one_key_3a() {
     let nservers = 3;
     let t = Tester::new(nservers, true, None).await;
     info!("Test: concurrent append to same key, unreliable (3A)");
@@ -274,7 +274,7 @@ async fn test_unreliable_one_key_3a() {
 // doesn't go through until the partition heals. The leader in the original
 // network ends up in the minority partition.
 #[madsim::test]
-async fn test_one_partition_3a() {
+async fn one_partition_3a() {
     let nservers = 5;
     let t = Tester::new(nservers, false, None).await;
 
@@ -342,49 +342,49 @@ async fn test_one_partition_3a() {
 }
 
 #[madsim::test]
-async fn test_many_partitions_one_client_3a() {
+async fn many_partitions_one_client_3a() {
     // Test: partitions, one client (3A) ...
     generic_test("3A", 1, false, false, true, None).await;
 }
 
 #[madsim::test]
-async fn test_many_partitions_many_clients_3a() {
+async fn many_partitions_many_clients_3a() {
     // Test: partitions, many clients (3A) ...
     generic_test("3A", 5, false, false, true, None).await;
 }
 
 #[madsim::test]
-async fn test_persist_one_client_3a() {
+async fn persist_one_client_3a() {
     // Test: restarts, one client (3A) ...
     generic_test("3A", 1, false, true, false, None).await;
 }
 
 #[madsim::test]
-async fn test_persist_concurrent_3a() {
+async fn persist_concurrent_3a() {
     // Test: restarts, many clients (3A) ...
     generic_test("3A", 5, false, true, false, None).await;
 }
 
 #[madsim::test]
-async fn test_persist_concurrent_unreliable_3a() {
+async fn persist_concurrent_unreliable_3a() {
     // Test: unreliable net, restarts, many clients (3A) ...
     generic_test("3A", 5, true, true, false, None).await;
 }
 
 #[madsim::test]
-async fn test_persist_partition_3a() {
+async fn persist_partition_3a() {
     // Test: restarts, partitions, many clients (3A) ...
     generic_test("3A", 5, false, true, true, None).await;
 }
 
 #[madsim::test]
-async fn test_persist_partition_unreliable_3a() {
+async fn persist_partition_unreliable_3a() {
     // Test: unreliable net, restarts, partitions, many clients (3A) ...
     generic_test("3A", 5, true, true, true, None).await;
 }
 
 // #[madsim::test]
-// async fn test_persist_partition_unreliable_linearizable_3a() {
+// async fn persist_partition_unreliable_linearizable_3a() {
 //     // Test: unreliable net, restarts, partitions, linearizability checks (3A) ...
 //     generic_test_linearizability("3A", 15, 7, true, true, true, None)
 // }
@@ -394,7 +394,7 @@ async fn test_persist_partition_unreliable_3a() {
 // also checks that majority discards committed log entries
 // even if minority doesn't respond.
 #[madsim::test]
-async fn test_snapshot_rpc_3b() {
+async fn snapshot_rpc_3b() {
     let nservers = 3;
     let maxraftstate = 1000;
     let t = Tester::new(nservers, false, Some(maxraftstate)).await;
@@ -454,7 +454,7 @@ async fn test_snapshot_rpc_3b() {
 // are the snapshots not too huge? 500 bytes is a generous bound for the
 // operations we're doing here.
 #[madsim::test]
-async fn test_snapshot_size_3b() {
+async fn snapshot_size_3b() {
     let nservers = 3;
     let maxraftstate = 1000;
     let maxsnapshotstate = 500;
@@ -492,37 +492,37 @@ async fn test_snapshot_size_3b() {
 }
 
 #[madsim::test]
-async fn test_snapshot_recover_3b() {
+async fn snapshot_recover_3b() {
     // Test: restarts, snapshots, one client (3B) ...
     generic_test("3B", 1, false, true, false, Some(1000)).await;
 }
 
 #[madsim::test]
-async fn test_snapshot_recover_many_clients_3b() {
+async fn snapshot_recover_many_clients_3b() {
     // Test: restarts, snapshots, many clients (3B) ...
     generic_test("3B", 20, false, true, false, Some(1000)).await;
 }
 
 #[madsim::test]
-async fn test_snapshot_unreliable_3b() {
+async fn snapshot_unreliable_3b() {
     // Test: unreliable net, snapshots, many clients (3B) ...
     generic_test("3B", 5, true, false, false, Some(1000)).await;
 }
 
 #[madsim::test]
-async fn test_snapshot_unreliable_recover_3b() {
+async fn snapshot_unreliable_recover_3b() {
     // Test: unreliable net, restarts, snapshots, many clients (3B) ...
     generic_test("3B", 5, true, true, false, Some(1000)).await;
 }
 
 #[madsim::test]
-async fn test_snapshot_unreliable_recover_concurrent_partition_3b() {
+async fn snapshot_unreliable_recover_concurrent_partition_3b() {
     // Test: unreliable net, restarts, partitions, snapshots, many clients (3B) ...
     generic_test("3B", 5, true, true, true, Some(1000)).await;
 }
 
 // #[madsim::test]
-// async fn test_snapshot_unreliable_recover_concurrent_partition_linearizable_3b() {
+// async fn snapshot_unreliable_recover_concurrent_partition_linearizable_3b() {
 //     // Test: unreliable net, restarts, partitions, snapshots, linearizability checks (3B) ...
 //     generic_test_linearizability("3B", 15, 7, true, true, true, Some(1000)).await;
 // }
