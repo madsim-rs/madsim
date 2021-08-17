@@ -1,5 +1,5 @@
-use rand::{rngs, RngCore};
-pub use rand::{seq, Rng};
+// re-export rand crate
+pub use rand::*;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
