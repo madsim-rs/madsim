@@ -23,7 +23,7 @@ impl Clerk {
             .unwrap()
     }
 
-    pub async fn join(&self, groups: HashMap<Gid, Vec<String>>) {
+    pub async fn join(&self, groups: HashMap<Gid, Vec<SocketAddr>>) {
         let id: u64 = rand::rng().gen();
         let args = Op::Join { groups };
         self.core.call::<_, Option<Config>>((id, args)).await;

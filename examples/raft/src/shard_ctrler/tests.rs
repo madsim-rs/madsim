@@ -6,14 +6,20 @@ use madsim::{
     task,
     time::{self, Duration},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
+
+macro_rules! addrs {
+    ($($addr:expr),* $(,)?) => {
+        vec![$(SocketAddr::from(([0, 0, 0, $addr as u8], 0))),*]
+    }
+}
 
 // helper macro to construct groups
 macro_rules! groups {
-    ($( $gid:expr => [$($str:expr),*] ),*) => {{
+    ($( $gid:expr => $addrs:expr ),* $(,)?) => {{
         let mut map = std::collections::HashMap::new();
         $(
-            map.insert($gid, vec![$($str.to_string()),*]);
+            map.insert($gid, $addrs);
         )*
         map
     }}
@@ -33,20 +39,22 @@ async fn basic_4a() {
     ck.check(&[]).await;
 
     let gid1 = 1;
-    ck.join(groups!(gid1 => ["x", "y", "z"])).await;
+    let addr1 = addrs![11, 12, 13];
+    ck.join(groups!(gid1 => addr1.clone())).await;
     ck.check(&[gid1]).await;
     cfa.push(ck.query().await);
 
     let gid2 = 2;
-    ck.join(groups!(gid2 => ["a", "b", "c"])).await;
+    let addr2 = addrs![21, 22, 23];
+    ck.join(groups!(gid2 => addr2.clone())).await;
     ck.check(&[gid1, gid2]).await;
     cfa.push(ck.query().await);
 
     let cfx = ck.query().await;
     let sa1 = cfx.groups[&gid1].as_slice();
-    assert_eq!(sa1, ["x", "y", "z"], "wrong servers for gid {}", gid1);
+    assert_eq!(sa1, addr1, "wrong servers for gid {}", gid1);
     let sa2 = cfx.groups[&gid2].as_slice();
-    assert_eq!(sa2, ["a", "b", "c"], "wrong servers for gid {}", gid2);
+    assert_eq!(sa2, addr2, "wrong servers for gid {}", gid2);
 
     ck.leave(&[gid1]).await;
     ck.check(&[gid2]).await;
@@ -74,9 +82,11 @@ async fn basic_4a() {
     info!("Test: Move ...");
 
     let gid3 = 503;
-    ck.join(groups!(gid3 => ["3a", "3b", "3c"])).await;
+    let addr3 = addrs![31, 32, 33];
+    ck.join(groups!(gid3 => addr3)).await;
     let gid4 = 504;
-    ck.join(groups!(gid4 => ["4a", "4b", "4c"])).await;
+    let addr4 = addrs![41, 42, 43];
+    ck.join(groups!(gid4 => addr4)).await;
     for i in 0..N_SHARDS {
         let cf = ck.query().await;
         let shard = if i < N_SHARDS / 2 { gid3 } else { gid4 };
@@ -104,10 +114,8 @@ async fn basic_4a() {
     for &gid in gids.iter() {
         let cka = t.make_client(&t.all());
         handles.push(task::spawn_local(async move {
-            let sid1 = format!("s{}a", gid);
-            let sid2 = format!("s{}b", gid);
-            cka.join(groups!(gid + 1000 => [sid1])).await;
-            cka.join(groups!(gid => [sid2])).await;
+            cka.join(groups!(gid + 1000 => addrs![gid + 1])).await;
+            cka.join(groups!(gid => addrs![gid + 2])).await;
             cka.leave(&[gid + 1000]).await;
         }));
     }
@@ -121,7 +129,7 @@ async fn basic_4a() {
     let c1 = ck.query().await;
     for i in 0..5 {
         let gid = npara + 1 + i;
-        ck.join(groups!(gid => [format!("{}a", gid), format!("{}b", gid), format!("{}b", gid)]))
+        ck.join(groups!(gid => addrs![gid + 1, gid + 2, gid + 2]))
             .await;
     }
     let c2 = ck.query().await;
@@ -170,24 +178,27 @@ async fn multi_4a() {
     ck.check(&[]).await;
 
     let gid1 = 1;
+    let addr1 = addrs![11, 12, 13];
     let gid2 = 2;
-    ck.join(groups!(gid1 => ["x", "y", "z"], gid2 => ["a", "b", "c"]))
+    let addr2 = addrs![21, 22, 23];
+    ck.join(groups!(gid1 => addr1.clone(), gid2 => addr2.clone()))
         .await;
     ck.check(&[gid1, gid2]).await;
     cfa.push(ck.query().await);
 
     let gid3 = 3;
-    ck.join(groups!(gid3 => ["j", "k", "l"])).await;
+    let addr3 = addrs![31, 32, 33];
+    ck.join(groups!(gid3 => addr3.clone())).await;
     ck.check(&[gid1, gid2, gid3]).await;
     cfa.push(ck.query().await);
 
     let cfx = ck.query().await;
     let sa1 = cfx.groups[&gid1].as_slice();
-    assert_eq!(sa1, ["x", "y", "z"], "wrong servers for gid {}", gid1);
+    assert_eq!(sa1, addr1, "wrong servers for gid {}", gid1);
     let sa2 = cfx.groups[&gid2].as_slice();
-    assert_eq!(sa2, ["a", "b", "c"], "wrong servers for gid {}", gid2);
+    assert_eq!(sa2, addr2, "wrong servers for gid {}", gid2);
     let sa3 = cfx.groups[&gid3].as_slice();
-    assert_eq!(sa3, ["j", "k", "l"], "wrong servers for gid {}", gid3);
+    assert_eq!(sa3, addr3, "wrong servers for gid {}", gid3);
 
     ck.leave(&[gid1, gid3]).await;
     ck.check(&[gid2]).await;
@@ -195,7 +206,7 @@ async fn multi_4a() {
 
     let cfx = ck.query().await;
     let sa2 = cfx.groups[&gid2].as_slice();
-    assert_eq!(sa2, ["a", "b", "c"], "wrong servers for gid {}", gid2);
+    assert_eq!(sa2, addr2, "wrong servers for gid {}", gid2);
 
     ck.leave(&[gid2]).await;
 
@@ -210,13 +221,9 @@ async fn multi_4a() {
         let cka = t.make_client(&t.all());
         handles.push(task::spawn_local(async move {
             cka.join(groups!(
-                gid => [
-                    format!("{}a", gid),
-                    format!("{}b", gid),
-                    format!("{}c", gid)
-                ],
-                gid + 1000 => [format!("{}a", gid + 1000)],
-                gid + 2000 => [format!("{}a", gid + 2000)]
+                gid => addrs![gid + 1, gid + 2, gid + 3],
+                gid + 1000 => addrs![gid + 1000 + 1],
+                gid + 2000 => addrs![gid + 2000 + 1],
             ))
             .await;
             cka.leave(&[gid + 1000, gid + 2000]).await;
@@ -234,7 +241,7 @@ async fn multi_4a() {
     let mut m = HashMap::new();
     for i in 0..5 {
         let gid = npara + 1 + i;
-        m.insert(gid, vec![format!("{}a", gid), format!("{}b", gid)]);
+        m.insert(gid, addrs![gid + 1, gid + 2]);
     }
     ck.join(m).await;
     let c2 = ck.query().await;

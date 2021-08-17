@@ -244,7 +244,7 @@ impl Clerk {
             .await
     }
 
-    pub async fn join(&self, groups: HashMap<u64, Vec<String>>) {
+    pub async fn join(&self, groups: HashMap<u64, Vec<SocketAddr>>) {
         debug!("join: {:?}", groups);
         self.op();
         let ck = self.ck.clone();

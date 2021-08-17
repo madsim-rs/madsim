@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 
 pub type Gid = u64;
 pub type ConfigId = u64;
@@ -13,7 +13,7 @@ pub struct Config {
     /// shard -> gid
     pub shards: HashMap<usize, Gid>,
     /// gid -> servers[]
-    pub groups: HashMap<Gid, Vec<String>>,
+    pub groups: HashMap<Gid, Vec<SocketAddr>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +24,7 @@ pub enum Op {
     },
     Join {
         /// new GID -> servers mappings
-        groups: HashMap<Gid, Vec<String>>,
+        groups: HashMap<Gid, Vec<SocketAddr>>,
     },
     Leave {
         gids: Vec<Gid>,
