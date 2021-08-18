@@ -1,3 +1,5 @@
+//! Asynchronous file system.
+
 use crate::{rand::RandomHandle, time::TimeHandle};
 use log::*;
 use std::{
@@ -8,12 +10,12 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-pub struct FileSystemRuntime {
+pub(crate) struct FileSystemRuntime {
     handle: FileSystemHandle,
 }
 
 impl FileSystemRuntime {
-    pub(crate) fn new(rand: RandomHandle, time: TimeHandle) -> Self {
+    pub fn new(rand: RandomHandle, time: TimeHandle) -> Self {
         let handle = FileSystemHandle {
             handles: Arc::new(Mutex::new(HashMap::new())),
             rand,

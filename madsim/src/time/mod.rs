@@ -1,6 +1,11 @@
+//! Utilities for tracking time.
+//!
+//!
+
 pub use self::instant::Instant;
 use futures::{future::poll_fn, select, FutureExt};
 use naive_timer::Timer;
+#[doc(no_inline)]
 pub use std::time::Duration;
 use std::{
     future::Future,
@@ -45,6 +50,7 @@ impl TimeRuntime {
     }
 }
 
+/// Handle to a shared time source.
 #[derive(Clone)]
 pub struct TimeHandle {
     timer: Arc<Mutex<Timer>>,
@@ -52,22 +58,27 @@ pub struct TimeHandle {
 }
 
 impl TimeHandle {
+    /// Returns a `TimeHandle` view over the currently running Runtime.
     pub fn try_current() -> Option<Self> {
         crate::context::try_time_handle()
     }
 
+    /// Return the current time.
     pub fn now(&self) -> Instant {
         self.clock.now()
     }
 
+    /// Returns the amount of time elapsed since this handle was created.
     pub fn elapsed(&self) -> Duration {
         self.clock.elapsed()
     }
 
+    /// Waits until `duration` has elapsed.
     pub fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send {
         self.sleep_until(self.clock.now() + duration)
     }
 
+    /// Waits until `deadline` is reached.
     pub fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()> + Send {
         let handle = self.clone();
         poll_fn(move |cx| {
@@ -80,17 +91,18 @@ impl TimeHandle {
         })
     }
 
+    /// Require a `Future` to complete before the specified duration has elapsed.
     // TODO: make it Send
     pub fn timeout<T: Future>(
         &self,
         duration: Duration,
         future: T,
-    ) -> impl Future<Output = Result<T::Output, Elapsed>> {
+    ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
         let timeout = self.sleep(duration);
         async move {
             select! {
                 res = future.fuse() => Ok(res),
-                _ = timeout.fuse() => Err(Elapsed),
+                _ = timeout.fuse() => Err(error::Elapsed),
             }
         }
     }
@@ -105,23 +117,30 @@ impl TimeHandle {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct Elapsed;
+/// Time error types.
+pub mod error {
+    /// Error returned by `timeout`.
+    #[derive(Debug, PartialEq)]
+    pub struct Elapsed;
+}
 
+/// Waits until `duration` has elapsed.
 pub fn sleep(duration: Duration) -> impl Future<Output = ()> + Send {
     let handle = crate::context::time_handle();
     handle.sleep(duration)
 }
 
+/// Waits until `deadline` is reached.
 pub fn sleep_until(deadline: Instant) -> impl Future<Output = ()> + Send {
     let handle = crate::context::time_handle();
     handle.sleep_until(deadline)
 }
 
+/// Require a `Future` to complete before the specified duration has elapsed.
 pub fn timeout<T: Future>(
     duration: Duration,
     future: T,
-) -> impl Future<Output = Result<T::Output, Elapsed>> {
+) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
     let handle = crate::context::time_handle();
     handle.timeout(duration, future)
 }

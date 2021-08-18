@@ -3,6 +3,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
 
+/// Marks async function to be executed by the selected runtime. This macro
+/// helps set up a `Runtime` without requiring the user to use
+/// [Runtime](../madsim/struct.Runtime.html) directly.
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
@@ -11,6 +14,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     parse(input, args, false).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
+/// Marks async function to be executed by runtime, suitable to test environment.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);

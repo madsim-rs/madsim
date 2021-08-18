@@ -1,3 +1,5 @@
+//! Asynchronous tasks executor.
+
 use super::time::{Instant, TimeHandle, TimeRuntime};
 use async_task::Runnable;
 pub use async_task::Task;
@@ -15,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-pub struct Executor {
+pub(crate) struct Executor {
     queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
     handle: TaskHandle,
     time: TimeRuntime,

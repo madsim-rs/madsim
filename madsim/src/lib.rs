@@ -1,3 +1,5 @@
+//! A deterministic simulator for distributed systems.
+
 use std::{future::Future, net::SocketAddr, time::Duration};
 
 mod context;
@@ -10,6 +12,17 @@ pub mod time;
 #[cfg(feature = "macros")]
 pub use madsim_macros::{main, test};
 
+/// The madsim runtime.
+///
+/// The runtime provides basic components for deterministic simulation,
+/// including a [random number generator], [timer], [task scheduler], and
+/// simulated [network] and [file system].
+///
+/// [random number generator]: crate::rand
+/// [timer]: crate::time
+/// [task scheduler]: crate::task
+/// [network]: crate::net
+/// [file system]: crate::fs
 pub struct Runtime {
     rand: rand::RandomHandle,
     task: task::Executor,
@@ -18,10 +31,12 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    /// Create a new runtime instance.
     pub fn new() -> Self {
         Self::new_with_seed(0)
     }
 
+    /// Create a new runtime instance with given seed.
     pub fn new_with_seed(seed: u64) -> Self {
         #[cfg(feature = "logger")]
         crate::init_logger();
@@ -38,6 +53,13 @@ impl Runtime {
         }
     }
 
+    /// Return a handle to the runtime.
+    ///
+    /// The returned handle can be used by the supervisor (future in [block_on])
+    /// to control the whole system. For example, kill a host or disconnect the
+    /// network.
+    ///
+    /// [block_on]: Runtime::block_on
     pub fn handle(&self) -> Handle {
         Handle {
             rand: self.rand.clone(),
@@ -48,6 +70,9 @@ impl Runtime {
         }
     }
 
+    /// Return a handle of the specified host.
+    ///
+    /// The returned handle can be used to spawn tasks that run on this host.
     pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
         LocalHandle {
             rand: self.rand.clone(),
@@ -58,16 +83,25 @@ impl Runtime {
         }
     }
 
+    /// Set a time limit of the execution.
+    ///
+    /// The runtime will panic when time limit exceeded.
     pub fn set_time_limit(&mut self, limit: Duration) {
         self.task.set_time_limit(limit);
     }
 
+    /// Run a future to completion on the runtime. This is the runtime’s entry point.
+    ///
+    /// This runs the given future on the current thread until it is complete.
+    /// Unlike usual async runtime, when there is no runnable task, it will
+    /// panic instead of blocking.
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         let _guard = crate::context::enter(self.handle());
         self.task.block_on(future)
     }
 }
 
+/// Supervisor handle to the runtime.
 #[derive(Clone)]
 pub struct Handle {
     pub rand: rand::RandomHandle,
@@ -78,16 +112,22 @@ pub struct Handle {
 }
 
 impl Handle {
+    /// Returns a [`Handle`] view over the currently running [`Runtime`].
     pub fn current() -> Self {
         context::current().expect("no madsim context")
     }
 
+    /// Kill a host.
+    ///
+    /// - All tasks spawned on this host will be killed immediately.
+    /// - All data that has not been flushed to the disk will be lost.
     pub fn kill(&self, addr: SocketAddr) {
         self.task.kill(addr);
         // self.net.kill(addr);
         // self.fs.power_fail(addr);
     }
 
+    /// Return a handle of the specified host.
     pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
         LocalHandle {
             rand: self.rand.clone(),
@@ -99,6 +139,7 @@ impl Handle {
     }
 }
 
+/// Local host handle to the runtime.
 #[derive(Clone)]
 pub struct LocalHandle {
     pub rand: rand::RandomHandle,
@@ -109,6 +150,7 @@ pub struct LocalHandle {
 }
 
 impl LocalHandle {
+    /// Spawn a future onto the runtime.
     pub fn spawn<F>(&self, future: F) -> async_task::Task<F::Output>
     where
         F: Future + Send + 'static,

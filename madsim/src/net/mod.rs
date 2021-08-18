@@ -1,3 +1,5 @@
+//! Asynchronous network endpoint and a controlled network simulator.
+
 use log::*;
 use std::{
     io,
@@ -15,12 +17,12 @@ mod network;
 #[cfg(feature = "rpc")]
 mod rpc;
 
-pub struct NetworkRuntime {
+pub(crate) struct NetworkRuntime {
     handle: NetworkHandle,
 }
 
 impl NetworkRuntime {
-    pub(crate) fn new(rand: RandomHandle, time: TimeHandle) -> Self {
+    pub fn new(rand: RandomHandle, time: TimeHandle) -> Self {
         let handle = NetworkHandle {
             network: Arc::new(Mutex::new(Network::new(rand.clone(), time.clone()))),
             rand,

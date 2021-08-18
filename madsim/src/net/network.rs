@@ -113,7 +113,7 @@ impl Network {
             trace!("no connection");
             return;
         }
-        if self.rand.should_fault(self.config.packet_loss_rate) {
+        if self.rand.gen_bool(self.config.packet_loss_rate) {
             trace!("packet loss");
             return;
         }

@@ -1,30 +1,45 @@
-// re-export rand crate
-pub use rand::*;
+//! Deterministic random number generator.
+//!
+//! This module re-exports the prelude traits of [`rand`] crate.
+//!
+//! User should call [`rng()`] to retrieve the deterministic random number
+//! generator from the current madsim context. **Do not** use [`random()`] or
+//! [`thread_rng()`] from the rand crate directly, because no deterministic is
+//! guaranteed.
+//!
+//! [`rand`]: rand
+//! [`rng()`]: rng
+//! [`random()`]: rand::random
+//! [`thread_rng()`]: rand::thread_rng
+
+#[doc(no_inline)]
+pub use rand::prelude::{
+    CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom, SmallRng,
+};
 use std::sync::{Arc, Mutex};
 
+/// Handle to a shared random state.
 #[derive(Debug, Clone)]
 pub struct RandomHandle {
-    rng: Arc<Mutex<rngs::SmallRng>>,
+    rng: Arc<Mutex<SmallRng>>,
 }
 
 impl RandomHandle {
+    /// Create a new RNG using the given seed.
     pub fn new_with_seed(seed: u64) -> Self {
         RandomHandle {
-            rng: Arc::new(Mutex::new(rand::SeedableRng::seed_from_u64(seed))),
+            rng: Arc::new(Mutex::new(SeedableRng::seed_from_u64(seed))),
         }
     }
 
-    pub fn should_fault(&self, probability: f64) -> bool {
-        let mut lock = self.rng.lock().unwrap();
-        lock.gen_bool(probability)
-    }
-
-    pub fn with<T>(&self, f: impl FnOnce(&mut rngs::SmallRng) -> T) -> T {
+    /// Call function on the inner RNG.
+    pub fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
         let mut lock = self.rng.lock().unwrap();
         f(&mut *lock)
     }
 }
 
+/// Retrieve the deterministic random number generator from the current madsim context.
 pub fn rng() -> RandomHandle {
     crate::context::rand_handle()
 }
