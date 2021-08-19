@@ -116,7 +116,7 @@ impl Deref for Executor {
 }
 
 #[derive(Clone)]
-pub struct TaskHandle {
+pub(crate) struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     info: Arc<Mutex<HashMap<SocketAddr, Arc<TaskInfo>>>>,
 }
@@ -149,7 +149,7 @@ impl TaskHandle {
 }
 
 #[derive(Debug, Clone)]
-pub struct TaskLocalHandle {
+pub(crate) struct TaskLocalHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     info: Arc<TaskInfo>,
 }
@@ -182,6 +182,7 @@ impl TaskLocalHandle {
     }
 }
 
+/// Spawns a new asynchronous task, returning a [`Task`] for it.
 pub fn spawn<F>(future: F) -> Task<F::Output>
 where
     F: Future + Send + 'static,
@@ -191,6 +192,7 @@ where
     handle.spawn(future)
 }
 
+/// Spawns a `!Send` future on the local task set.
 pub fn spawn_local<F>(future: F) -> Task<F::Output>
 where
     F: Future + 'static,

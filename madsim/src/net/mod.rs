@@ -36,6 +36,7 @@ impl NetRuntime {
     }
 }
 
+/// Network handle to the runtime.
 #[derive(Clone)]
 pub struct NetHandle {
     network: Arc<Mutex<Network>>,
@@ -44,6 +45,7 @@ pub struct NetHandle {
 }
 
 impl NetHandle {
+    /// Return a handle of the specified host.
     pub fn local_handle(&self, addr: SocketAddr) -> NetLocalHandle {
         self.network.lock().unwrap().insert(addr);
         NetLocalHandle {
@@ -52,26 +54,31 @@ impl NetHandle {
         }
     }
 
+    /// Get the statistics.
     pub fn stat(&self) -> Stat {
         self.network.lock().unwrap().stat().clone()
     }
 
+    /// Update network configurations.
     pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
         let mut network = self.network.lock().unwrap();
         network.update_config(f);
     }
 
+    /// Connect a host to the network.
     pub fn connect(&self, addr: SocketAddr) {
         let mut network = self.network.lock().unwrap();
         network.insert(addr);
         network.unclog(addr);
     }
 
+    /// Disconnect a host from the network.
     pub fn disconnect(&self, addr: SocketAddr) {
         let mut network = self.network.lock().unwrap();
         network.clog(addr);
     }
 
+    /// Connect a pair of hosts.
     pub fn connect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
         let mut network = self.network.lock().unwrap();
         network.insert(addr1);
@@ -80,6 +87,7 @@ impl NetHandle {
         network.unclog_link(addr2, addr1);
     }
 
+    /// Disconnect a pair of hosts.
     pub fn disconnect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
         let mut network = self.network.lock().unwrap();
         network.clog_link(addr1, addr2);
@@ -87,6 +95,7 @@ impl NetHandle {
     }
 }
 
+/// Local host network handle to the runtime.
 #[derive(Clone)]
 pub struct NetLocalHandle {
     handle: NetHandle,
@@ -94,14 +103,20 @@ pub struct NetLocalHandle {
 }
 
 impl NetLocalHandle {
+    /// Returns a [`NetLocalHandle`] view over the currently running [`Runtime`].
+    ///
+    /// [`Runtime`]: crate::Runtime
     pub fn current() -> Self {
         crate::context::net_local_handle()
     }
 
+    /// Sends data with tag on the socket to the given address.
     pub async fn send_to(&self, dst: SocketAddr, tag: u64, data: &[u8]) -> io::Result<()> {
         self.send_to_raw(dst, tag, Box::new(Vec::from(data))).await
     }
 
+    /// Receives a single message with given tag on the socket.
+    /// On success, returns the number of bytes read and the origin.
     pub async fn recv_from(&self, tag: u64, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         let (data, from) = self.recv_from_raw(tag).await?;
         // copy to buffer
@@ -111,6 +126,7 @@ impl NetLocalHandle {
         Ok((len, from))
     }
 
+    /// Sends a raw message.
     async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         self.handle
             .network
@@ -123,6 +139,7 @@ impl NetLocalHandle {
         Ok(())
     }
 
+    /// Receives a raw message.
     async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
         let recver = self.handle.network.lock().unwrap().recv(self.addr, tag);
         let msg = recver.await.unwrap();

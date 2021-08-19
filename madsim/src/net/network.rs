@@ -21,7 +21,9 @@ pub(crate) struct Network {
     clogged_link: HashSet<(SocketAddr, SocketAddr)>,
 }
 
+/// Network configurations.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub struct Config {
     pub packet_loss_rate: f64,
     pub send_latency: Range<Duration>,
@@ -36,8 +38,10 @@ impl Default for Config {
     }
 }
 
+/// Network statistics.
 #[derive(Debug, Default, Clone)]
 pub struct Stat {
+    /// Total number of messages.
     pub msg_count: u64,
 }
 

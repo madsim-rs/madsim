@@ -1,5 +1,7 @@
 //! A deterministic simulator for distributed systems.
 
+#![deny(missing_docs)]
+
 use std::{future::Future, net::SocketAddr, time::Duration};
 
 mod context;
@@ -75,8 +77,6 @@ impl Runtime {
     /// The returned handle can be used to spawn tasks that run on this host.
     pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
         LocalHandle {
-            rand: self.rand.clone(),
-            time: self.task.time_handle().clone(),
             task: self.task.handle().local_handle(addr),
             net: self.net.handle().local_handle(addr),
             fs: self.fs.handle().local_handle(addr),
@@ -103,10 +103,11 @@ impl Runtime {
 
 /// Supervisor handle to the runtime.
 #[derive(Clone)]
+#[allow(missing_docs)]
 pub struct Handle {
-    pub rand: rand::RandHandle,
-    pub time: time::TimeHandle,
-    pub task: task::TaskHandle,
+    rand: rand::RandHandle,
+    time: time::TimeHandle,
+    task: task::TaskHandle,
     pub net: net::NetHandle,
     pub fs: fs::FsHandle,
 }
@@ -130,8 +131,6 @@ impl Handle {
     /// Return a handle of the specified host.
     pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
         LocalHandle {
-            rand: self.rand.clone(),
-            time: self.time.clone(),
             task: self.task.local_handle(addr),
             net: self.net.local_handle(addr),
             fs: self.fs.local_handle(addr),
@@ -142,11 +141,9 @@ impl Handle {
 /// Local host handle to the runtime.
 #[derive(Clone)]
 pub struct LocalHandle {
-    pub rand: rand::RandHandle,
-    pub time: time::TimeHandle,
-    pub task: task::TaskLocalHandle,
-    pub net: net::NetLocalHandle,
-    pub fs: fs::FsLocalHandle,
+    task: task::TaskLocalHandle,
+    net: net::NetLocalHandle,
+    fs: fs::FsLocalHandle,
 }
 
 impl LocalHandle {

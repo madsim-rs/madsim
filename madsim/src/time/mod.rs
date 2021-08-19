@@ -52,7 +52,7 @@ impl TimeRuntime {
 
 /// Handle to a shared time source.
 #[derive(Clone)]
-pub struct TimeHandle {
+pub(crate) struct TimeHandle {
     timer: Arc<Mutex<Timer>>,
     clock: ClockHandle,
 }

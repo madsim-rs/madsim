@@ -29,6 +29,7 @@ impl FsRuntime {
     }
 }
 
+/// File system handle to the runtime.
 #[derive(Clone)]
 pub struct FsHandle {
     handles: Arc<Mutex<HashMap<SocketAddr, FsLocalHandle>>>,
@@ -37,7 +38,8 @@ pub struct FsHandle {
 }
 
 impl FsHandle {
-    pub fn local_handle(&self, addr: SocketAddr) -> FsLocalHandle {
+    /// Return a handle of the specified host.
+    pub(crate) fn local_handle(&self, addr: SocketAddr) -> FsLocalHandle {
         let mut handles = self.handles.lock().unwrap();
         handles
             .entry(addr)
@@ -50,6 +52,7 @@ impl FsHandle {
         todo!()
     }
 
+    /// Get the size of given file.
     pub fn get_file_size(&self, addr: SocketAddr, path: impl AsRef<Path>) -> Result<u64> {
         let path = path.as_ref();
         let handle = self.handles.lock().unwrap()[&addr].clone();
@@ -61,8 +64,9 @@ impl FsHandle {
     }
 }
 
+/// Local host file system handle to the runtime.
 #[derive(Clone)]
-pub struct FsLocalHandle {
+pub(crate) struct FsLocalHandle {
     addr: SocketAddr,
     fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
@@ -76,11 +80,11 @@ impl FsLocalHandle {
         }
     }
 
-    pub fn current() -> Self {
+    fn current() -> Self {
         crate::context::fs_local_handle()
     }
 
-    pub async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
+    async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
         trace!("fs({}): open at {:?}", self.addr, path);
         let fs = self.fs.lock().unwrap();
@@ -94,7 +98,7 @@ impl FsLocalHandle {
         })
     }
 
-    pub async fn create(&self, path: impl AsRef<Path>) -> Result<File> {
+    async fn create(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
         trace!("fs({}): create at {:?}", self.addr, path);
         let mut fs = self.fs.lock().unwrap();
@@ -109,7 +113,7 @@ impl FsLocalHandle {
         })
     }
 
-    pub async fn metadata(&self, path: impl AsRef<Path>) -> Result<Metadata> {
+    async fn metadata(&self, path: impl AsRef<Path>) -> Result<Metadata> {
         let path = path.as_ref();
         let fs = self.fs.lock().unwrap();
         let inode = fs.get(path).ok_or(Error::new(
@@ -144,22 +148,28 @@ impl INode {
     }
 }
 
+/// A reference to an open file on the filesystem.
 pub struct File {
     inode: Arc<INode>,
     can_write: bool,
 }
 
 impl File {
+    /// Attempts to open a file in read-only mode.
     pub async fn open(path: impl AsRef<Path>) -> Result<File> {
         let handle = FsLocalHandle::current();
         handle.open(path).await
     }
 
+    /// Opens a file in write-only mode.
+    ///
+    /// This function will create a file if it does not exist, and will truncate it if it does.
     pub async fn create(path: impl AsRef<Path>) -> Result<File> {
         let handle = FsLocalHandle::current();
         handle.create(path).await
     }
 
+    /// Reads a number of bytes starting from a given offset.
     pub async fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize> {
         trace!(
             "file({:?}): read_at: offset={}, len={}",
@@ -175,6 +185,7 @@ impl File {
         Ok(len)
     }
 
+    /// Attempts to write an entire buffer starting from a given offset.
     pub async fn write_all_at(&self, buf: &[u8], offset: u64) -> Result<()> {
         trace!(
             "file({:?}): write_all_at: offset={}, len={}",
@@ -200,6 +211,7 @@ impl File {
         Ok(())
     }
 
+    /// Truncates or extends the underlying file, updating the size of this file to become `size`.
     pub async fn set_len(&self, size: u64) -> Result<()> {
         trace!("file({:?}): set_len={}", self.inode.path, size);
         let mut data = self.inode.data.write().unwrap();
@@ -208,12 +220,14 @@ impl File {
         Ok(())
     }
 
+    /// Attempts to sync all OS-internal metadata to disk.
     pub async fn sync_all(&self) -> Result<()> {
         trace!("file({:?}): sync_all", self.inode.path);
         // TODO: random delay
         Ok(())
     }
 
+    /// Queries metadata about the underlying file.
     pub async fn metadata(&self) -> Result<Metadata> {
         Ok(self.inode.metadata())
     }
@@ -234,11 +248,13 @@ pub async fn metadata(path: impl AsRef<Path>) -> Result<Metadata> {
     handle.metadata(path).await
 }
 
+/// Metadata information about a file.
 pub struct Metadata {
     len: u64,
 }
 
 impl Metadata {
+    /// Returns the size of the file, in bytes, this metadata is for.
     pub fn len(&self) -> u64 {
         self.len
     }

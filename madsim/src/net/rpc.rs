@@ -8,11 +8,13 @@ use std::{
     mem::transmute,
 };
 
+/// A message that can be sent over the network.
 pub trait Message: Debug + Serialize + DeserializeOwned + Any + Send + Sync {}
 
 impl<T: Debug + Serialize + DeserializeOwned + Any + Send + Sync> Message for T {}
 
 impl NetLocalHandle {
+    /// Call function on a remote host with timeout.
     pub async fn call_timeout<Req, Rsp>(
         &self,
         dst: SocketAddr,
@@ -28,6 +30,7 @@ impl NetLocalHandle {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "RPC timeout"))?
     }
 
+    /// Call function on a remote host.
     pub async fn call<Req, Rsp>(&self, dst: SocketAddr, request: Req) -> io::Result<Rsp>
     where
         Req: Message,
@@ -47,6 +50,7 @@ impl NetLocalHandle {
         Ok(rsp)
     }
 
+    /// Add a RPC handler.
     pub fn add_rpc_handler<Req, Rsp, AsyncFn, Fut>(&self, mut f: AsyncFn)
     where
         Req: Message,
