@@ -17,36 +17,36 @@ mod network;
 #[cfg(feature = "rpc")]
 mod rpc;
 
-pub(crate) struct NetworkRuntime {
-    handle: NetworkHandle,
+pub(crate) struct NetRuntime {
+    handle: NetHandle,
 }
 
-impl NetworkRuntime {
-    pub fn new(rand: RandomHandle, time: TimeHandle) -> Self {
-        let handle = NetworkHandle {
+impl NetRuntime {
+    pub fn new(rand: RandHandle, time: TimeHandle) -> Self {
+        let handle = NetHandle {
             network: Arc::new(Mutex::new(Network::new(rand.clone(), time.clone()))),
             rand,
             time,
         };
-        NetworkRuntime { handle }
+        NetRuntime { handle }
     }
 
-    pub fn handle(&self) -> &NetworkHandle {
+    pub fn handle(&self) -> &NetHandle {
         &self.handle
     }
 }
 
 #[derive(Clone)]
-pub struct NetworkHandle {
+pub struct NetHandle {
     network: Arc<Mutex<Network>>,
-    rand: RandomHandle,
+    rand: RandHandle,
     time: TimeHandle,
 }
 
-impl NetworkHandle {
-    pub fn local_handle(&self, addr: SocketAddr) -> NetworkLocalHandle {
+impl NetHandle {
+    pub fn local_handle(&self, addr: SocketAddr) -> NetLocalHandle {
         self.network.lock().unwrap().insert(addr);
-        NetworkLocalHandle {
+        NetLocalHandle {
             handle: self.clone(),
             addr,
         }
@@ -88,12 +88,12 @@ impl NetworkHandle {
 }
 
 #[derive(Clone)]
-pub struct NetworkLocalHandle {
-    handle: NetworkHandle,
+pub struct NetLocalHandle {
+    handle: NetHandle,
     addr: SocketAddr,
 }
 
-impl NetworkLocalHandle {
+impl NetLocalHandle {
     pub fn current() -> Self {
         crate::context::net_local_handle()
     }
@@ -137,7 +137,7 @@ impl NetworkLocalHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::NetworkLocalHandle;
+    use super::NetLocalHandle;
     use crate::{time::*, Runtime};
 
     #[test]
@@ -150,7 +150,7 @@ mod tests {
 
         host1
             .spawn(async move {
-                let net = NetworkLocalHandle::current();
+                let net = NetLocalHandle::current();
                 net.send_to(addr2, 1, &[1]).await.unwrap();
 
                 sleep(Duration::from_secs(1)).await;
@@ -159,7 +159,7 @@ mod tests {
             .detach();
 
         let f = host2.spawn(async move {
-            let net = NetworkLocalHandle::current();
+            let net = NetLocalHandle::current();
             let mut buf = vec![0; 0x10];
             let (len, from) = net.recv_from(2, &mut buf).await.unwrap();
             assert_eq!(len, 1);
@@ -184,14 +184,14 @@ mod tests {
 
         host1
             .spawn(async move {
-                let net = NetworkLocalHandle::current();
+                let net = NetLocalHandle::current();
                 sleep(Duration::from_secs(2)).await;
                 net.send_to(addr2, 1, &[1]).await.unwrap();
             })
             .detach();
 
         let f = host2.spawn(async move {
-            let net = NetworkLocalHandle::current();
+            let net = NetLocalHandle::current();
             let mut buf = vec![0; 0x10];
             timeout(Duration::from_secs(1), net.recv_from(1, &mut buf))
                 .await

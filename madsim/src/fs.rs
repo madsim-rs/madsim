@@ -1,6 +1,6 @@
 //! Asynchronous file system.
 
-use crate::{rand::RandomHandle, time::TimeHandle};
+use crate::{rand::RandHandle, time::TimeHandle};
 use log::*;
 use std::{
     collections::HashMap,
@@ -10,38 +10,38 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-pub(crate) struct FileSystemRuntime {
-    handle: FileSystemHandle,
+pub(crate) struct FsRuntime {
+    handle: FsHandle,
 }
 
-impl FileSystemRuntime {
-    pub fn new(rand: RandomHandle, time: TimeHandle) -> Self {
-        let handle = FileSystemHandle {
+impl FsRuntime {
+    pub fn new(rand: RandHandle, time: TimeHandle) -> Self {
+        let handle = FsHandle {
             handles: Arc::new(Mutex::new(HashMap::new())),
             rand,
             time,
         };
-        FileSystemRuntime { handle }
+        FsRuntime { handle }
     }
 
-    pub fn handle(&self) -> &FileSystemHandle {
+    pub fn handle(&self) -> &FsHandle {
         &self.handle
     }
 }
 
 #[derive(Clone)]
-pub struct FileSystemHandle {
-    handles: Arc<Mutex<HashMap<SocketAddr, FileSystemLocalHandle>>>,
-    rand: RandomHandle,
+pub struct FsHandle {
+    handles: Arc<Mutex<HashMap<SocketAddr, FsLocalHandle>>>,
+    rand: RandHandle,
     time: TimeHandle,
 }
 
-impl FileSystemHandle {
-    pub fn local_handle(&self, addr: SocketAddr) -> FileSystemLocalHandle {
+impl FsHandle {
+    pub fn local_handle(&self, addr: SocketAddr) -> FsLocalHandle {
         let mut handles = self.handles.lock().unwrap();
         handles
             .entry(addr)
-            .or_insert_with(|| FileSystemLocalHandle::new(addr))
+            .or_insert_with(|| FsLocalHandle::new(addr))
             .clone()
     }
 
@@ -62,15 +62,15 @@ impl FileSystemHandle {
 }
 
 #[derive(Clone)]
-pub struct FileSystemLocalHandle {
+pub struct FsLocalHandle {
     addr: SocketAddr,
     fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
 
-impl FileSystemLocalHandle {
+impl FsLocalHandle {
     fn new(addr: SocketAddr) -> Self {
         trace!("fs: new at {}", addr);
-        FileSystemLocalHandle {
+        FsLocalHandle {
             addr,
             fs: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -151,12 +151,12 @@ pub struct File {
 
 impl File {
     pub async fn open(path: impl AsRef<Path>) -> Result<File> {
-        let handle = FileSystemLocalHandle::current();
+        let handle = FsLocalHandle::current();
         handle.open(path).await
     }
 
     pub async fn create(path: impl AsRef<Path>) -> Result<File> {
-        let handle = FileSystemLocalHandle::current();
+        let handle = FsLocalHandle::current();
         handle.create(path).await
     }
 
@@ -221,7 +221,7 @@ impl File {
 
 /// Read the entire contents of a file into a bytes vector.
 pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
-    let handle = FileSystemLocalHandle::current();
+    let handle = FsLocalHandle::current();
     let file = handle.open(path).await?;
     let data = file.inode.data.read().unwrap().clone();
     // TODO: random delay
@@ -230,7 +230,7 @@ pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
 
 /// Given a path, query the file system to get information about a file, directory, etc.
 pub async fn metadata(path: impl AsRef<Path>) -> Result<Metadata> {
-    let handle = FileSystemLocalHandle::current();
+    let handle = FsLocalHandle::current();
     handle.metadata(path).await
 }
 

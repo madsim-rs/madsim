@@ -12,7 +12,7 @@ pub trait Message: Debug + Serialize + DeserializeOwned + Any + Send + Sync {}
 
 impl<T: Debug + Serialize + DeserializeOwned + Any + Send + Sync> Message for T {}
 
-impl NetworkLocalHandle {
+impl NetLocalHandle {
     pub async fn call_timeout<Req, Rsp>(
         &self,
         dst: SocketAddr,
@@ -81,7 +81,7 @@ impl NetworkLocalHandle {
 
 #[cfg(test)]
 mod tests {
-    use super::NetworkLocalHandle;
+    use super::NetLocalHandle;
     use crate::Runtime;
 
     #[test]
@@ -94,14 +94,14 @@ mod tests {
 
         host1
             .spawn(async move {
-                let net = NetworkLocalHandle::current();
+                let net = NetLocalHandle::current();
                 net.add_rpc_handler(|x: u64| async move { x + 1 });
                 net.add_rpc_handler(|x: u32| async move { x + 2 });
             })
             .detach();
 
         let f = host2.spawn(async move {
-            let net = NetworkLocalHandle::current();
+            let net = NetLocalHandle::current();
 
             let rsp: u64 = net.call(addr1, 1u64).await.unwrap();
             assert_eq!(rsp, 2u64);

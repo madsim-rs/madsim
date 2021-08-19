@@ -24,10 +24,10 @@ pub use madsim_macros::{main, test};
 /// [network]: crate::net
 /// [file system]: crate::fs
 pub struct Runtime {
-    rand: rand::RandomHandle,
+    rand: rand::RandHandle,
     task: task::Executor,
-    net: net::NetworkRuntime,
-    fs: fs::FileSystemRuntime,
+    net: net::NetRuntime,
+    fs: fs::FsRuntime,
 }
 
 impl Runtime {
@@ -41,10 +41,10 @@ impl Runtime {
         #[cfg(feature = "logger")]
         crate::init_logger();
 
-        let rand = rand::RandomHandle::new_with_seed(seed);
+        let rand = rand::RandHandle::new_with_seed(seed);
         let task = task::Executor::new();
-        let net = net::NetworkRuntime::new(rand.clone(), task.time_handle().clone());
-        let fs = fs::FileSystemRuntime::new(rand.clone(), task.time_handle().clone());
+        let net = net::NetRuntime::new(rand.clone(), task.time_handle().clone());
+        let fs = fs::FsRuntime::new(rand.clone(), task.time_handle().clone());
         Runtime {
             rand,
             task,
@@ -104,11 +104,11 @@ impl Runtime {
 /// Supervisor handle to the runtime.
 #[derive(Clone)]
 pub struct Handle {
-    pub rand: rand::RandomHandle,
+    pub rand: rand::RandHandle,
     pub time: time::TimeHandle,
     pub task: task::TaskHandle,
-    pub net: net::NetworkHandle,
-    pub fs: fs::FileSystemHandle,
+    pub net: net::NetHandle,
+    pub fs: fs::FsHandle,
 }
 
 impl Handle {
@@ -142,11 +142,11 @@ impl Handle {
 /// Local host handle to the runtime.
 #[derive(Clone)]
 pub struct LocalHandle {
-    pub rand: rand::RandomHandle,
+    pub rand: rand::RandHandle,
     pub time: time::TimeHandle,
     pub task: task::TaskLocalHandle,
-    pub net: net::NetworkLocalHandle,
-    pub fs: fs::FileSystemLocalHandle,
+    pub net: net::NetLocalHandle,
+    pub fs: fs::FsLocalHandle,
 }
 
 impl LocalHandle {

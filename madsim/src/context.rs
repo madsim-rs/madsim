@@ -17,7 +17,7 @@ pub(crate) fn current_addr() -> Option<SocketAddr> {
     ADDR.with(|addr| addr.borrow().clone())
 }
 
-pub(crate) fn rand_handle() -> crate::rand::RandomHandle {
+pub(crate) fn rand_handle() -> crate::rand::RandHandle {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().rand.clone())
 }
 
@@ -34,12 +34,12 @@ pub(crate) fn task_local_handle() -> crate::task::TaskLocalHandle {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().task.local_handle(addr))
 }
 
-pub(crate) fn net_local_handle() -> crate::net::NetworkLocalHandle {
+pub(crate) fn net_local_handle() -> crate::net::NetLocalHandle {
     let addr = ADDR.with(|addr| addr.borrow().unwrap());
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().net.local_handle(addr))
 }
 
-pub(crate) fn fs_local_handle() -> crate::fs::FileSystemLocalHandle {
+pub(crate) fn fs_local_handle() -> crate::fs::FsLocalHandle {
     let addr = ADDR.with(|addr| addr.borrow().unwrap());
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().fs.local_handle(addr))
 }

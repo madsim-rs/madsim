@@ -20,14 +20,14 @@ use std::sync::{Arc, Mutex};
 
 /// Handle to a shared random state.
 #[derive(Debug, Clone)]
-pub struct RandomHandle {
+pub struct RandHandle {
     rng: Arc<Mutex<SmallRng>>,
 }
 
-impl RandomHandle {
+impl RandHandle {
     /// Create a new RNG using the given seed.
     pub fn new_with_seed(seed: u64) -> Self {
-        RandomHandle {
+        RandHandle {
             rng: Arc::new(Mutex::new(SeedableRng::seed_from_u64(seed))),
         }
     }
@@ -40,11 +40,11 @@ impl RandomHandle {
 }
 
 /// Retrieve the deterministic random number generator from the current madsim context.
-pub fn rng() -> RandomHandle {
+pub fn rng() -> RandHandle {
     crate::context::rand_handle()
 }
 
-impl RngCore for RandomHandle {
+impl RngCore for RandHandle {
     fn next_u32(&mut self) -> u32 {
         self.rng.lock().unwrap().next_u32()
     }
