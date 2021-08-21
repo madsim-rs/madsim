@@ -62,8 +62,9 @@ fn parse(
                 300
             };
             for i in 0..count {
+                let seed = seed + i;
                 let ret = std::panic::catch_unwind(|| {
-                    let mut rt = madsim::Runtime::new_with_seed(seed + i);
+                    let mut rt = madsim::Runtime::new_with_seed(seed);
                     rt.set_time_limit(Duration::from_secs(time_limit_s));
                     rt.block_on(async #body);
                 });
