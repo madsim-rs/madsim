@@ -116,10 +116,9 @@ impl FsLocalHandle {
     async fn metadata(&self, path: impl AsRef<Path>) -> Result<Metadata> {
         let path = path.as_ref();
         let fs = self.fs.lock().unwrap();
-        let inode = fs.get(path).ok_or(Error::new(
-            ErrorKind::NotFound,
-            format!("file not found: {:?}", path),
-        ))?;
+        let inode = fs.get(path).ok_or_else(|| {
+            Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
+        })?;
         Ok(inode.metadata())
     }
 }
@@ -255,6 +254,7 @@ pub struct Metadata {
 
 impl Metadata {
     /// Returns the size of the file, in bytes, this metadata is for.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.len
     }

@@ -74,6 +74,7 @@ impl Network {
         self.endpoints.insert(target, Default::default());
     }
 
+    #[allow(dead_code)]
     pub fn remove(&mut self, target: &SocketAddr) {
         debug!("remove: {}", target);
         self.endpoints.remove(target);

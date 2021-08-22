@@ -1,5 +1,5 @@
 use super::*;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use std::{
     any::{Any, TypeId},
     fmt::Debug,

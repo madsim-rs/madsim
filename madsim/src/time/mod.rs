@@ -44,6 +44,7 @@ impl TimeRuntime {
         }
     }
 
+    #[allow(dead_code)]
     /// Get the current time.
     pub fn now(&self) -> Instant {
         self.handle.now()
@@ -58,6 +59,7 @@ pub(crate) struct TimeHandle {
 }
 
 impl TimeHandle {
+    #[allow(dead_code)]
     /// Returns a `TimeHandle` view over the currently running Runtime.
     pub fn try_current() -> Option<Self> {
         crate::context::try_time_handle()

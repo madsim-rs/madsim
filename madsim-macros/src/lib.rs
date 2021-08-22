@@ -3,6 +3,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 
+#[allow(clippy::needless_doctest_main)]
 /// Marks async function to be executed by the selected runtime. This macro
 /// helps set up a `Runtime` without requiring the user to use
 /// [Runtime](../madsim/struct.Runtime.html) directly.

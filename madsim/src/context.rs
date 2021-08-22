@@ -14,7 +14,7 @@ pub(crate) fn current() -> Option<Handle> {
 
 #[allow(dead_code)]
 pub(crate) fn current_addr() -> Option<SocketAddr> {
-    ADDR.with(|addr| addr.borrow().clone())
+    ADDR.with(|addr| *addr.borrow())
 }
 
 pub(crate) fn rand_handle() -> crate::rand::RandHandle {
@@ -25,6 +25,7 @@ pub(crate) fn time_handle() -> crate::time::TimeHandle {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().time.clone())
 }
 
+#[allow(dead_code)]
 pub(crate) fn try_time_handle() -> Option<crate::time::TimeHandle> {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().map(|h| h.time.clone()))
 }

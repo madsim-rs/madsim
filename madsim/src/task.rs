@@ -1,6 +1,6 @@
 //! Asynchronous tasks executor.
 
-use super::time::{Instant, TimeHandle, TimeRuntime};
+use super::time::{TimeHandle, TimeRuntime};
 use async_task::Runnable;
 pub use async_task::Task;
 use std::{
@@ -90,10 +90,6 @@ impl Executor {
                 )
             }
         }
-    }
-
-    pub fn now(&self) -> Instant {
-        self.time.now()
     }
 
     fn run_all_ready(&self) {
@@ -241,7 +237,7 @@ mod tests {
 
         let handle = runtime.handle();
         runtime.block_on(async move {
-            let t0 = Instant::now();
+            let t0 = time::Instant::now();
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
             assert_eq!(flag1.load(Ordering::SeqCst), 2);

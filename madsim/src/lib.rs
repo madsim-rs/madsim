@@ -38,6 +38,12 @@ pub struct Runtime {
     fs: fs::FsRuntime,
 }
 
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Runtime {
     /// Create a new runtime instance.
     pub fn new() -> Self {
