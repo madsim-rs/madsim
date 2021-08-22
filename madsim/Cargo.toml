@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2018"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
+readme = "../README.md"
+homepage = "https://github.com/madsys-dev/madsim"
+repository = "https://github.com/madsys-dev/madsim"
+license = "Apache-2.0"
+keywords = ["distributed-systems", "async", "deterministic", "simulation"]
+categories = ["asynchronous", "simulation"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,7 +19,7 @@ rpc = ["serde"]
 macros = ["madsim-macros"]
 
 [dependencies]
-madsim-macros = { path = "../madsim-macros", optional = true }
+madsim-macros = { version = "0.1", path = "../madsim-macros", optional = true }
 log = "0.4"
 rand = { version = "0.8", features = ["small_rng"] }
 async-task = "4.0"
@@ -21,3 +27,6 @@ futures = "0.3"
 naive-timer = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 env_logger = { version = "0.9", optional = true }
+
+[package.metadata.docs.rs]
+all-features = true

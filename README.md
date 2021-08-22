@@ -1,5 +1,7 @@
 # MadSim
 
+[![Crate](https://img.shields.io/crates/v/madsim.svg)](https://crates.io/crates/madsim)
+[![Docs](https://docs.rs/madsim/badge.svg)](https://docs.rs/madsim)
 [![CI](https://github.com/madsys-dev/madsim/workflows/CI/badge.svg?branch=main)](https://github.com/madsys-dev/madsim/actions)
 
 Magical Automatic Deterministic Simulator for distributed systems.
