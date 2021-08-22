@@ -206,7 +206,6 @@ where
 mod tests {
     use super::*;
     use crate::{time, Runtime};
-    use futures::future::pending;
     use std::{sync::atomic::AtomicUsize, time::Duration};
 
     #[test]
@@ -253,12 +252,5 @@ mod tests {
             assert_eq!(flag1.load(Ordering::SeqCst), 2);
             assert_eq!(flag2.load(Ordering::SeqCst), 4);
         });
-    }
-
-    #[test]
-    #[should_panic]
-    fn block_forever() {
-        let runtime = Runtime::new();
-        runtime.block_on(pending::<()>());
     }
 }

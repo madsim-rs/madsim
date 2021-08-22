@@ -1,4 +1,10 @@
 //! A deterministic simulator for distributed systems.
+//!
+//! ## Features
+//!
+//! - `rpc`: Enables RPC through network.
+//! - `logger`: Enables built-in logger.
+//! - `macros`: Enables `#[madsim::main]` and `#[madsim::test]` macros.
 
 #![deny(missing_docs)]
 
@@ -76,6 +82,7 @@ impl Runtime {
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
     pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
+        assert_ne!(addr, SocketAddr::from(([0, 0, 0, 0], 0)), "invalid address");
         LocalHandle {
             task: self.task.handle().local_handle(addr),
             net: self.net.handle().local_handle(addr),
@@ -86,6 +93,18 @@ impl Runtime {
     /// Set a time limit of the execution.
     ///
     /// The runtime will panic when time limit exceeded.
+    /// # Example
+    ///
+    /// ```should_panic
+    /// use madsim::{Runtime, time::{sleep, Duration}};
+    ///
+    /// let mut rt = Runtime::new();
+    /// rt.set_time_limit(Duration::from_secs(1));
+    ///
+    /// rt.block_on(async {
+    ///     sleep(Duration::from_secs(2)).await;
+    /// });
+    /// ```
     pub fn set_time_limit(&mut self, limit: Duration) {
         self.task.set_time_limit(limit);
     }
@@ -93,8 +112,26 @@ impl Runtime {
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
     ///
     /// This runs the given future on the current thread until it is complete.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use madsim::Runtime;
+    ///
+    /// let rt = Runtime::new();
+    /// let ret = rt.block_on(async { 1 });
+    /// assert_eq!(ret, 1);
+    /// ```
+    ///
     /// Unlike usual async runtime, when there is no runnable task, it will
     /// panic instead of blocking.
+    ///
+    /// ```should_panic
+    /// use madsim::Runtime;
+    /// use futures::future::pending;
+    ///
+    /// Runtime::new().block_on(pending::<()>());
+    /// ```
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         let _guard = crate::context::enter(self.handle());
         self.task.block_on(future)
@@ -122,6 +159,36 @@ impl Handle {
     ///
     /// - All tasks spawned on this host will be killed immediately.
     /// - All data that has not been flushed to the disk will be lost.
+    ///
+    /// # Example
+    /// ```
+    /// use madsim::{Runtime, time::{sleep, Duration}};
+    /// use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    ///
+    /// let rt = Runtime::new();
+    /// let addr = "0.0.0.1:1".parse().unwrap();
+    ///
+    /// // host increases the counter every 2s
+    /// let flag = Arc::new(AtomicUsize::new(0));
+    /// let flag_ = flag.clone();
+    /// rt.local_handle(addr).spawn(async move {
+    ///     loop {
+    ///         sleep(Duration::from_secs(2)).await;
+    ///         flag_.fetch_add(2, Ordering::SeqCst);
+    ///     }
+    /// }).detach();
+    ///  
+    /// let handle = rt.handle();
+    /// rt.block_on(async move {
+    ///     sleep(Duration::from_secs(3)).await;
+    ///     assert_eq!(flag.load(Ordering::SeqCst), 2);
+    ///
+    ///     handle.kill(addr);
+    ///
+    ///     sleep(Duration::from_secs(2)).await;
+    ///     assert_eq!(flag.load(Ordering::SeqCst), 2);
+    /// });
+    /// ```
     pub fn kill(&self, addr: SocketAddr) {
         self.task.kill(addr);
         // self.net.kill(addr);

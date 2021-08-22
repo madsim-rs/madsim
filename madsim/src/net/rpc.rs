@@ -51,6 +51,38 @@ impl NetLocalHandle {
     }
 
     /// Add a RPC handler.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use madsim::{Runtime, net::NetLocalHandle};
+    ///
+    /// let runtime = Runtime::new();
+    /// let addr1 = "0.0.0.1:1".parse().unwrap();
+    /// let addr2 = "0.0.0.2:1".parse().unwrap();
+    /// let host1 = runtime.local_handle(addr1);
+    /// let host2 = runtime.local_handle(addr2);
+    ///
+    /// host1
+    ///     .spawn(async move {
+    ///         let net = NetLocalHandle::current();
+    ///         net.add_rpc_handler(|x: u64| async move { x + 1 });
+    ///         net.add_rpc_handler(|x: u32| async move { x + 2 });
+    ///     })
+    ///     .detach();
+    ///
+    /// let f = host2.spawn(async move {
+    ///     let net = NetLocalHandle::current();
+    ///
+    ///     let rsp: u64 = net.call(addr1, 1u64).await.unwrap();
+    ///     assert_eq!(rsp, 2u64);
+    ///
+    ///     let rsp: u32 = net.call(addr1, 1u32).await.unwrap();
+    ///     assert_eq!(rsp, 3u32);
+    /// });
+    ///
+    /// runtime.block_on(f);
+    /// ```
     pub fn add_rpc_handler<Req, Rsp, AsyncFn, Fut>(&self, mut f: AsyncFn)
     where
         Req: Message,
@@ -80,40 +112,5 @@ impl NetLocalHandle {
             }
         })
         .detach();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::NetLocalHandle;
-    use crate::Runtime;
-
-    #[test]
-    fn rpc() {
-        let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse().unwrap();
-        let addr2 = "0.0.0.2:1".parse().unwrap();
-        let host1 = runtime.local_handle(addr1);
-        let host2 = runtime.local_handle(addr2);
-
-        host1
-            .spawn(async move {
-                let net = NetLocalHandle::current();
-                net.add_rpc_handler(|x: u64| async move { x + 1 });
-                net.add_rpc_handler(|x: u32| async move { x + 2 });
-            })
-            .detach();
-
-        let f = host2.spawn(async move {
-            let net = NetLocalHandle::current();
-
-            let rsp: u64 = net.call(addr1, 1u64).await.unwrap();
-            assert_eq!(rsp, 2u64);
-
-            let rsp: u32 = net.call(addr1, 1u32).await.unwrap();
-            assert_eq!(rsp, 3u32);
-        });
-
-        runtime.block_on(f);
     }
 }

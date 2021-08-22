@@ -1,9 +1,38 @@
 //! Asynchronous network endpoint and a controlled network simulator.
+//!
+//! # Examples
+//!
+//! ```
+//! use madsim::{Runtime, net::NetLocalHandle};
+//!
+//! let runtime = Runtime::new();
+//! let addr1 = "0.0.0.1:1".parse().unwrap();
+//! let addr2 = "0.0.0.2:1".parse().unwrap();
+//! let host1 = runtime.local_handle(addr1);
+//! let host2 = runtime.local_handle(addr2);
+//!
+//! host1
+//!     .spawn(async move {
+//!         let net = NetLocalHandle::current();
+//!         net.send_to(addr2, 1, &[1]).await.unwrap();
+//!     })
+//!     .detach();
+//!
+//! let f = host2.spawn(async move {
+//!     let net = NetLocalHandle::current();
+//!     let mut buf = vec![0; 0x10];
+//!     let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
+//!     assert_eq!(from, addr1);
+//!     assert_eq!(&buf[..len], &[1]);
+//! });
+//!
+//! runtime.block_on(f);
+//! ```
 
 use log::*;
 use std::{
     io,
-    net::SocketAddr,
+    net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 
@@ -111,12 +140,34 @@ impl NetLocalHandle {
     }
 
     /// Sends data with tag on the socket to the given address.
-    pub async fn send_to(&self, dst: SocketAddr, tag: u64, data: &[u8]) -> io::Result<()> {
+    ///
+    /// # Example
+    /// ```
+    /// use madsim::{Runtime, net::NetLocalHandle};
+    ///
+    /// Runtime::new().block_on(async {
+    ///     let net = NetLocalHandle::current();
+    ///     net.send_to("127.0.0.1:4242", 0, &[0; 10]).await.expect("couldn't send data");
+    /// });
+    /// ```
+    pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, data: &[u8]) -> io::Result<()> {
+        let dst = dst.to_socket_addrs()?.next().unwrap();
         self.send_to_raw(dst, tag, Box::new(Vec::from(data))).await
     }
 
     /// Receives a single message with given tag on the socket.
     /// On success, returns the number of bytes read and the origin.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use madsim::{Runtime, net::NetLocalHandle};
+    ///
+    /// Runtime::new().block_on(async {
+    ///     let net = NetLocalHandle::current();
+    ///     let mut buf = [0; 10];
+    ///     let (len, src) = net.recv_from(0, &mut buf).await.expect("couldn't receive data");
+    /// });
+    /// ```
     pub async fn recv_from(&self, tag: u64, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         let (data, from) = self.recv_from_raw(tag).await?;
         // copy to buffer

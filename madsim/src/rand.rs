@@ -7,14 +7,27 @@
 //! [`thread_rng()`] from the rand crate directly, because no deterministic is
 //! guaranteed.
 //!
+//! # Example
+//!
+//! ```
+//! use madsim::{Runtime, rand::{self, Rng}};
+//!
+//! Runtime::new().block_on(async {
+//!     let mut rng = rand::rng();
+//!     rng.gen_bool(0.5);
+//!     rng.gen_range(0..10);
+//! });
+//! ```
+//!
 //! [`rand`]: rand
 //! [`rng()`]: rng
 //! [`random()`]: rand::random
 //! [`thread_rng()`]: rand::thread_rng
 
+use rand::prelude::SmallRng;
 #[doc(no_inline)]
 pub use rand::prelude::{
-    CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom, SmallRng,
+    CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom,
 };
 use std::sync::{Arc, Mutex};
 
@@ -26,14 +39,14 @@ pub struct RandHandle {
 
 impl RandHandle {
     /// Create a new RNG using the given seed.
-    pub fn new_with_seed(seed: u64) -> Self {
+    pub(crate) fn new_with_seed(seed: u64) -> Self {
         RandHandle {
             rng: Arc::new(Mutex::new(SeedableRng::seed_from_u64(seed))),
         }
     }
 
     /// Call function on the inner RNG.
-    pub fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
         let mut lock = self.rng.lock().unwrap();
         f(&mut *lock)
     }

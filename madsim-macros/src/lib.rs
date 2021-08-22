@@ -6,6 +6,25 @@ use quote::quote;
 /// Marks async function to be executed by the selected runtime. This macro
 /// helps set up a `Runtime` without requiring the user to use
 /// [Runtime](../madsim/struct.Runtime.html) directly.
+///
+/// # Example
+///
+/// ```
+/// #[madsim::main]
+/// async fn main() {
+///     println!("Hello world");
+/// }
+/// ```
+///
+/// Equivalent code not using `#[madsim::main]`
+///
+/// ```
+/// fn main() {
+///     madsim::Runtime::new().block_on(async {
+///         println!("Hello world");
+///     });
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
@@ -15,6 +34,14 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Marks async function to be executed by runtime, suitable to test environment.
+///
+/// # Example
+/// ```no_run
+/// #[madsim::test]
+/// async fn my_test() {
+///     assert!(true);
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
@@ -45,7 +72,7 @@ fn parse(
     let brace_token = input.block.brace_token;
     input.block = syn::parse2(quote! {
         {
-            use std::time::SystemTime;
+            use std::time::{Duration, SystemTime};
             let seed: u64 = if let Ok(seed_str) = std::env::var("MADSIM_TEST_SEED") {
                 seed_str.parse().expect("MADSIM_TEST_SEED should be an integer")
             } else {

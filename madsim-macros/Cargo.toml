@@ -3,6 +3,7 @@ name = "madsim-macros"
 version = "0.1.0"
 edition = "2018"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
+description = "Madsim's proc-macro."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,3 +14,6 @@ proc-macro = true
 proc-macro2 = "1.0"
 quote = "1"
 syn = { version = "1.0", features = ["full"] }
+
+[dev-dependencies]
+madsim = { version = "0.1", path = "../madsim", features = ["macros"] }
