@@ -29,26 +29,67 @@ use rand::prelude::SmallRng;
 pub use rand::prelude::{
     CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom,
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
 /// Handle to a shared random state.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RandHandle {
-    rng: Arc<Mutex<SmallRng>>,
+    inner: Arc<Mutex<Inner>>,
+}
+
+struct Inner {
+    rng: SmallRng,
+    log: Option<Vec<u8>>,
+    check: Option<VecDeque<u8>>,
 }
 
 impl RandHandle {
     /// Create a new RNG using the given seed.
     pub(crate) fn new_with_seed(seed: u64) -> Self {
+        let inner = Inner {
+            rng: SeedableRng::seed_from_u64(seed),
+            log: None,
+            check: None,
+        };
         RandHandle {
-            rng: Arc::new(Mutex::new(SeedableRng::seed_from_u64(seed))),
+            inner: Arc::new(Mutex::new(inner)),
         }
     }
 
     /// Call function on the inner RNG.
     pub(crate) fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
-        let mut lock = self.rng.lock().unwrap();
-        f(&mut *lock)
+        let mut lock = self.inner.lock().unwrap();
+        let v = lock.rng.clone().gen();
+        if let Some(log) = &mut lock.log {
+            log.push(v);
+        }
+        if let Some(check) = &mut lock.check {
+            if check.pop_front() != Some(v) {
+                if let Some(time) = crate::context::try_time_handle() {
+                    panic!("non-deterministic detected at {:?}", time.elapsed());
+                }
+                panic!("non-deterministic detected");
+            }
+        }
+        f(&mut lock.rng)
+    }
+
+    pub(crate) fn enable_check(&self, seq: Vec<u8>) {
+        let mut lock = self.inner.lock().unwrap();
+        lock.check = Some(seq.into());
+    }
+
+    pub(crate) fn enable_log(&self) {
+        let mut lock = self.inner.lock().unwrap();
+        lock.log = Some(Vec::new());
+    }
+
+    pub(crate) fn take_log(&self) -> Option<Vec<u8>> {
+        let mut lock = self.inner.lock().unwrap();
+        lock.log.take()
     }
 }
 
@@ -59,18 +100,18 @@ pub fn rng() -> RandHandle {
 
 impl RngCore for RandHandle {
     fn next_u32(&mut self) -> u32 {
-        self.rng.lock().unwrap().next_u32()
+        self.with(|rng| rng.next_u32())
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.rng.lock().unwrap().next_u64()
+        self.with(|rng| rng.next_u64())
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.rng.lock().unwrap().fill_bytes(dest);
+        self.with(|rng| rng.fill_bytes(dest))
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-        self.rng.lock().unwrap().try_fill_bytes(dest)
+        self.with(|rng| rng.try_fill_bytes(dest))
     }
 }

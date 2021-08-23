@@ -115,6 +115,25 @@ impl Runtime {
         self.task.set_time_limit(limit);
     }
 
+    /// Enable deterministic check during the simulation.
+    pub fn enable_deterministic_check(&self, log: Option<Vec<u8>>) {
+        assert_eq!(
+            self.task.time_handle().elapsed(),
+            Duration::default(),
+            "deterministic check must be set at init"
+        );
+        if let Some(log) = log {
+            self.rand.enable_check(log);
+        } else {
+            self.rand.enable_log();
+        }
+    }
+
+    /// Take random log so that you can check deterministic in the next turn.
+    pub fn take_rand_log(self) -> Option<Vec<u8>> {
+        self.rand.take_log()
+    }
+
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
     ///
     /// This runs the given future on the current thread until it is complete.

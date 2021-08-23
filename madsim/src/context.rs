@@ -25,7 +25,6 @@ pub(crate) fn time_handle() -> crate::time::TimeHandle {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).time.clone())
 }
 
-#[allow(dead_code)]
 pub(crate) fn try_time_handle() -> Option<crate::time::TimeHandle> {
     CONTEXT.with(|ctx| ctx.borrow().as_ref().map(|h| h.time.clone()))
 }

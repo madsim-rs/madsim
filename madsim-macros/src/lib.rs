@@ -79,27 +79,38 @@ fn parse(
             } else {
                 SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
             };
-            let count: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_NUM") {
+            let mut count: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_NUM") {
                 num_str.parse().expect("MADSIM_TEST_NUM should be an integer")
             } else {
                 1
             };
-            let time_limit_s: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_TIME_LIMIT") {
-                num_str.parse().expect("MADSIM_TEST_TIME_LIMIT should be an integer")
-            } else {
-                300
-            };
+            let time_limit_s = std::env::var("MADSIM_TEST_TIME_LIMIT").ok().map(|num_str| {
+                num_str.parse::<f64>().expect("MADSIM_TEST_TIME_LIMIT should be an number")
+            });
+            let check = std::env::var("MADSIM_TEST_CHECK_DETERMINISTIC").is_ok();
+            if check {
+                count = 2;
+            }
+            let mut rand_log = None;
             for i in 0..count {
-                let seed = seed + i;
-                let ret = std::panic::catch_unwind(|| {
+                let seed = if check { seed } else { seed + i };
+                let rand_log0 = rand_log.take();
+                let ret = std::panic::catch_unwind(move || {
                     let mut rt = madsim::Runtime::new_with_seed(seed);
-                    rt.set_time_limit(Duration::from_secs(time_limit_s));
+                    if check {
+                        rt.enable_deterministic_check(rand_log0);
+                    }
+                    if let Some(limit) = time_limit_s {
+                        rt.set_time_limit(Duration::from_secs_f64(limit));
+                    }
                     rt.block_on(async #body);
+                    rt.take_rand_log()
                 });
                 if let Err(e) = ret {
-                    println!("seed={}", seed);
+                    println!("MADSIM_TEST_SEED={}", seed);
                     std::panic::resume_unwind(e);
                 }
+                rand_log = ret.unwrap();
             }
         }
     })
