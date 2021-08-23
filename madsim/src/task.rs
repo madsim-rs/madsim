@@ -170,7 +170,7 @@ impl TaskLocalHandle {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
-                sender.send((runnable, info.clone())).unwrap();
+                let _ = sender.send((runnable, info.clone()));
             })
         };
         runnable.schedule();
