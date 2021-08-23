@@ -157,8 +157,16 @@ pub struct Handle {
 
 impl Handle {
     /// Returns a [`Handle`] view over the currently running [`Runtime`].
+    ///
+    /// ## Panic
+    ///
+    /// This will panic if called outside the context of a Madsim runtime.
+    ///
+    /// ```should_panic
+    /// let handle = madsim::Handle::current();
+    /// ```
     pub fn current() -> Self {
-        context::current().expect("no madsim context")
+        context::current()
     }
 
     /// Kill a host.

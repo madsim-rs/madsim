@@ -8,8 +8,8 @@ thread_local! {
     static ADDR: RefCell<Option<SocketAddr>> = RefCell::new(None);
 }
 
-pub(crate) fn current() -> Option<Handle> {
-    CONTEXT.with(|ctx| ctx.borrow().clone())
+pub(crate) fn current() -> Handle {
+    CONTEXT.with(|ctx| ctx.borrow().clone().expect(MSG))
 }
 
 #[allow(dead_code)]
@@ -18,11 +18,11 @@ pub(crate) fn current_addr() -> Option<SocketAddr> {
 }
 
 pub(crate) fn rand_handle() -> crate::rand::RandHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().rand.clone())
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).rand.clone())
 }
 
 pub(crate) fn time_handle() -> crate::time::TimeHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().time.clone())
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).time.clone())
 }
 
 #[allow(dead_code)]
@@ -31,18 +31,18 @@ pub(crate) fn try_time_handle() -> Option<crate::time::TimeHandle> {
 }
 
 pub(crate) fn task_local_handle() -> crate::task::TaskLocalHandle {
-    let addr = ADDR.with(|addr| addr.borrow().unwrap());
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().task.local_handle(addr))
+    let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).task.local_handle(addr))
 }
 
 pub(crate) fn net_local_handle() -> crate::net::NetLocalHandle {
-    let addr = ADDR.with(|addr| addr.borrow().unwrap());
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().net.local_handle(addr))
+    let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).net.local_handle(addr))
 }
 
 pub(crate) fn fs_local_handle() -> crate::fs::FsLocalHandle {
-    let addr = ADDR.with(|addr| addr.borrow().unwrap());
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().unwrap().fs.local_handle(addr))
+    let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).fs.local_handle(addr))
 }
 
 /// Set this [`Handle`] as the current active [`Handle`].
@@ -81,3 +81,6 @@ impl Drop for TaskEnterGuard {
         });
     }
 }
+
+const MSG: &str =
+    "there is no reactor running, must be called from the context of a Madsim runtime";
