@@ -3,7 +3,7 @@
 //!
 
 pub use self::instant::Instant;
-use futures::{future::poll_fn, select, FutureExt};
+use futures::{future::poll_fn, select_biased, FutureExt};
 use naive_timer::Timer;
 #[doc(no_inline)]
 pub use std::time::Duration;
@@ -102,7 +102,7 @@ impl TimeHandle {
     ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
         let timeout = self.sleep(duration);
         async move {
-            select! {
+            select_biased! {
                 res = future.fuse() => Ok(res),
                 _ = timeout.fuse() => Err(error::Elapsed),
             }

@@ -62,6 +62,8 @@ impl RandHandle {
     /// Call function on the inner RNG.
     pub(crate) fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
         let mut lock = self.inner.lock().unwrap();
+        let ret = f(&mut lock.rng);
+        // log or check
         let v = lock.rng.clone().gen();
         if let Some(log) = &mut lock.log {
             log.push(v);
@@ -74,7 +76,7 @@ impl RandHandle {
                 panic!("non-deterministic detected");
             }
         }
-        f(&mut lock.rng)
+        ret
     }
 
     pub(crate) fn enable_check(&self, seq: Vec<u8>) {
