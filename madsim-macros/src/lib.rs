@@ -43,6 +43,33 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 ///     assert!(true);
 /// }
 /// ```
+///
+/// # Configuration
+///
+/// Test can be configured using the following environment variables:
+///
+/// - `MADSIM_TEST_SEED`: Set the random seed for test.
+///
+///     By default, the seed is set to the seconds since the Unix epoch.
+///
+/// - `MADSIM_TEST_NUM`: Set the number of tests.
+///
+///     The seed will increase by 1 for each test.
+///
+///     By default, the number is 1.
+///
+/// - `MADSIM_TEST_TIME_LIMIT`: Set the time limit for the test.
+///
+///     The test will panic if time limit exceeded in the simulation.
+///
+///     By default, there is no time limit.
+///
+/// - `MADSIM_TEST_CHECK_DETERMINISTIC`: Enable deterministic check.
+///
+///     The test will be run at least twice with the same seed.
+///     If any non-deterministic detected, it will panic as soon as possible.
+///
+///     By default, it is disabled.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
@@ -89,7 +116,7 @@ fn parse(
             });
             let check = std::env::var("MADSIM_TEST_CHECK_DETERMINISTIC").is_ok();
             if check {
-                count = 2;
+                count = count.max(2);
             }
             let mut rand_log = None;
             for i in 0..count {
