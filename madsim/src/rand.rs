@@ -29,10 +29,7 @@ use rand::prelude::SmallRng;
 pub use rand::prelude::{
     CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom,
 };
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 /// Handle to a shared random state.
 #[derive(Clone)]
@@ -43,7 +40,7 @@ pub struct RandHandle {
 struct Inner {
     rng: SmallRng,
     log: Option<Vec<u8>>,
-    check: Option<VecDeque<u8>>,
+    check: Option<(Vec<u8>, usize)>,
 }
 
 impl RandHandle {
@@ -64,24 +61,31 @@ impl RandHandle {
         let mut lock = self.inner.lock().unwrap();
         let ret = f(&mut lock.rng);
         // log or check
-        let v = lock.rng.clone().gen();
-        if let Some(log) = &mut lock.log {
-            log.push(v);
-        }
-        if let Some(check) = &mut lock.check {
-            if check.pop_front() != Some(v) {
-                if let Some(time) = crate::context::try_time_handle() {
-                    panic!("non-deterministic detected at {:?}", time.elapsed());
+        if lock.log.is_some() || lock.check.is_some() {
+            let t = crate::context::try_time_handle().map(|t| t.elapsed());
+            fn hash_u128(x: u128) -> u8 {
+                x.to_ne_bytes().iter().fold(0, |a, b| a ^ b)
+            }
+            let v = lock.rng.clone().gen::<u8>() ^ hash_u128(t.unwrap_or_default().as_nanos());
+            if let Some(log) = &mut lock.log {
+                log.push(v);
+            }
+            if let Some((check, i)) = &mut lock.check {
+                if check.get(*i) != Some(&v) {
+                    if let Some(time) = t {
+                        panic!("non-deterministic detected at {:?}", time);
+                    }
+                    panic!("non-deterministic detected");
                 }
-                panic!("non-deterministic detected");
+                *i += 1;
             }
         }
         ret
     }
 
-    pub(crate) fn enable_check(&self, seq: Vec<u8>) {
+    pub(crate) fn enable_check(&self, log: Log) {
         let mut lock = self.inner.lock().unwrap();
-        lock.check = Some(seq.into());
+        lock.check = Some((log.0, 0));
     }
 
     pub(crate) fn enable_log(&self) {
@@ -89,9 +93,12 @@ impl RandHandle {
         lock.log = Some(Vec::new());
     }
 
-    pub(crate) fn take_log(&self) -> Option<Vec<u8>> {
+    pub(crate) fn take_log(&self) -> Option<Log> {
         let mut lock = self.inner.lock().unwrap();
-        lock.log.take()
+        lock.log
+            .take()
+            .or_else(|| lock.check.take().map(|(s, _)| s))
+            .map(|s| Log(s))
     }
 }
 
@@ -117,3 +124,7 @@ impl RngCore for RandHandle {
         self.with(|rng| rng.try_fill_bytes(dest))
     }
 }
+
+/// Random log for deterministic check.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Log(Vec<u8>);

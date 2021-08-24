@@ -96,44 +96,6 @@ impl Runtime {
         }
     }
 
-    /// Set a time limit of the execution.
-    ///
-    /// The runtime will panic when time limit exceeded.
-    /// # Example
-    ///
-    /// ```should_panic
-    /// use madsim::{Runtime, time::{sleep, Duration}};
-    ///
-    /// let mut rt = Runtime::new();
-    /// rt.set_time_limit(Duration::from_secs(1));
-    ///
-    /// rt.block_on(async {
-    ///     sleep(Duration::from_secs(2)).await;
-    /// });
-    /// ```
-    pub fn set_time_limit(&mut self, limit: Duration) {
-        self.task.set_time_limit(limit);
-    }
-
-    /// Enable deterministic check during the simulation.
-    pub fn enable_deterministic_check(&self, log: Option<Vec<u8>>) {
-        assert_eq!(
-            self.task.time_handle().elapsed(),
-            Duration::default(),
-            "deterministic check must be set at init"
-        );
-        if let Some(log) = log {
-            self.rand.enable_check(log);
-        } else {
-            self.rand.enable_log();
-        }
-    }
-
-    /// Take random log so that you can check deterministic in the next turn.
-    pub fn take_rand_log(self) -> Option<Vec<u8>> {
-        self.rand.take_log()
-    }
-
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
     ///
     /// This runs the given future on the current thread until it is complete.
@@ -160,6 +122,71 @@ impl Runtime {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         let _guard = crate::context::enter(self.handle());
         self.task.block_on(future)
+    }
+
+    /// Set a time limit of the execution.
+    ///
+    /// The runtime will panic when time limit exceeded.
+    ///
+    /// # Example
+    ///
+    /// ```should_panic
+    /// use madsim::{Runtime, time::{sleep, Duration}};
+    ///
+    /// let mut rt = Runtime::new();
+    /// rt.set_time_limit(Duration::from_secs(1));
+    ///
+    /// rt.block_on(async {
+    ///     sleep(Duration::from_secs(2)).await;
+    /// });
+    /// ```
+    pub fn set_time_limit(&mut self, limit: Duration) {
+        self.task.set_time_limit(limit);
+    }
+
+    /// Enable deterministic check during the simulation.
+    ///
+    /// # Example
+    ///
+    /// ```should_panic
+    /// use madsim::{Runtime, time::{sleep, Duration}};
+    /// use rand::Rng;
+    ///
+    /// let f = || async {
+    ///     for _ in 0..10 {
+    ///         madsim::rand::rng().gen::<u64>();
+    ///         // introduce non-deterministic
+    ///         let rand_num = rand::thread_rng().gen_range(0..10);
+    ///         sleep(Duration::from_nanos(rand_num)).await;
+    ///     }
+    /// };
+    ///
+    /// let mut rt = Runtime::new();
+    /// rt.enable_deterministic_check(None);    // enable log
+    /// rt.block_on(f());
+    /// let log = rt.take_rand_log();           // take log for next turn
+    ///
+    /// let mut rt = Runtime::new();
+    /// rt.enable_deterministic_check(log);     // enable check
+    /// rt.block_on(f());                       // run the same logic again,
+    ///                                         // should panic here.
+    /// ```
+    pub fn enable_deterministic_check(&self, log: Option<rand::Log>) {
+        assert_eq!(
+            self.task.time_handle().elapsed(),
+            Duration::default(),
+            "deterministic check must be set at init"
+        );
+        if let Some(log) = log {
+            self.rand.enable_check(log);
+        } else {
+            self.rand.enable_log();
+        }
+    }
+
+    /// Take random log so that you can check deterministic in the next turn.
+    pub fn take_rand_log(self) -> Option<rand::Log> {
+        self.rand.take_log()
     }
 }
 
