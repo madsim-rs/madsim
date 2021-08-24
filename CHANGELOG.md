@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2021-08-24
+
+### Added
+
+- Deterministic check on test.
+
+### Changed
+
+- Remove default time limit (300s) on test.
+- Improve error message on context missing.
+
+### Fixed
+
+- Fix double panic in the executor.
+- Fix deterministic in `time::timeout`.
+
 ## [0.1.0] - 2021-08-22
 
 ### Added

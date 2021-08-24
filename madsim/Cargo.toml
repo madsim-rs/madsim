@@ -1,6 +1,6 @@
 [package]
 name = "madsim"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
@@ -19,7 +19,7 @@ rpc = ["serde"]
 macros = ["madsim-macros"]
 
 [dependencies]
-madsim-macros = { version = "0.1", path = "../madsim-macros", optional = true }
+madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
 log = "0.4"
 rand = { version = "0.8", features = ["small_rng"] }
 async-task = "4.0"
