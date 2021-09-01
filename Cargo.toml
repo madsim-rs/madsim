@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "madsim",
+    "madsim-std",
     "madsim-macros",
 ]
 exclude = ["examples"]
