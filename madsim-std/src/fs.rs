@@ -13,6 +13,10 @@ pub use tokio::fs::{metadata, read, File};
 pub struct FsHandle {}
 
 impl FsHandle {
+    pub(crate) fn new() -> Self {
+        FsHandle {}
+    }
+
     /// Simulate a power failure. All data that does not reach the disk will be lost.
     pub fn power_fail(&self, _addr: SocketAddr) {
         todo!()

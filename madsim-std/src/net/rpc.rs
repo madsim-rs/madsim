@@ -1,11 +1,13 @@
 use super::*;
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     any::{Any, TypeId},
+    convert::TryInto,
     fmt::Debug,
-    // convert::TryInto,
     future::Future,
     mem::transmute,
+    time::Duration,
 };
 
 /// A message that can be sent over the network.
@@ -37,7 +39,7 @@ impl NetLocalHandle {
         Rsp: Message,
     {
         let req_tag: u64 = unsafe { transmute(TypeId::of::<Req>()) };
-        let rsp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
+        let rsp_tag = rand::thread_rng().gen::<u64>();
         let mut data = flexbuffers::to_vec(request).unwrap();
         data.extend_from_slice(&rsp_tag.to_ne_bytes()[..]);
         self.send_to(dst, req_tag, &data).await?;
@@ -52,11 +54,11 @@ impl NetLocalHandle {
     /// # Example
     ///
     /// ```
-    /// use madsim::{Runtime, net::NetLocalHandle};
+    /// use madsim_std::{Runtime, net::NetLocalHandle};
     ///
     /// let runtime = Runtime::new();
-    /// let addr1 = "0.0.0.1:1".parse().unwrap();
-    /// let addr2 = "0.0.0.2:1".parse().unwrap();
+    /// let addr1 = "127.0.0.1:10000".parse().unwrap();
+    /// let addr2 = "127.0.0.1:10001".parse().unwrap();
     /// let host1 = runtime.local_handle(addr1);
     /// let host2 = runtime.local_handle(addr2);
     ///
@@ -91,7 +93,7 @@ impl NetLocalHandle {
         let net = self.clone();
         crate::task::spawn(async move {
             loop {
-                let (data, from) = net.recv_from(req_tag).await.unwrap();
+                let (data, from) = net.recv_from_raw(req_tag).await.unwrap();
                 let (data, rsp_tag_bytes) = data.split_at(data.len() - 8);
                 let rsp_tag = u64::from_ne_bytes(rsp_tag_bytes.try_into().unwrap());
                 let req: Req = flexbuffers::from_slice(data).unwrap();
@@ -100,7 +102,7 @@ impl NetLocalHandle {
                 crate::task::spawn(async move {
                     let rsp = rsp_future.await;
                     let data = flexbuffers::to_vec(rsp).unwrap();
-                    net.send_to(from, rsp_tag, data).await.unwrap();
+                    net.send_to(from, rsp_tag, &data).await.unwrap();
                 })
                 .detach();
             }

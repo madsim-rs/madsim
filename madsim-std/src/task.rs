@@ -23,15 +23,26 @@ where
 /// A spawned task.
 pub struct Task<T>(pub(crate) tokio::task::JoinHandle<T>);
 
+/// A spawned task.
+pub type JoinHandle<T> = Task<T>;
+
 impl<T> Task<T> {
     /// Detaches the task to let it keep running in the background.
-    pub fn detach(self) {}
+    pub fn detach(self) {
+        std::mem::forget(self);
+    }
 
     /// Cancels the task and waits for it to stop running.
     pub async fn cancel(self) -> Option<T> {
         // TODO: get output if ready
         self.0.abort();
         None
+    }
+}
+
+impl<T> Drop for Task<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 

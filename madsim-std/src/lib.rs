@@ -1,5 +1,12 @@
-use std::{future::Future, net::SocketAddr, time::Duration};
+use std::{
+    collections::HashMap,
+    future::Future,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
+mod context;
 pub mod fs;
 pub mod net;
 pub mod rand;
@@ -19,6 +26,7 @@ pub mod time;
 /// [file system]: crate::fs
 pub struct Runtime {
     rt: tokio::runtime::Runtime,
+    handle: Handle,
 }
 
 impl Default for Runtime {
@@ -38,11 +46,17 @@ impl Runtime {
         #[cfg(feature = "logger")]
         crate::init_logger();
 
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         Runtime {
-            rt: tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
+            handle: Handle {
+                locals: Default::default(),
+                net: net::NetHandle::new(),
+                fs: fs::FsHandle::new(),
+            },
+            rt,
         }
     }
 
@@ -54,24 +68,19 @@ impl Runtime {
     ///
     /// [block_on]: Runtime::block_on
     pub fn handle(&self) -> Handle {
-        Handle {
-            handle: self.rt.handle().clone(),
-            net: todo!(),
-            fs: todo!(),
-        }
+        self.handle.clone()
     }
 
     /// Return a handle of the specified host.
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
     pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
-        LocalHandle {
-            handle: self.rt.handle().clone(),
-        }
+        self.handle.local_handle(addr)
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        let _guard = crate::context::enter(self.handle());
         self.rt.block_on(future)
     }
 }
@@ -80,7 +89,7 @@ impl Runtime {
 #[derive(Clone)]
 #[allow(missing_docs)]
 pub struct Handle {
-    handle: tokio::runtime::Handle,
+    locals: Arc<Mutex<HashMap<SocketAddr, LocalHandle>>>,
     pub net: net::NetHandle,
     pub fs: fs::FsHandle,
 }
@@ -96,11 +105,7 @@ impl Handle {
     /// let handle = madsim::Handle::current();
     /// ```
     pub fn current() -> Self {
-        Handle {
-            handle: tokio::runtime::Handle::current(),
-            net: todo!(),
-            fs: todo!(),
-        }
+        crate::context::current()
     }
 
     /// Kill a host.
@@ -109,10 +114,13 @@ impl Handle {
     }
 
     /// Return a handle of the specified host.
-    pub fn local_handle(&self, _addr: SocketAddr) -> LocalHandle {
-        LocalHandle {
-            handle: self.handle.clone(),
-        }
+    pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
+        self.locals
+            .lock()
+            .unwrap()
+            .entry(addr)
+            .or_insert_with(|| LocalHandle::new(addr))
+            .clone()
     }
 }
 
@@ -120,6 +128,7 @@ impl Handle {
 #[derive(Clone)]
 pub struct LocalHandle {
     handle: tokio::runtime::Handle,
+    net: net::NetLocalHandle,
 }
 
 impl LocalHandle {
@@ -130,6 +139,23 @@ impl LocalHandle {
         F::Output: Send + 'static,
     {
         task::Task(self.handle.spawn(future))
+    }
+
+    fn new(addr: SocketAddr) -> Self {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build tokio runtime");
+        let handle = LocalHandle {
+            handle: rt.handle().clone(),
+            net: net::NetLocalHandle::new(rt.handle(), addr),
+        };
+        let handle0 = handle.clone();
+        std::thread::spawn(move || {
+            let _guard = crate::context::enter_local(handle0);
+            rt.block_on(futures::future::pending::<()>());
+        });
+        handle
     }
 }
 
