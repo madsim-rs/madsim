@@ -57,10 +57,10 @@ impl NetLocalHandle {
     /// use madsim_std::{Runtime, net::NetLocalHandle};
     ///
     /// let runtime = Runtime::new();
-    /// let addr1 = "127.0.0.1:10000".parse().unwrap();
-    /// let addr2 = "127.0.0.1:10001".parse().unwrap();
-    /// let host1 = runtime.local_handle(addr1);
-    /// let host2 = runtime.local_handle(addr2);
+    /// let host1 = runtime.create_host("127.0.0.1:0").unwrap();
+    /// let host2 = runtime.create_host("127.0.0.1:0").unwrap();
+    /// let addr1 = host1.local_addr();
+    /// let addr2 = host2.local_addr();
     ///
     /// host1
     ///     .spawn(async move {

@@ -11,7 +11,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     runtime::Handle,
     sync::{mpsc, oneshot},
@@ -73,7 +73,7 @@ impl NetHandle {
 #[derive(Clone)]
 pub struct NetLocalHandle {
     addr: SocketAddr,
-    sender: Arc<Mutex<Sender>>,
+    sender: Arc<tokio::sync::Mutex<Sender>>,
     mailbox: Arc<Mutex<Mailbox>>,
 }
 
@@ -86,42 +86,61 @@ struct SendMsg {
 }
 
 impl NetLocalHandle {
-    pub(crate) fn new(handle: &Handle, addr: SocketAddr) -> Self {
+    pub(crate) fn new(handle: &Handle, addr: impl ToSocketAddrs) -> io::Result<Self> {
+        let listener = std::net::TcpListener::bind(addr)?;
+        listener.set_nonblocking(true)?;
         let net = NetLocalHandle {
-            addr,
+            addr: listener.local_addr()?,
             sender: Default::default(),
             mailbox: Default::default(),
         };
+        trace!("new host: {}", net.addr);
         let net0 = net.clone();
         // spawn acceptor
         handle.spawn(async move {
-            let listener = TcpListener::bind(addr).await.unwrap();
+            let listener = TcpListener::from_std(listener).unwrap();
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
-                // receive real peer address
-                let mut reader = FramedRead::new(stream, LinesCodec::new());
-                let peer = reader
-                    .next()
-                    .await
-                    .expect("connection closed")
-                    .expect("failed to read peer address")
-                    .parse::<SocketAddr>()
-                    .expect("failed to parse peer address");
-                let sender = net0.spawn(peer, reader.into_inner());
-                net0.sender.lock().unwrap().insert(peer, sender);
+                let (peer, sender) = net0.spawn(None, stream).await;
+                net0.sender.lock().await.insert(peer, sender);
             }
         });
-        net
+        Ok(net)
     }
 
-    fn spawn(&self, peer: SocketAddr, stream: TcpStream) -> mpsc::Sender<SendMsg> {
-        trace!("setup connection: {} -> {}", self.addr, peer);
+    async fn spawn(
+        &self,
+        peer: Option<SocketAddr>,
+        stream: TcpStream,
+    ) -> (SocketAddr, mpsc::Sender<SendMsg>) {
         let (reader, mut writer) = stream.into_split();
         let mut reader = FramedRead::new(reader, LengthDelimitedCodec::new());
         let (sender, mut recver) = mpsc::channel(10);
+        let peer = if let Some(peer) = peer {
+            // send local address
+            let addr_str = self.addr.to_string();
+            writer.write_u32(addr_str.len() as _).await.unwrap();
+            writer.write_all(addr_str.as_bytes()).await.unwrap();
+            writer.flush().await.unwrap();
+            peer
+        } else {
+            // receive real peer address
+            let data = reader
+                .next()
+                .await
+                .expect("connection closed")
+                .expect("failed to read peer address");
+            std::str::from_utf8(&data)
+                .expect("invalid utf8")
+                .parse::<SocketAddr>()
+                .expect("failed to parse peer address")
+        };
+        trace!("setup connection: {} -> {}", self.addr, peer);
 
         let mailbox = self.mailbox.clone();
+        let addr = self.addr;
         tokio::spawn(async move {
+            debug!("try recv: {} <- {}", addr, peer);
             while let Some(frame) = reader.next().await {
                 let mut frame = frame.unwrap();
                 let tag = frame.get_u64();
@@ -138,26 +157,22 @@ impl NetLocalHandle {
                 let len = 8 + data.len();
                 writer.write_u32(len as _).await.unwrap();
                 writer.write_u64(tag).await.unwrap();
-                writer.write(&data).await.unwrap();
+                writer.write_all(&data).await.unwrap();
                 writer.flush().await.unwrap();
                 done.send(()).unwrap();
             }
         });
-        sender
+        (peer, sender)
     }
 
-    fn get_or_connect(&self, addr: SocketAddr) -> mpsc::Sender<SendMsg> {
-        self.sender
-            .lock()
-            .unwrap()
-            .entry(addr)
-            .or_insert_with(|| {
-                let mut std_stream = std::net::TcpStream::connect(addr).unwrap();
-                writeln!(std_stream, "{}", self.addr).unwrap();
-                let stream = TcpStream::from_std(std_stream).unwrap();
-                self.spawn(addr, stream)
-            })
-            .clone()
+    async fn get_or_connect(&self, addr: SocketAddr) -> mpsc::Sender<SendMsg> {
+        let mut senders = self.sender.lock().await;
+        if !senders.contains_key(&addr) {
+            let stream = TcpStream::connect(addr).await.unwrap();
+            let (_, sender) = self.spawn(Some(addr), stream).await;
+            senders.insert(addr, sender);
+        }
+        senders[&addr].clone()
     }
 
     /// Returns a [`NetLocalHandle`] view over the currently running [`Runtime`].
@@ -167,11 +182,16 @@ impl NetLocalHandle {
         crate::context::net_local_handle()
     }
 
+    /// Returns the local socket address.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.addr
+    }
+
     /// Sends data with tag on the socket to the given address.
     ///
     /// # Example
     /// ```
-    /// use madsim::{Runtime, net::NetLocalHandle};
+    /// use madsim_std::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {
     ///     let net = NetLocalHandle::current();
@@ -181,7 +201,7 @@ impl NetLocalHandle {
     pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, data: &[u8]) -> io::Result<()> {
         let dst = dst.to_socket_addrs()?.next().unwrap();
         trace!("send: {} -> {}, tag={}", self.addr, dst, tag);
-        let sender = self.get_or_connect(dst);
+        let sender = self.get_or_connect(dst).await;
         // Safety: sender task will refer the data until the `done` await return.
         let data = Bytes::from_static(unsafe { std::mem::transmute(data) });
         let (done, done_recver) = oneshot::channel();
@@ -195,7 +215,7 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```no_run
-    /// use madsim::{Runtime, net::NetLocalHandle};
+    /// use madsim_std::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {
     ///     let net = NetLocalHandle::current();
@@ -226,11 +246,11 @@ mod tests {
 
     #[test]
     fn send_recv() {
-        let runtime = Runtime::new();
-        let addr1 = "127.0.0.1:10000".parse().unwrap();
-        let addr2 = "127.0.0.1:10001".parse().unwrap();
-        let host1 = runtime.local_handle(addr1);
-        let host2 = runtime.local_handle(addr2);
+        let rt = Runtime::new();
+        let host1 = rt.create_host("127.0.0.1:0").unwrap();
+        let host2 = rt.create_host("127.0.0.1:0").unwrap();
+        let addr1 = host1.local_addr();
+        let addr2 = host2.local_addr();
 
         host1
             .spawn(async move {
@@ -255,6 +275,6 @@ mod tests {
             assert_eq!(buf[0], 1);
         });
 
-        runtime.block_on(f);
+        rt.block_on(f);
     }
 }

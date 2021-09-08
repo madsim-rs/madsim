@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
     future::Future,
-    net::SocketAddr,
+    io,
+    net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -71,11 +72,11 @@ impl Runtime {
         self.handle.clone()
     }
 
-    /// Return a handle of the specified host.
+    /// Create a host which will be bound to the specified address.
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
-    pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
-        self.handle.local_handle(addr)
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+        self.handle.create_host(addr)
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
@@ -102,7 +103,7 @@ impl Handle {
     /// This will panic if called outside the context of a Madsim runtime.
     ///
     /// ```should_panic
-    /// let handle = madsim::Handle::current();
+    /// let handle = madsim_std::Handle::current();
     /// ```
     pub fn current() -> Self {
         crate::context::current()
@@ -113,14 +114,14 @@ impl Handle {
         todo!()
     }
 
-    /// Return a handle of the specified host.
-    pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
+    /// Create a host which will be bound to the specified address.
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+        let handle = LocalHandle::new(addr)?;
         self.locals
             .lock()
             .unwrap()
-            .entry(addr)
-            .or_insert_with(|| LocalHandle::new(addr))
-            .clone()
+            .insert(handle.local_addr(), handle.clone());
+        Ok(handle)
     }
 }
 
@@ -141,21 +142,25 @@ impl LocalHandle {
         task::Task(self.handle.spawn(future))
     }
 
-    fn new(addr: SocketAddr) -> Self {
+    /// Returns the local socket address.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.net.local_addr()
+    }
+
+    fn new(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .expect("failed to build tokio runtime");
+            .build()?;
         let handle = LocalHandle {
             handle: rt.handle().clone(),
-            net: net::NetLocalHandle::new(rt.handle(), addr),
+            net: net::NetLocalHandle::new(rt.handle(), addr)?,
         };
         let handle0 = handle.clone();
         std::thread::spawn(move || {
             let _guard = crate::context::enter_local(handle0);
             rt.block_on(futures::future::pending::<()>());
         });
-        handle
+        Ok(handle)
     }
 }
 
