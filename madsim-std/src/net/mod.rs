@@ -1,4 +1,33 @@
 //! Asynchronous network endpoint and a controlled network simulator.
+//!
+//! # Examples
+//!
+//! ```
+//! use madsim_std::{Runtime, net::NetLocalHandle};
+//!
+//! let runtime = Runtime::new();
+//! let host1 = runtime.create_host("127.0.0.1:0").unwrap();
+//! let host2 = runtime.create_host("127.0.0.1:0").unwrap();
+//! let addr1 = host1.local_addr();
+//! let addr2 = host2.local_addr();
+//!
+//! host1
+//!     .spawn(async move {
+//!         let net = NetLocalHandle::current();
+//!         net.send_to(addr2, 1, &[1]).await.unwrap();
+//!     })
+//!     .detach();
+//!
+//! let f = host2.spawn(async move {
+//!     let net = NetLocalHandle::current();
+//!     let mut buf = vec![0; 0x10];
+//!     let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
+//!     assert_eq!(from, addr1);
+//!     assert_eq!(&buf[..len], &[1]);
+//! });
+//!
+//! runtime.block_on(f);
+//! ```
 
 use self::network::{Mailbox, RecvMsg};
 use bytes::{Buf, Bytes, BytesMut};
@@ -6,17 +35,17 @@ use futures::StreamExt;
 use log::*;
 use std::{
     collections::HashMap,
-    io::{self, Write},
+    io,
     net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
     runtime::Handle,
     sync::{mpsc, oneshot},
 };
-use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead, LinesCodec};
+use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
 
 pub use self::network::{Config, Stat};
 #[cfg(feature = "rpc")]
@@ -49,24 +78,16 @@ impl NetHandle {
     pub fn update_config(&self, _f: impl FnOnce(&mut Config)) {}
 
     /// Connect a host to the network.
-    pub fn connect(&self, addr: SocketAddr) {
-        todo!()
-    }
+    pub fn connect(&self, _addr: SocketAddr) {}
 
     /// Disconnect a host from the network.
-    pub fn disconnect(&self, addr: SocketAddr) {
-        todo!()
-    }
+    pub fn disconnect(&self, _addr: SocketAddr) {}
 
     /// Connect a pair of hosts.
-    pub fn connect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
-        todo!()
-    }
+    pub fn connect2(&self, _addr1: SocketAddr, _addr2: SocketAddr) {}
 
     /// Disconnect a pair of hosts.
-    pub fn disconnect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
-        todo!()
-    }
+    pub fn disconnect2(&self, _addr1: SocketAddr, _addr2: SocketAddr) {}
 }
 
 /// Local host network handle to the runtime.
@@ -190,7 +211,7 @@ impl NetLocalHandle {
     /// Sends data with tag on the socket to the given address.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use madsim_std::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {
@@ -214,7 +235,7 @@ impl NetLocalHandle {
     /// On success, returns the number of bytes read and the origin.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use madsim_std::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {

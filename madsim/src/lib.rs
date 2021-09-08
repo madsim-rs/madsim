@@ -8,7 +8,12 @@
 
 #![deny(missing_docs)]
 
-use std::{future::Future, net::SocketAddr, time::Duration};
+use std::{
+    future::Future,
+    io,
+    net::{SocketAddr, ToSocketAddrs},
+    time::Duration,
+};
 
 mod context;
 pub mod fs;
@@ -59,6 +64,8 @@ impl Runtime {
         let task = task::Executor::new();
         let net = net::NetRuntime::new(rand.clone(), task.time_handle().clone());
         let fs = fs::FsRuntime::new(rand.clone(), task.time_handle().clone());
+        // create endpoint for supervisor
+        net.handle().create_host("0.0.0.0:0".parse().unwrap());
         Runtime {
             rand,
             task,
@@ -84,16 +91,17 @@ impl Runtime {
         }
     }
 
-    /// Return a handle of the specified host.
+    /// Create a host which will be bound to the specified address.
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
-    pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
         assert_ne!(addr, SocketAddr::from(([0, 0, 0, 0], 0)), "invalid address");
-        LocalHandle {
+        Ok(LocalHandle {
             task: self.task.handle().local_handle(addr),
-            net: self.net.handle().local_handle(addr),
+            net: self.net.handle().create_host(addr),
             fs: self.fs.handle().local_handle(addr),
-        }
+        })
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
@@ -226,12 +234,13 @@ impl Handle {
     /// use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
     ///
     /// let rt = Runtime::new();
-    /// let addr = "0.0.0.1:1".parse().unwrap();
+    /// let host = rt.create_host("0.0.0.1:1").unwrap();
+    /// let addr = host.local_addr();
     ///
     /// // host increases the counter every 2s
     /// let flag = Arc::new(AtomicUsize::new(0));
     /// let flag_ = flag.clone();
-    /// rt.local_handle(addr).spawn(async move {
+    /// host.spawn(async move {
     ///     loop {
     ///         sleep(Duration::from_secs(2)).await;
     ///         flag_.fetch_add(2, Ordering::SeqCst);
@@ -255,13 +264,24 @@ impl Handle {
         // self.fs.power_fail(addr);
     }
 
-    /// Return a handle of the specified host.
-    pub fn local_handle(&self, addr: SocketAddr) -> LocalHandle {
-        LocalHandle {
+    /// Create a host which will be bound to the specified address.
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
+        Ok(LocalHandle {
             task: self.task.local_handle(addr),
-            net: self.net.local_handle(addr),
+            net: self.net.create_host(addr),
             fs: self.fs.local_handle(addr),
-        }
+        })
+    }
+
+    /// Return a handle of the specified host.
+    pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
+        // FIXME: return None if host does not exist
+        Some(LocalHandle {
+            task: self.task.local_handle(addr),
+            net: self.net.get_host(addr),
+            fs: self.fs.local_handle(addr),
+        })
     }
 }
 
@@ -281,6 +301,11 @@ impl LocalHandle {
         F::Output: Send + 'static,
     {
         self.task.spawn(future)
+    }
+
+    /// Returns the local socket address.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.net.local_addr()
     }
 }
 

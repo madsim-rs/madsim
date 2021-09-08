@@ -207,10 +207,9 @@ mod tests {
     #[test]
     fn kill() {
         let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse().unwrap();
-        let addr2 = "0.0.0.2:1".parse().unwrap();
-        let host1 = runtime.local_handle(addr1);
-        let host2 = runtime.local_handle(addr2);
+        let host1 = runtime.create_host("0.0.0.1:1").unwrap();
+        let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+        let addr1 = host1.local_addr();
 
         let flag1 = Arc::new(AtomicUsize::new(0));
         let flag2 = Arc::new(AtomicUsize::new(0));

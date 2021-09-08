@@ -6,10 +6,10 @@
 //! use madsim::{Runtime, net::NetLocalHandle};
 //!
 //! let runtime = Runtime::new();
-//! let addr1 = "0.0.0.1:1".parse().unwrap();
-//! let addr2 = "0.0.0.2:1".parse().unwrap();
-//! let host1 = runtime.local_handle(addr1);
-//! let host2 = runtime.local_handle(addr2);
+//! let host1 = runtime.create_host("0.0.0.1:1").unwrap();
+//! let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+//! let addr1 = host1.local_addr();
+//! let addr2 = host2.local_addr();
 //!
 //! host1
 //!     .spawn(async move {
@@ -75,7 +75,15 @@ pub struct NetHandle {
 
 impl NetHandle {
     /// Return a handle of the specified host.
-    pub fn local_handle(&self, addr: SocketAddr) -> NetLocalHandle {
+    pub(crate) fn get_host(&self, addr: SocketAddr) -> NetLocalHandle {
+        NetLocalHandle {
+            handle: self.clone(),
+            addr,
+        }
+    }
+
+    /// Return a handle of the specified host.
+    pub fn create_host(&self, addr: SocketAddr) -> NetLocalHandle {
         self.network.lock().unwrap().insert(addr);
         NetLocalHandle {
             handle: self.clone(),
@@ -97,7 +105,6 @@ impl NetHandle {
     /// Connect a host to the network.
     pub fn connect(&self, addr: SocketAddr) {
         let mut network = self.network.lock().unwrap();
-        network.insert(addr);
         network.unclog(addr);
     }
 
@@ -110,8 +117,6 @@ impl NetHandle {
     /// Connect a pair of hosts.
     pub fn connect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
         let mut network = self.network.lock().unwrap();
-        network.insert(addr1);
-        network.insert(addr2);
         network.unclog_link(addr1, addr2);
         network.unclog_link(addr2, addr1);
     }
@@ -137,6 +142,11 @@ impl NetLocalHandle {
     /// [`Runtime`]: crate::Runtime
     pub fn current() -> Self {
         crate::context::net_local_handle()
+    }
+
+    /// Returns the local socket address.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.addr
     }
 
     /// Sends data with tag on the socket to the given address.
@@ -211,10 +221,10 @@ mod tests {
     #[test]
     fn send_recv() {
         let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse().unwrap();
-        let addr2 = "0.0.0.2:1".parse().unwrap();
-        let host1 = runtime.local_handle(addr1);
-        let host2 = runtime.local_handle(addr2);
+        let host1 = runtime.create_host("0.0.0.1:1").unwrap();
+        let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+        let addr1 = host1.local_addr();
+        let addr2 = host2.local_addr();
 
         host1
             .spawn(async move {
@@ -245,10 +255,10 @@ mod tests {
     #[test]
     fn receiver_drop() {
         let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse().unwrap();
-        let addr2 = "0.0.0.2:1".parse().unwrap();
-        let host1 = runtime.local_handle(addr1);
-        let host2 = runtime.local_handle(addr2);
+        let host1 = runtime.create_host("0.0.0.1:1").unwrap();
+        let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+        let addr1 = host1.local_addr();
+        let addr2 = host2.local_addr();
 
         host1
             .spawn(async move {

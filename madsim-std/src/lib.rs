@@ -14,6 +14,9 @@ pub mod rand;
 pub mod task;
 pub mod time;
 
+#[cfg(feature = "macros")]
+pub use madsim_macros::{main, test};
+
 /// The madsim runtime.
 ///
 /// The runtime provides basic components for deterministic simulation,
@@ -28,6 +31,7 @@ pub mod time;
 pub struct Runtime {
     rt: tokio::runtime::Runtime,
     handle: Handle,
+    local_handle: LocalHandle,
 }
 
 impl Default for Runtime {
@@ -57,6 +61,10 @@ impl Runtime {
                 net: net::NetHandle::new(),
                 fs: fs::FsHandle::new(),
             },
+            local_handle: LocalHandle {
+                handle: rt.handle().clone(),
+                net: net::NetLocalHandle::new(rt.handle(), "127.0.0.1:0").unwrap(),
+            },
             rt,
         }
     }
@@ -82,7 +90,23 @@ impl Runtime {
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         let _guard = crate::context::enter(self.handle());
+        let _local_guard = crate::context::enter_local(self.local_handle.clone());
         self.rt.block_on(future)
+    }
+
+    /// Set a time limit of the execution.
+    pub fn set_time_limit(&mut self, _limit: Duration) {
+        todo!()
+    }
+
+    /// Dummy. Do NOT call.
+    pub fn enable_deterministic_check(&self, _log: Option<()>) {
+        panic!("madsim-std does not support deterministic check");
+    }
+
+    /// Dummy. Do NOT call.
+    pub fn take_rand_log(self) -> Option<()> {
+        None
     }
 }
 
