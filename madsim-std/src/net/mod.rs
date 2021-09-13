@@ -30,12 +30,12 @@
 //! ```
 
 use self::network::{Mailbox, RecvMsg};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::Buf;
 use futures::StreamExt;
 use log::*;
 use std::{
     collections::HashMap,
-    io,
+    io::{self, IoSlice},
     net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
@@ -50,6 +50,7 @@ use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
 pub use self::network::{Config, Stat};
 #[cfg(feature = "rpc")]
 pub use self::rpc::Message;
+pub use bytes::Bytes;
 
 mod network;
 #[cfg(feature = "rpc")]
@@ -102,7 +103,7 @@ type Sender = HashMap<SocketAddr, mpsc::Sender<SendMsg>>;
 
 struct SendMsg {
     tag: u64,
-    data: Bytes,
+    bufs: &'static [IoSlice<'static>],
     done: oneshot::Sender<()>,
 }
 
@@ -163,7 +164,7 @@ impl NetLocalHandle {
         tokio::spawn(async move {
             debug!("try recv: {} <- {}", addr, peer);
             while let Some(frame) = reader.next().await {
-                let mut frame = frame.unwrap();
+                let mut frame = frame.unwrap().freeze();
                 let tag = frame.get_u64();
                 mailbox.lock().unwrap().send(RecvMsg {
                     tag,
@@ -174,11 +175,11 @@ impl NetLocalHandle {
         });
 
         tokio::spawn(async move {
-            while let Some(SendMsg { tag, data, done }) = recver.recv().await {
-                let len = 8 + data.len();
+            while let Some(SendMsg { tag, bufs, done }) = recver.recv().await {
+                let len = 8 + bufs.iter().map(|s| s.len()).sum::<usize>();
                 writer.write_u32(len as _).await.unwrap();
                 writer.write_u64(tag).await.unwrap();
-                writer.write_all(&data).await.unwrap();
+                writer.write_vectored(bufs).await.unwrap();
                 writer.flush().await.unwrap();
                 done.send(()).unwrap();
             }
@@ -220,13 +221,25 @@ impl NetLocalHandle {
     /// });
     /// ```
     pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, data: &[u8]) -> io::Result<()> {
+        self.send_to_vectored(dst, tag, &[IoSlice::new(data)]).await
+    }
+
+    /// Like [`send_to`], except that it writes from a slice of buffers.
+    ///
+    /// [`send_to`]: NetLocalHandle::send_to
+    pub async fn send_to_vectored(
+        &self,
+        dst: impl ToSocketAddrs,
+        tag: u64,
+        bufs: &[IoSlice<'_>],
+    ) -> io::Result<()> {
         let dst = dst.to_socket_addrs()?.next().unwrap();
         trace!("send: {} -> {}, tag={}", self.addr, dst, tag);
         let sender = self.get_or_connect(dst).await;
         // Safety: sender task will refer the data until the `done` await return.
-        let data = Bytes::from_static(unsafe { std::mem::transmute(data) });
+        let bufs = unsafe { std::mem::transmute(bufs) };
         let (done, done_recver) = oneshot::channel();
-        sender.send(SendMsg { tag, data, done }).await.ok().unwrap();
+        sender.send(SendMsg { tag, bufs, done }).await.ok().unwrap();
         done_recver.await.unwrap();
         Ok(())
     }
@@ -252,7 +265,7 @@ impl NetLocalHandle {
     }
 
     /// Receives a raw message.
-    async fn recv_from_raw(&self, tag: u64) -> io::Result<(BytesMut, SocketAddr)> {
+    async fn recv_from_raw(&self, tag: u64) -> io::Result<(Bytes, SocketAddr)> {
         let recver = self.mailbox.lock().unwrap().recv(tag);
         let msg = recver.await.unwrap();
         trace!("recv: {} <- {}, tag={}", self.addr, msg.from, msg.tag);

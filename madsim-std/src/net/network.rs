@@ -1,4 +1,4 @@
-use bytes::BytesMut;
+use bytes::Bytes;
 use std::{net::SocketAddr, ops::Range, time::Duration};
 use tokio::sync::oneshot;
 
@@ -20,7 +20,7 @@ pub struct Stat {
 #[derive(Debug)]
 pub struct RecvMsg {
     pub tag: u64,
-    pub data: BytesMut,
+    pub data: Bytes,
     pub from: SocketAddr,
 }
 
