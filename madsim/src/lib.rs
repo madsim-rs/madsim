@@ -23,7 +23,7 @@ pub mod task;
 pub mod time;
 
 #[cfg(feature = "macros")]
-pub use madsim_macros::{main, test};
+pub use madsim_macros::*;
 
 /// The madsim runtime.
 ///

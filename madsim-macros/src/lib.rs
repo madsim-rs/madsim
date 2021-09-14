@@ -1,7 +1,17 @@
 //! Macros for use with Madsim
 
+mod request;
+
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::DeriveInput;
+
+#[proc_macro_derive(Request, attributes(rtype))]
+pub fn message_derive_rtype(input: TokenStream) -> TokenStream {
+    let ast: DeriveInput = syn::parse(input).unwrap();
+
+    request::expand(&ast).into()
+}
 
 #[allow(clippy::needless_doctest_main)]
 /// Marks async function to be executed by the selected runtime. This macro
@@ -31,7 +41,34 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
     let args = syn::parse_macro_input!(args as syn::AttributeArgs);
 
-    parse(input, args, false).unwrap_or_else(|e| e.to_compile_error().into())
+    parse_main(input, args).unwrap_or_else(|e| e.to_compile_error().into())
+}
+
+fn parse_main(
+    mut input: syn::ItemFn,
+    _args: syn::AttributeArgs,
+) -> Result<TokenStream, syn::Error> {
+    if input.sig.asyncness.take().is_none() {
+        let msg = "the `async` keyword is missing from the function declaration";
+        return Err(syn::Error::new_spanned(input.sig.fn_token, msg));
+    }
+
+    let body = &input.block;
+    let brace_token = input.block.brace_token;
+    input.block = syn::parse2(quote! {
+        {
+            let mut rt = madsim::Runtime::new();
+            rt.block_on(async #body)
+        }
+    })
+    .expect("Parsing failure");
+    input.block.brace_token = brace_token;
+
+    let result = quote! {
+        #input
+    };
+
+    Ok(result.into())
 }
 
 /// Marks async function to be executed by runtime, suitable to test environment.
@@ -75,26 +112,17 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
     let args = syn::parse_macro_input!(args as syn::AttributeArgs);
 
-    parse(input, args, true).unwrap_or_else(|e| e.to_compile_error().into())
+    parse_test(input, args).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
-fn parse(
+fn parse_test(
     mut input: syn::ItemFn,
     _args: syn::AttributeArgs,
-    is_test: bool,
 ) -> Result<TokenStream, syn::Error> {
     if input.sig.asyncness.take().is_none() {
         let msg = "the `async` keyword is missing from the function declaration";
         return Err(syn::Error::new_spanned(input.sig.fn_token, msg));
     }
-
-    let header = if is_test {
-        quote! {
-            #[::core::prelude::v1::test]
-        }
-    } else {
-        quote! {}
-    };
 
     let body = &input.block;
     let brace_token = input.block.brace_token;
@@ -145,7 +173,7 @@ fn parse(
     input.block.brace_token = brace_token;
 
     let result = quote! {
-        #header
+        #[::core::prelude::v1::test]
         #input
     };
 
