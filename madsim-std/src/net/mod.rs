@@ -66,7 +66,7 @@ impl NetHandle {
     }
 
     /// Return a handle of the specified host.
-    pub fn local_handle(&self, addr: SocketAddr) -> NetLocalHandle {
+    pub fn local_handle(&self, _addr: SocketAddr) -> NetLocalHandle {
         todo!()
     }
 
@@ -189,10 +189,10 @@ impl NetLocalHandle {
 
     async fn get_or_connect(&self, addr: SocketAddr) -> mpsc::Sender<SendMsg> {
         let mut senders = self.sender.lock().await;
-        if !senders.contains_key(&addr) {
+        if let std::collections::hash_map::Entry::Vacant(e) = senders.entry(addr) {
             let stream = TcpStream::connect(addr).await.unwrap();
             let (_, sender) = self.spawn(Some(addr), stream).await;
-            senders.insert(addr, sender);
+            e.insert(sender);
         }
         senders[&addr].clone()
     }

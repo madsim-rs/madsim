@@ -25,7 +25,7 @@ impl FsHandle {
     }
 
     /// Get the size of given file.
-    pub fn get_file_size(&self, addr: SocketAddr, path: impl AsRef<Path>) -> Result<u64> {
+    pub fn get_file_size(&self, _addr: SocketAddr, _path: impl AsRef<Path>) -> Result<u64> {
         todo!()
     }
 }

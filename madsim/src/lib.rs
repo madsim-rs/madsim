@@ -276,15 +276,11 @@ impl Handle {
 
     /// Return a handle of the specified host.
     pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
-        if let Some(fs) = self.fs.get_host(addr) {
-            Some(LocalHandle {
-                task: self.task.local_handle(addr),
-                net: self.net.get_host(addr),
-                fs,
-            })
-        } else {
-            None
-        }
+        self.fs.get_host(addr).map(|fs| LocalHandle {
+            task: self.task.local_handle(addr),
+            net: self.net.get_host(addr),
+            fs,
+        })
     }
 }
 
