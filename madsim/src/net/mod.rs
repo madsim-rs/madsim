@@ -38,13 +38,11 @@ use std::{
 
 pub use self::network::{Config, Stat};
 use self::network::{Network, Payload};
-#[cfg(feature = "rpc")]
-pub use self::rpc::Message;
 use crate::{rand::*, time::*};
 
 mod network;
 #[cfg(feature = "rpc")]
-mod rpc;
+pub mod rpc;
 
 pub(crate) struct NetRuntime {
     handle: NetHandle,

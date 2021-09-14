@@ -48,13 +48,11 @@ use tokio::{
 use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
 
 pub use self::network::{Config, Stat};
-#[cfg(feature = "rpc")]
-pub use self::rpc::Message;
-pub use bytes::Bytes;
+use bytes::Bytes;
 
 mod network;
 #[cfg(feature = "rpc")]
-mod rpc;
+pub mod rpc;
 
 /// Network handle to the runtime.
 #[derive(Clone)]
