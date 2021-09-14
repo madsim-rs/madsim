@@ -100,7 +100,7 @@ impl Runtime {
         Ok(LocalHandle {
             task: self.task.handle().local_handle(addr),
             net: self.net.handle().create_host(addr),
-            fs: self.fs.handle().local_handle(addr),
+            fs: self.fs.handle().create_host(addr),
         })
     }
 
@@ -270,18 +270,21 @@ impl Handle {
         Ok(LocalHandle {
             task: self.task.local_handle(addr),
             net: self.net.create_host(addr),
-            fs: self.fs.local_handle(addr),
+            fs: self.fs.create_host(addr),
         })
     }
 
     /// Return a handle of the specified host.
     pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
-        // FIXME: return None if host does not exist
-        Some(LocalHandle {
-            task: self.task.local_handle(addr),
-            net: self.net.get_host(addr),
-            fs: self.fs.local_handle(addr),
-        })
+        if let Some(fs) = self.fs.get_host(addr) {
+            Some(LocalHandle {
+                task: self.task.local_handle(addr),
+                net: self.net.get_host(addr),
+                fs,
+            })
+        } else {
+            None
+        }
     }
 }
 

@@ -147,6 +147,11 @@ impl Handle {
             .insert(handle.local_addr(), handle.clone());
         Ok(handle)
     }
+
+    /// Return a handle of the specified host.
+    pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
+        self.locals.lock().unwrap().get(&addr).cloned()
+    }
 }
 
 /// Local host handle to the runtime.

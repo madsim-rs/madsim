@@ -198,6 +198,16 @@ where
     handle.spawn_local(future)
 }
 
+/// Runs the provided closure on a thread where blocking is acceptable.
+pub fn spawn_blocking<F, R>(f: F) -> Task<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let handle = crate::context::task_local_handle();
+    handle.spawn(async move { f() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

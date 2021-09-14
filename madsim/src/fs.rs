@@ -39,12 +39,17 @@ pub struct FsHandle {
 
 impl FsHandle {
     /// Return a handle of the specified host.
-    pub(crate) fn local_handle(&self, addr: SocketAddr) -> FsLocalHandle {
+    pub(crate) fn create_host(&self, addr: SocketAddr) -> FsLocalHandle {
         let mut handles = self.handles.lock().unwrap();
-        handles
-            .entry(addr)
-            .or_insert_with(|| FsLocalHandle::new(addr))
-            .clone()
+        let handle = FsLocalHandle::new(addr);
+        handles.insert(addr, handle.clone());
+        handle
+    }
+
+    /// Return a handle of the specified host.
+    pub(crate) fn get_host(&self, addr: SocketAddr) -> Option<FsLocalHandle> {
+        let handles = self.handles.lock().unwrap();
+        handles.get(&addr).cloned()
     }
 
     /// Simulate a power failure. All data that does not reach the disk will be lost.
