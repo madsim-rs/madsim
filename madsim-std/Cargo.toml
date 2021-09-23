@@ -2,16 +2,22 @@
 name = "madsim-std"
 version = "0.1.0"
 edition = "2018"
+authors = ["Runji Wang <wangrunji0408@163.com>"]
+description = "Real world backend for MadSim."
+readme = "../README.md"
+homepage = "https://github.com/madsys-dev/madsim"
+repository = "https://github.com/madsys-dev/madsim"
+license = "Apache-2.0"
+keywords = ["distributed-systems", "async", "deterministic", "simulation"]
+categories = ["asynchronous", "simulation"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 logger = ["env_logger"]
 rpc = ["serde", "flexbuffers"]
-macros = ["madsim-macros"]
 
 [dependencies]
-madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
 log = "0.4"
 rand = { version = "0.8", features = ["small_rng"] }
 futures = "0.3"
