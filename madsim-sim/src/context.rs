@@ -41,7 +41,7 @@ pub(crate) fn net_local_handle() -> crate::net::NetLocalHandle {
 
 pub(crate) fn fs_local_handle() -> crate::fs::FsLocalHandle {
     let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).fs.get_host(addr).unwrap())
+    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).fs.local_handle(addr))
 }
 
 /// Set this [`Handle`] as the current active [`Handle`].

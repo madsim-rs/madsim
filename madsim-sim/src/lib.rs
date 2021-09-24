@@ -9,9 +9,11 @@
 #![deny(missing_docs)]
 
 use std::{
+    collections::HashSet,
     future::Future,
     io,
     net::{SocketAddr, ToSocketAddrs},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -36,8 +38,7 @@ pub mod time;
 pub struct Runtime {
     rand: rand::RandHandle,
     task: task::Executor,
-    net: net::NetRuntime,
-    fs: fs::FsRuntime,
+    handle: Handle,
 }
 
 impl Default for Runtime {
@@ -63,12 +64,16 @@ impl Runtime {
         let fs = fs::FsRuntime::new(rand.clone(), task.time_handle().clone());
         // create endpoint for supervisor
         net.handle().create_host("0.0.0.0:0".parse().unwrap());
-        Runtime {
-            rand,
-            task,
-            net,
-            fs,
-        }
+
+        let handle = Handle {
+            hosts: Default::default(),
+            rand: rand.clone(),
+            time: task.time_handle().clone(),
+            task: task.handle().clone(),
+            net: net.handle().clone(),
+            fs: fs.handle().clone(),
+        };
+        Runtime { rand, task, handle }
     }
 
     /// Return a handle to the runtime.
@@ -78,27 +83,15 @@ impl Runtime {
     /// network.
     ///
     /// [block_on]: Runtime::block_on
-    pub fn handle(&self) -> Handle {
-        Handle {
-            rand: self.rand.clone(),
-            time: self.task.time_handle().clone(),
-            task: self.task.handle().clone(),
-            net: self.net.handle().clone(),
-            fs: self.fs.handle().clone(),
-        }
+    pub fn handle(&self) -> &Handle {
+        &self.handle
     }
 
     /// Create a host which will be bound to the specified address.
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
     pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
-        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
-        assert_ne!(addr, SocketAddr::from(([0, 0, 0, 0], 0)), "invalid address");
-        Ok(LocalHandle {
-            task: self.task.handle().local_handle(addr),
-            net: self.net.handle().create_host(addr),
-            fs: self.fs.handle().create_host(addr),
-        })
+        self.handle.create_host(addr)
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
@@ -127,7 +120,7 @@ impl Runtime {
     /// Runtime::new().block_on(pending::<()>());
     /// ```
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        let _guard = crate::context::enter(self.handle());
+        let _guard = crate::context::enter(self.handle.clone());
         self.task.block_on(future)
     }
 
@@ -203,6 +196,7 @@ impl Runtime {
 #[derive(Clone)]
 #[allow(missing_docs)]
 pub struct Handle {
+    hosts: Arc<Mutex<HashSet<SocketAddr>>>,
     rand: rand::RandHandle,
     time: time::TimeHandle,
     task: task::TaskHandle,
@@ -262,6 +256,7 @@ impl Handle {
     /// });
     /// ```
     pub fn kill(&self, addr: SocketAddr) {
+        self.hosts.lock().unwrap().remove(&addr);
         self.task.kill(addr);
         // self.net.kill(addr);
         // self.fs.power_fail(addr);
@@ -270,19 +265,26 @@ impl Handle {
     /// Create a host which will be bound to the specified address.
     pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
         let addr = addr.to_socket_addrs().unwrap().next().unwrap();
+        assert_ne!(addr, SocketAddr::from(([0, 0, 0, 0], 0)), "invalid address");
+        if !self.hosts.lock().unwrap().insert(addr) {
+            panic!("host already exists: {}", addr);
+        }
         Ok(LocalHandle {
             task: self.task.local_handle(addr),
             net: self.net.create_host(addr),
-            fs: self.fs.create_host(addr),
+            fs: self.fs.local_handle(addr),
         })
     }
 
     /// Return a handle of the specified host.
     pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
-        self.fs.get_host(addr).map(|fs| LocalHandle {
+        if !self.hosts.lock().unwrap().contains(&addr) {
+            return None;
+        }
+        Some(LocalHandle {
             task: self.task.local_handle(addr),
             net: self.net.get_host(addr),
-            fs,
+            fs: self.fs.local_handle(addr),
         })
     }
 }

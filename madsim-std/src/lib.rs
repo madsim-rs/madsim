@@ -76,8 +76,8 @@ impl Runtime {
     /// network.
     ///
     /// [block_on]: Runtime::block_on
-    pub fn handle(&self) -> Handle {
-        self.handle.clone()
+    pub fn handle(&self) -> &Handle {
+        &self.handle
     }
 
     /// Create a host which will be bound to the specified address.
@@ -89,7 +89,7 @@ impl Runtime {
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        let _guard = crate::context::enter(self.handle());
+        let _guard = crate::context::enter(self.handle.clone());
         let _local_guard = crate::context::enter_local(self.local_handle.clone());
         self.rt.block_on(future)
     }
