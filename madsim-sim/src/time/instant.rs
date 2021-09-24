@@ -41,6 +41,7 @@ impl Instant {
     /// # Examples
     ///
     /// ```ignore
+    /// # use madsim_sim as madsim;
     /// use madsim::time::Instant;
     ///
     /// let now = Instant::now();
@@ -75,6 +76,7 @@ impl Instant {
     /// # Examples
     ///
     /// ```ignore
+    /// # use madsim_sim as madsim;
     /// use madsim::time::{Duration, Instant, sleep};
     ///
     /// #[madsim::main]
@@ -96,6 +98,7 @@ impl Instant {
     /// # Examples
     ///
     /// ```ignore
+    /// # use madsim_sim as madsim;
     /// use madsim::time::{Duration, Instant, sleep};
     ///
     /// #[madsim::main]
@@ -122,6 +125,7 @@ impl Instant {
     /// # Examples
     ///
     /// ```ignore
+    /// # use madsim_sim as madsim;
     /// use madsim::time::{Duration, Instant, sleep};
     ///
     /// #[madsim::main]

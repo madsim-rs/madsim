@@ -10,6 +10,7 @@
 //! # Example
 //!
 //! ```
+//! # use madsim_sim as madsim;
 //! use madsim::{Runtime, rand::{self, Rng}};
 //!
 //! Runtime::new().block_on(async {

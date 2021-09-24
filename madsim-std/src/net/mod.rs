@@ -3,7 +3,8 @@
 //! # Examples
 //!
 //! ```
-//! use madsim_std::{Runtime, net::NetLocalHandle};
+//! # use madsim_std as madsim;
+//! use madsim::{Runtime, net::NetLocalHandle};
 //!
 //! let runtime = Runtime::new();
 //! let host1 = runtime.create_host("127.0.0.1:0").unwrap();
@@ -211,7 +212,8 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```ignore
-    /// use madsim_std::{Runtime, net::NetLocalHandle};
+    /// # use madsim_std as madsim;
+    /// use madsim::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {
     ///     let net = NetLocalHandle::current();
@@ -247,7 +249,8 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```ignore
-    /// use madsim_std::{Runtime, net::NetLocalHandle};
+    /// # use madsim_std as madsim;
+    /// use madsim::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {
     ///     let net = NetLocalHandle::current();

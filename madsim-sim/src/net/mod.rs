@@ -3,6 +3,7 @@
 //! # Examples
 //!
 //! ```
+//! # use madsim_sim as madsim;
 //! use madsim::{Runtime, net::NetLocalHandle};
 //!
 //! let runtime = Runtime::new();
@@ -151,6 +152,7 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```
+    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {
@@ -168,6 +170,7 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```no_run
+    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, net::NetLocalHandle};
     ///
     /// Runtime::new().block_on(async {

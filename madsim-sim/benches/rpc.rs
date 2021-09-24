@@ -1,5 +1,5 @@
 use criterion::*;
-use madsim::{
+use madsim_sim::{
     net::{rpc::*, NetLocalHandle},
     Runtime,
 };

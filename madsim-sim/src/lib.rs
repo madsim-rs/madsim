@@ -108,6 +108,7 @@ impl Runtime {
     /// # Example
     ///
     /// ```
+    /// # use madsim_sim as madsim;
     /// use madsim::Runtime;
     ///
     /// let rt = Runtime::new();
@@ -119,6 +120,7 @@ impl Runtime {
     /// panic instead of blocking.
     ///
     /// ```should_panic
+    /// # use madsim_sim as madsim;
     /// use madsim::Runtime;
     /// use futures::future::pending;
     ///
@@ -136,6 +138,7 @@ impl Runtime {
     /// # Example
     ///
     /// ```should_panic
+    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, time::{sleep, Duration}};
     ///
     /// let mut rt = Runtime::new();
@@ -154,6 +157,7 @@ impl Runtime {
     /// # Example
     ///
     /// ```should_panic
+    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, time::{sleep, Duration}};
     /// use rand::Rng;
     ///
@@ -214,6 +218,7 @@ impl Handle {
     /// This will panic if called outside the context of a Madsim runtime.
     ///
     /// ```should_panic
+    /// # use madsim_sim as madsim;
     /// let handle = madsim::Handle::current();
     /// ```
     pub fn current() -> Self {
@@ -227,6 +232,7 @@ impl Handle {
     ///
     /// # Example
     /// ```
+    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, time::{sleep, Duration}};
     /// use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
     ///

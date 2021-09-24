@@ -13,7 +13,8 @@
 //! # Examples
 //!
 //! ```
-//! use madsim_std::{Runtime, net::{NetLocalHandle, rpc::*}};
+//! # use madsim_std as madsim;
+//! use madsim::{Runtime, net::{NetLocalHandle, rpc::*}};
 //!
 //! let runtime = Runtime::new();
 //! let host1 = runtime.create_host("127.0.0.1:0").unwrap();

@@ -13,6 +13,7 @@
 //! # Examples
 //!
 //! ```
+//! # use madsim_sim as madsim;
 //! use madsim::{Runtime, net::{NetLocalHandle, rpc::*}};
 //!
 //! let runtime = Runtime::new();
