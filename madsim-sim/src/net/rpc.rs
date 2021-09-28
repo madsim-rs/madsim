@@ -64,16 +64,28 @@ pub use bytes::Bytes;
 use futures::FutureExt;
 #[doc(no_inline)]
 pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{
-    any::{Any, TypeId},
-    future::Future,
-    mem::transmute,
-};
+use std::{any::Any, future::Future};
 
 /// A RPC request.
 pub trait Request: Serialize + DeserializeOwned + Any + Send + Sync {
     /// A RPC response.
     type Response: Serialize + DeserializeOwned + Any + Send + Sync;
+
+    /// A unique ID.
+    const ID: u64;
+}
+
+#[doc(hidden)]
+pub const fn hash_str(s: &str) -> u64 {
+    // simple hash33
+    let mut h = 0u64;
+    let s = s.as_bytes();
+    let mut i = 0;
+    while i < s.len() {
+        h = h.wrapping_mul(33).wrapping_add(s[i] as u64);
+        i += 1;
+    }
+    h
 }
 
 impl NetLocalHandle {
@@ -102,7 +114,7 @@ impl NetLocalHandle {
         request: R,
         data: &[u8],
     ) -> io::Result<(R::Response, Bytes)> {
-        let req_tag: u64 = unsafe { transmute(TypeId::of::<R>()) };
+        let req_tag = R::ID;
         let rsp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
         let data = Bytes::copy_from_slice(data);
         self.send_to_raw(dst, req_tag, Box::new((rsp_tag, request, data)))
@@ -130,7 +142,7 @@ impl NetLocalHandle {
         AsyncFn: FnMut(R, Bytes) -> Fut + Send + 'static,
         Fut: Future<Output = (R::Response, Vec<u8>)> + Send + 'static,
     {
-        let req_tag: u64 = unsafe { transmute(TypeId::of::<R>()) };
+        let req_tag = R::ID;
         let net = self.clone();
         crate::task::spawn(async move {
             loop {

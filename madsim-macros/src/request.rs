@@ -60,6 +60,7 @@ pub fn expand(ast: &syn::DeriveInput) -> TokenStream {
     quote! {
         impl #impl_generics ::madsim::net::rpc::Request for #name #ty_generics #where_clause {
             type Response = #item_type;
+            const ID: u64 = ::madsim::net::rpc::hash_str(concat!(module_path!(), stringify!(#name)));
         }
     }
 }
