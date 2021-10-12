@@ -1,10 +1,11 @@
 //! Macros for use with Madsim
 
 mod request;
+mod rpc;
 
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::DeriveInput;
+use quote::{quote, ToTokens};
+use syn::{parse_macro_input, DeriveInput};
 
 #[proc_macro_derive(Request, attributes(rtype))]
 pub fn message_derive_rtype(input: TokenStream) -> TokenStream {
@@ -178,4 +179,10 @@ fn parse_test(
     };
 
     Ok(result.into())
+}
+
+#[proc_macro_attribute]
+pub fn service(_attr: TokenStream, input: TokenStream) -> TokenStream {
+    let service = parse_macro_input!(input as rpc::Service);
+    service.into_token_stream().into()
 }
