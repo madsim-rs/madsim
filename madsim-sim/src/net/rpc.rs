@@ -371,21 +371,21 @@ mod test {
     //     pub const PUT: u64 = 1;
     //     pub const PING: u64 = 2;
     //
-    //     pub fn get<'a>(key: &'a &str) -> RpcRequest<'a, bool, GET> {
+    //     pub fn get<'a>(key: & &str) -> RpcRequest<'a, bool, GET> {
     //         RpcRequest::new(key)
     //     }
     //
-    //     pub fn put<'a>(key: &'a &str) -> RpcRequest<'a, bool, PUT> {
+    //     pub fn put<'a>(key: & &str) -> RpcRequest<'a, bool, PUT> {
     //         RpcRequest::new(key)
     //     }
     //
-    //     pub fn ping() -> RpcRequest<'static, (), PING> {
+    //     pub fn ping<'a>() -> RpcRequest<'a, (), PING> {
     //         RpcRequest::new(&())
     //     }
     // }
     #[madsim_macros::service]
     mod kv {
-        // get value of `key`, output data in value
+        // get value of `key`, output data is value
         pub fn get(key: &str) -> bool;
 
         // set value of `key`, input data is new value, output data is old value
