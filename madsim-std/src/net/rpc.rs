@@ -26,12 +26,14 @@
 //! struct Req1(u32);
 //! impl Request for Req1 {
 //!     type Response = u32;
+//!     const ID: u64 = 1;
 //! }
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req2(u32);
 //! impl Request for Req2 {
 //!     type Response = u32;
+//!     const ID: u64 = 2;
 //! }
 //!
 //! host1
@@ -59,13 +61,20 @@
 //! ```
 
 use super::*;
+use bytes::Buf;
 #[doc(no_inline)]
 pub use bytes::Bytes;
 use futures::FutureExt;
 use rand::Rng;
 #[doc(no_inline)]
 pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{any::Any, future::Future, time::Duration};
+use std::{
+    any::Any,
+    future::Future,
+    io::{self, IoSlice},
+    net::SocketAddr,
+    time::Duration,
+};
 
 /// A RPC request.
 pub trait Request: Serialize + DeserializeOwned + Any + Send + Sync {

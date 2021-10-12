@@ -3,7 +3,7 @@ use std::{
     future::Future,
     io,
     net::{SocketAddr, ToSocketAddrs},
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
 
@@ -30,6 +30,7 @@ pub use madsim_macros::*;
 /// [file system]: crate::fs
 pub struct Runtime {
     rt: tokio::runtime::Runtime,
+    local: tokio::task::LocalSet,
     handle: Handle,
     local_handle: LocalHandle,
 }
@@ -55,17 +56,21 @@ impl Runtime {
             .enable_all()
             .build()
             .unwrap();
+        let local = tokio::task::LocalSet::new();
+        let handle = Handle {
+            locals: Default::default(),
+            net: net::NetHandle::new(),
+            fs: fs::FsHandle::new(),
+        };
+        let local_handle = LocalHandle {
+            handle: rt.handle().clone(),
+            net: handle.net.create_host(&rt, &local, "127.0.0.1:0").unwrap(),
+        };
         Runtime {
-            handle: Handle {
-                locals: Default::default(),
-                net: net::NetHandle::new(),
-                fs: fs::FsHandle::new(),
-            },
-            local_handle: LocalHandle {
-                handle: rt.handle().clone(),
-                net: net::NetLocalHandle::new(rt.handle(), "127.0.0.1:0").unwrap(),
-            },
             rt,
+            local,
+            handle,
+            local_handle,
         }
     }
 
@@ -91,7 +96,7 @@ impl Runtime {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         let _guard = crate::context::enter(self.handle.clone());
         let _local_guard = crate::context::enter_local(self.local_handle.clone());
-        self.rt.block_on(future)
+        self.local.block_on(&self.rt, future)
     }
 
     /// Set a time limit of the execution.
@@ -140,7 +145,7 @@ impl Handle {
 
     /// Create a host which will be bound to the specified address.
     pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
-        let handle = LocalHandle::new(addr)?;
+        let handle = LocalHandle::new(self, addr)?;
         self.locals
             .lock()
             .unwrap()
@@ -176,19 +181,26 @@ impl LocalHandle {
         self.net.local_addr()
     }
 
-    fn new(addr: impl ToSocketAddrs) -> io::Result<Self> {
+    fn new(handle: &Handle, addr: impl ToSocketAddrs) -> io::Result<Self> {
+        let addr = addr.to_socket_addrs()?.next().unwrap();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let handle = LocalHandle {
-            handle: rt.handle().clone(),
-            net: net::NetLocalHandle::new(rt.handle(), addr)?,
-        };
-        let handle0 = handle.clone();
+        // create a channel to receive the local_handle from the new thread
+        let (sender, recver) = mpsc::channel();
+        let handle = handle.clone();
         std::thread::spawn(move || {
-            let _guard = crate::context::enter_local(handle0);
-            rt.block_on(futures::future::pending::<()>());
+            let local = tokio::task::LocalSet::new();
+            let local_handle = LocalHandle {
+                handle: rt.handle().clone(),
+                net: handle.net.create_host(&rt, &local, addr).unwrap(),
+            };
+            sender.send(local_handle.clone()).ok().unwrap();
+
+            let _guard = crate::context::enter_local(local_handle);
+            local.block_on(&rt, futures::future::pending::<()>());
         });
+        let handle = recver.recv().unwrap();
         Ok(handle)
     }
 }

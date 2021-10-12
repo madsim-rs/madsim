@@ -17,6 +17,7 @@ categories = ["asynchronous", "simulation"]
 default = ["macros"]
 sim = ["madsim-sim"]
 std = ["madsim-std"]
+ucx = ["std", "madsim-std/ucx"]
 macros = ["madsim-macros"]
 
 [dependencies]
