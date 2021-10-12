@@ -336,7 +336,7 @@ impl NetLocalHandle {
 }
 
 #[cfg(test)]
-mod test {    
+mod test {
     use super::*;
     use crate::Runtime;
     use std::collections::HashMap;
@@ -363,7 +363,7 @@ mod test {
         });
         runtime.block_on(f);
     }
-    
+
     // `#[madsim_macros::service]` will generate code like:
     // mod kv {
     //     use super::*;
@@ -386,13 +386,13 @@ mod test {
     #[madsim_macros::service]
     mod kv {
         // get value of `key`, output data is value
-        pub fn get(key: &str) -> bool;
+        fn get(key: &str) -> bool;
 
         // set value of `key`, input data is new value, output data is old value
-        pub fn put(key: &str) -> bool;
+        fn put(key: &str) -> bool;
 
         // ping server, no arguments.
-        pub fn ping();
+        fn ping();
     }
 
     struct KvServer {

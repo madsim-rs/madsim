@@ -41,7 +41,7 @@ impl Parse for Service {
 impl Parse for RpcMethod {
     fn parse(parse_input: ParseStream) -> syn::Result<Self> {
         let _attrs = parse_input.call(Attribute::parse_outer)?;
-        parse_input.parse::<Token![pub]>()?;
+        parse_input.parse::<Token![pub]>().ok();
         parse_input.parse::<Token![fn]>()?;
         let ident: Ident = parse_input.parse()?;
         let content;
