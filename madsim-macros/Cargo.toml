@@ -17,7 +17,8 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1"
-syn = { version = "1.0", features = ["full"] }
+syn = { version = "1.0", features = ["full", "extra-traits"] }
+convert_case = "0.4"
 
 [dev-dependencies]
 madsim = { path = "../madsim", features = ["macros"] }
