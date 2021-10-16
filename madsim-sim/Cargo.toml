@@ -2,7 +2,7 @@
 name = "madsim-sim"
 version = "0.1.1"
 edition = "2018"
-authors = ["Runji Wang <wangrunji0408@163.com>"]
+authors = ["Runji Wang <wangrunji0408@163.com>", "Yiyuan Liu <yiyuanliu1997@gmail.com>"]
 description = "Simulator backend for MadSim."
 readme = "../README.md"
 homepage = "https://github.com/madsys-dev/madsim"
@@ -32,6 +32,7 @@ thiserror = "1.0"
 [dev-dependencies]
 criterion = "0.3"
 madsim-macros = { path = "../madsim-macros" }
+futures-lite = "1.12"
 
 [[bench]]
 name = "rpc"

@@ -34,27 +34,25 @@ pub enum Error {
 
 /// Client side RPC request.
 /// RpcRequest can be used many times and can be broadcast to many servers.
-pub struct RpcRequest<'a, Resp, Rpc> {
-    // todo: it's better to use &Req here, but it's hard to handle lifetime with macro,
-    //       need a way to validate request type is right.
+pub struct RpcRequest<'a, Req, Resp, Rpc> {
     request: Bytes,
     send_data: Option<&'a [u8]>,
-    _marker: PhantomData<fn() -> (Resp, Rpc)>,
+    _marker: PhantomData<fn(Req) -> (Resp, Rpc)>,
 }
 
 /// Client side RPC request with recv buffer.
 /// RpcRecvRequest can only be send to one server.
-pub struct RpcRecvRequest<'a, Resp, Rpc> {
-    request: RpcRequest<'a, Resp, Rpc>,
+pub struct RpcRecvRequest<'a, Req, Resp, Rpc> {
+    request: RpcRequest<'a, Req, Resp, Rpc>,
     recv_data: &'a mut [u8],
 }
 
-impl<'a, 'de, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Resp, Rpc>
+impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcInData<false>,
+    Rpc: RpcType<Req, Resp> + RpcInData<false>,
 {
     /// New RPC request without input data.
-    pub fn new<Req: Serialize>(request: &Req) -> Self {
+    pub fn new(request: &Req) -> Self {
         Self {
             request: Bytes::from(bincode::serialize(request).unwrap()),
             send_data: None,
@@ -63,12 +61,12 @@ where
     }
 }
 
-impl<'a, 'de, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Resp, Rpc>
+impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcInData<true>,
+    Rpc: RpcType<Req, Resp> + RpcInData<true>,
 {
     /// Net RPC request with input data.
-    pub fn new_data<Req: Serialize>(request: &Req, data: &'a [u8]) -> Self {
+    pub fn new_data(request: &Req, data: &'a [u8]) -> Self {
         Self {
             request: Bytes::from(bincode::serialize(request).unwrap()),
             send_data: Some(data),
@@ -77,17 +75,16 @@ where
     }
 }
 
-impl<'a, 'de, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Resp, Rpc>
+impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcOutData<true>,
+    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
 {
     /// Provide a buffer to receive data from response.
+    /// This function requires RPC interface contains `OutData`.
+    ///
     /// Caller should make sure that buffer has enough space to receive response data.
     /// Otherwise, `call()` will return `Err(Error::BufferTooSmall)`.
-    /// Caller will get empty RpcData from RpcResponse.
-    ///
-    /// This function requires RPC interface contains `OutData`.
-    pub fn recv(self, data: &'a mut [u8]) -> RpcRecvRequest<'a, Resp, Rpc> {
+    pub fn recv(self, data: &'a mut [u8]) -> RpcRecvRequest<'a, Req, Resp, Rpc> {
         RpcRecvRequest {
             request: self,
             recv_data: data,
@@ -95,11 +92,11 @@ where
     }
 }
 
-impl<'a, 'de, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Resp, Rpc>
+impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp>,
+    Rpc: RpcType<Req, Resp>,
 {
-    /// Set RPC timeout
+    /// Set RPC timeout.
     pub fn with_timeout(self, _timeout: std::time::Duration) -> Self {
         // todo: implement timeout
         self
@@ -110,7 +107,7 @@ where
         &self,
         network: &'n NetLocalHandle,
         dst: SocketAddr,
-    ) -> Result<RpcResponse<Resp, Rpc>, Error> {
+    ) -> Result<RpcResponse<Req, Resp, Rpc>, Error> {
         network.call(dst, self).await
     }
 
@@ -120,30 +117,30 @@ where
     }
 }
 
-impl<'a, 'de, Resp: Deserialize<'de>, Rpc> RpcRecvRequest<'a, Resp, Rpc>
+impl<'a, 'de, Req, Resp: Deserialize<'de>, Rpc> RpcRecvRequest<'a, Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcOutData<true>,
+    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
 {
     /// Call RPC on remote server.
     pub async fn call<'n>(
         mut self,
         network: &'n NetLocalHandle,
         dst: SocketAddr,
-    ) -> Result<(RpcRecvResponse<Resp, Rpc>, usize), Error> {
+    ) -> Result<(RpcRecvResponse<Req, Resp, Rpc>, usize), Error> {
         network.call_with_recv(dst, &mut self).await
     }
 }
 
 /// Client side RPC response.
-pub struct RpcResponse<Resp, Rpc> {
+pub struct RpcResponse<Req, Resp, Rpc> {
     resp: Bytes,
     data: RpcData,
-    _marker: PhantomData<fn() -> (Resp, Rpc)>,
+    _marker: PhantomData<fn(Req) -> (Resp, Rpc)>,
 }
 
-impl<'de, Resp, Rpc> RpcResponse<Resp, Rpc>
+impl<'de, Req, Resp, Rpc> RpcResponse<Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp>,
+    Rpc: RpcType<Req, Resp>,
 {
     fn new(resp: Bytes, data: RpcData) -> Self {
         Self {
@@ -154,9 +151,9 @@ where
     }
 }
 
-impl<'de, Resp: Deserialize<'de>, Rpc> RpcResponse<Resp, Rpc>
+impl<'de, Req, Resp: Deserialize<'de>, Rpc> RpcResponse<Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcOutData<false>,
+    Rpc: RpcType<Req, Resp> + RpcOutData<false>,
 {
     /// RPC response.
     pub fn response(&'de self) -> Resp {
@@ -165,9 +162,9 @@ where
     }
 }
 
-impl<'de, Resp: Deserialize<'de>, Rpc> RpcResponse<Resp, Rpc>
+impl<'de, Req, Resp: Deserialize<'de>, Rpc> RpcResponse<Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcOutData<true>,
+    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
 {
     /// Response and data.
     pub fn response_and_data(&'de mut self) -> (Resp, &'de mut RpcData) {
@@ -176,14 +173,14 @@ where
 }
 
 /// Client side RPC response with data already received.
-pub struct RpcRecvResponse<Resp, Rpc> {
+pub struct RpcRecvResponse<Req, Resp, Rpc> {
     resp: Bytes,
-    _marker: PhantomData<fn() -> (Resp, Rpc)>,
+    _marker: PhantomData<fn(Req) -> (Resp, Rpc)>,
 }
 
-impl<'de, Resp: Deserialize<'de>, Rpc> RpcRecvResponse<Resp, Rpc>
+impl<'de, Req, Resp: Deserialize<'de>, Rpc> RpcRecvResponse<Req, Resp, Rpc>
 where
-    Rpc: RpcType<(), Resp> + RpcOutData<true>,
+    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
 {
     fn new(resp: Bytes) -> Self {
         Self {
@@ -374,13 +371,13 @@ where
 
 impl NetLocalHandle {
     /// RPC call.
-    pub async fn call<'de, Resp: Deserialize<'de>, Rpc>(
+    pub async fn call<'de, Req, Resp: Deserialize<'de>, Rpc>(
         &self,
         dst: SocketAddr,
-        req: &RpcRequest<'_, Resp, Rpc>,
-    ) -> Result<RpcResponse<Resp, Rpc>, Error>
+        req: &RpcRequest<'_, Req, Resp, Rpc>,
+    ) -> Result<RpcResponse<Req, Resp, Rpc>, Error>
     where
-        Rpc: RpcType<(), Resp>,
+        Rpc: RpcType<Req, Resp>,
     {
         let resp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
         let request = req.request.clone();
@@ -401,13 +398,13 @@ impl NetLocalHandle {
     }
 
     /// Call RPC with receive buffer.
-    pub async fn call_with_recv<'de, Resp: Deserialize<'de>, Rpc>(
+    pub async fn call_with_recv<'de, Req, Resp: Deserialize<'de>, Rpc>(
         &self,
         dst: SocketAddr,
-        req: &mut RpcRecvRequest<'_, Resp, Rpc>,
-    ) -> Result<(RpcRecvResponse<Resp, Rpc>, usize), Error>
+        req: &mut RpcRecvRequest<'_, Req, Resp, Rpc>,
+    ) -> Result<(RpcRecvResponse<Req, Resp, Rpc>, usize), Error>
     where
-        Rpc: RpcType<(), Resp> + RpcOutData<true>,
+        Rpc: RpcType<Req, Resp> + RpcOutData<true>,
     {
         // todo: avoid extra copy
         let RpcResponse { resp, mut data, .. } = self.call(dst, &req.request).await?;
@@ -438,9 +435,7 @@ impl NetLocalHandle {
                 let f = f.clone();
                 crate::task::spawn(async move {
                     let request = Request::new(net, from, resp_tag, req, RpcData::Data(data));
-                    // wtf: why can't f(request).await?
-                    let fut = f(request);
-                    fut.await;
+                    f(request).await;
                 })
                 .detach();
             }
@@ -468,7 +463,7 @@ impl NetLocalHandle {
 mod test {
     use super::*;
     use crate::Runtime;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::sync::Mutex;
 
     #[test]
@@ -493,27 +488,31 @@ mod test {
         runtime.block_on(f);
     }
 
-    // This macro will generate code for RPC information and client.
     #[madsim_macros::service]
     mod kv {
-        // Get value of `key`.
-        fn get(key: &str, value: RpcOutData) -> bool;
+        extern crate self as madsim;
 
-        // Set value of `key`, retrun old value if key exists.
-        fn put(key: &str, new: RpcInData, old: RpcOutData) -> bool;
+        // Get value of `key`.
+        fn get<'a>(key: &'a str, value: RpcOutData) -> bool;
+
+        // Set value of `key`, return old value if key exists.
+        fn put<'a>(key: &'a str, new: RpcInData, old: RpcOutData) -> bool;
+
+        // Get next `key`.
+        fn next<'a, 'b>(key: &'a str) -> Option<&'b str>;
 
         // Ping server.
         fn ping();
     }
 
     struct KvServer {
-        map: Mutex<HashMap<String, Bytes>>,
+        map: Mutex<BTreeMap<String, Bytes>>,
     }
 
     impl KvServer {
         fn new() -> Self {
             Self {
-                map: Mutex::new(HashMap::new()),
+                map: Mutex::new(BTreeMap::new()),
             }
         }
 
@@ -522,8 +521,10 @@ mod test {
             net.add_rpc_handler(move |req| server.ping(req));
             let server = self.clone();
             net.add_rpc_handler(move |req| server.get(req));
-            let server = self;
+            let server = self.clone();
             net.add_rpc_handler(move |req| server.put(req));
+            let server = self;
+            net.add_rpc_handler(move |req| server.next(req));
         }
 
         async fn ping(self: Arc<Self>, req: Request<(), (), kv::Ping>) {
@@ -547,6 +548,18 @@ mod test {
             req.reply_data(&data.is_some(), &data.unwrap_or_default())
                 .await
                 .unwrap();
+        }
+
+        async fn next(self: Arc<Self>, req: Request<&str, Option<&str>, kv::Next>) {
+            let key = req.request();
+            let next = self
+                .map
+                .lock()
+                .unwrap()
+                .range(key.to_owned()..)
+                .nth(1)
+                .map(|kv| kv.0.to_owned());
+            req.reply(&next.as_ref().map(|s| s.as_str())).await.unwrap();
         }
     }
 
@@ -603,5 +616,9 @@ mod test {
         let (find, value) = resp.response_and_data();
         assert!(find);
         assert_eq!(&value2, &value.get().await.unwrap());
+
+        let resp = kv::next(&key).call(net, server).await.unwrap();
+        let next = resp.response();
+        assert!(next.is_none());
     }
 }

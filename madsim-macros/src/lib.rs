@@ -181,6 +181,46 @@ fn parse_test(
     Ok(result.into())
 }
 
+/// Generate RPC interface.
+/// Defining RPC methods is very similar to defining a functions.
+/// But it is worth noting that lifetime can't be elided in most cases.
+///  
+/// # Example
+/// ```ignore
+/// // Kv RPC interface.
+/// #[madsim::service]
+/// mod kv {
+///     // Get value of `key`.
+///     pub fn get<'a>(key: &'a str, value: RpcOutData) -> bool;
+///
+///     // Set value of `key`, return old value if key exists.
+///     pub fn put<'a>(key: &'a str, new: RpcInData, old: RpcOutData) -> bool;
+/// }
+///
+/// struct KvServer {
+///     // ...
+/// }
+///
+/// // Implement RPC server
+/// impl KvServer {
+///     fn register_kv(self, net: &NetLocalHandle) {
+///         let server = self.clone();
+///         net.add_rpc_handler(move |req| server.ping(req));
+///         net.add_rpc_handler(move |req| self.get(req));
+///     }
+///
+///     async fn get(self, req: Request<&str, bool, kv::Get>) {
+///         todo!()
+///     }
+///
+///     async fn put(self, mut req: Request<&str, bool, kv::Put>) {
+///         todo!()
+///     }
+/// }
+///
+/// // client code.
+/// let mut resp = kv::put(&key, &value).call(net, server).await.unwrap();
+/// ```
 #[proc_macro_attribute]
 pub fn service(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let service = parse_macro_input!(input as rpc::Service);
