@@ -18,7 +18,6 @@ pub struct Service {
 }
 
 struct RpcMethod {
-    vis: Visibility,
     sig: Signature,
     input: Option<FnArg>,
     in_data: Option<Ident>,
@@ -28,14 +27,10 @@ struct RpcMethod {
 
 fn decode_arg(arg: &FnArg) -> syn::Result<(&Ident, &Type)> {
     match arg {
-        FnArg::Typed(captured) if matches!(&*captured.pat, Pat::Ident(_)) => {
-            let ident = match &*captured.pat {
-                Pat::Ident(ident) => ident,
-                _ => unreachable!(),
-            };
-            Ok((&ident.ident, &*captured.ty))
-        }
-        FnArg::Typed(captured) => Err(syn::Error::new(captured.pat.span(), "invalid pattern")),
+        FnArg::Typed(captured) => match &*captured.pat {
+            Pat::Ident(ident) => Ok((&ident.ident, &*captured.ty)),
+            _ => Err(syn::Error::new(captured.pat.span(), "invalid pattern")),
+        },
         FnArg::Receiver(_) => Err(syn::Error::new(
             arg.span(),
             "method args cannot start with self",
@@ -109,7 +104,7 @@ impl ToTokens for Service {
 
 impl Parse for RpcMethod {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let vis: Visibility = input.parse()?;
+        input.parse::<Visibility>()?;
         let sig: Signature = input.parse()?;
         input.parse::<Token![;]>()?;
 
@@ -119,8 +114,8 @@ impl Parse for RpcMethod {
         let mut in_data = None;
         let mut out_data = None;
         let output = sig.output.clone();
-        let in_data_ty: &Type = &parse_quote!(RpcInData);
-        let out_data_ty: &Type = &parse_quote!(RpcOutData);
+        let in_data_ty: &Type = &parse_quote!(&'a [u8]);
+        let out_data_ty: &Type = &parse_quote!(&'a mut [u8]);
         for arg in sig.inputs.iter() {
             // Arguments should in order: (input, in_data, out_data);
             let (ident, ty) = decode_arg(arg)?;
@@ -141,7 +136,6 @@ impl Parse for RpcMethod {
         }
 
         Ok(Self {
-            vis,
             sig,
             input,
             in_data,
@@ -159,7 +153,7 @@ impl RpcMethod {
         let id = gen_id(&service.to_string(), &ident.to_string());
 
         // generate RPC type information.
-        let vis = &self.vis;
+        // TODO: check generics, must have an <'a>
         let generics = &self.sig.generics;
         let type_ident = Ident::new(
             ident.to_string().to_case(Case::Pascal).as_str(),
@@ -171,82 +165,52 @@ impl RpcMethod {
             .as_ref()
             .map(|arg| decode_arg(arg).unwrap().1)
             .unwrap_or(unit_ty);
-        let req_ident = self.input.as_ref().map(|arg| decode_arg(&arg).unwrap().0);
+        let req_ident = self
+            .input
+            .as_ref()
+            .map(|arg| decode_arg(&arg).unwrap().0.to_token_stream())
+            .unwrap_or(quote!(()));
         let resp = match &self.output {
             ReturnType::Default => unit_ty,
             ReturnType::Type(_, ty) => &*ty,
         };
         tokens.push(quote! {
-            #vis struct #type_ident{}
-            impl #generics madsim::net::rpc::RpcType<#req, #resp> for #type_ident {
+            pub struct #type_ident;
+            impl #generics madsim::net::rpc::RpcType<'a> for #type_ident {
                 const ID: u64 = #id;
+                type Req = #req;
+                type Resp = #resp;
             }
         });
-        if req != unit_ty {
+        if self.in_data.is_some() {
             tokens.push(quote! {
-                impl #generics madsim::net::rpc::RpcType<(), #resp> for #type_ident {
-                    const ID: u64 = #id;
-                }
+                impl madsim::net::rpc::RpcInData for #type_ident {}
             });
         }
-        tokens.push(match self.in_data {
-            Some(_) => quote! {
-                impl madsim::net::rpc::RpcInData<true> for #type_ident {}
-            },
-            None => quote! {
-                impl madsim::net::rpc::RpcInData<false> for #type_ident {}
-            },
-        });
-        tokens.push(match self.out_data {
-            Some(_) => quote! {
-                impl madsim::net::rpc::RpcOutData<true> for #type_ident {}
-            },
-            None => quote! {
-                impl madsim::net::rpc::RpcOutData<false> for #type_ident {}
-            },
-        });
+        if self.out_data.is_some() {
+            tokens.push(quote! {
+                impl madsim::net::rpc::RpcOutData for #type_ident {}
+            });
+        }
 
         // generate RPC client method
-        let mut generics = self.sig.generics.clone();
-        generics.params.push(parse_quote!('_a));
-        let input = &self.input;
-        let in_data = &self.in_data;
-        match (input, in_data) {
-            (Some(_), None) => {
-                let req_ident = req_ident.unwrap();
-                tokens.push(quote! {
-                    pub fn #ident #generics (#req_ident: &'_a #req) ->
-                        madsim::net::rpc::RpcRequest<'_a, #req, #resp, #type_ident>
-                    {
-                        madsim::net::rpc::RpcRequest::new(#req_ident)
-                    }
-                })
+        let inputs = &self.sig.inputs;
+        let with_in_data = match &self.in_data {
+            Some(name) => quote! { .send(#name) },
+            None => quote! {},
+        };
+        let with_out_data = match &self.out_data {
+            Some(name) => quote! { .recv(#name) },
+            None => quote! {},
+        };
+        tokens.push(quote! {
+            pub fn #ident #generics (#inputs) ->
+                madsim::net::rpc::RpcRequest<'a, #type_ident>
+            {
+                madsim::net::rpc::RpcRequest::new(#req_ident)
+                    #with_in_data #with_out_data
             }
-            (Some(_), Some(data)) => {
-                let req_ident = req_ident.unwrap();
-                tokens.push(quote! {
-                    pub fn #ident #generics (#req_ident: &#req, #data: &'_a [u8])
-                        -> madsim::net::rpc::RpcRequest<'_a, #req, #resp, #type_ident>
-                    {
-                        madsim::net::rpc::RpcRequest::new_data(#req_ident, #data)
-                    }
-                })
-            }
-            (None, None) => tokens.push(quote! {
-                pub fn #ident #generics () ->
-                    madsim::net::rpc::RpcRequest<'_a, #req, #resp, #type_ident>
-                {
-                    madsim::net::rpc::RpcRequest::new(&())
-                }
-            }),
-            (None, Some(data)) => tokens.push(quote! {
-                pub fn #ident #generics (#data: &'_a [u8]) ->
-                    madsim::net::rpc::RpcRequest<'_a, #req, #resp, #type_ident>
-                {
-                    madsim::net::rpc::RpcRequest::new_data(&(), #data)
-                }
-            }),
-        }
+        });
 
         quote! {
             #( #tokens )*

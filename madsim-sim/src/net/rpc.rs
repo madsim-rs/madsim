@@ -2,7 +2,6 @@
 //!
 use super::*;
 
-use bincode;
 use bytes::{Buf, Bytes};
 use core::future::Future;
 use core::marker::PhantomData;
@@ -11,15 +10,19 @@ use serde::Deserialize;
 use thiserror::Error;
 
 /// RPC type.
-pub trait RpcType<Req, Resp> {
+pub trait RpcType<'a>: Send {
     /// RPC ID.
     const ID: u64;
+    /// Request type.
+    type Req: Serialize + Deserialize<'a>;
+    /// Response type.
+    type Resp: Serialize + Deserialize<'a>;
 }
 
-/// RPC has input data or not.
-pub trait RpcInData<const D: bool> {}
-/// RPC has output data or not.
-pub trait RpcOutData<const D: bool> {}
+/// Marker: RPC has input data.
+pub trait RpcInData {}
+/// Marker: RPC has output data.
+pub trait RpcOutData {}
 
 /// RPC error.
 #[derive(Debug, Error)]
@@ -34,68 +37,50 @@ pub enum Error {
 
 /// Client side RPC request.
 /// RpcRequest can be used many times and can be broadcast to many servers.
-pub struct RpcRequest<'a, Req, Resp, Rpc> {
+pub struct RpcRequest<'a, Rpc: RpcType<'a>> {
     request: Bytes,
     send_data: Option<&'a [u8]>,
-    _marker: PhantomData<fn(Req) -> (Resp, Rpc)>,
+    recv_data: Option<&'a mut [u8]>,
+    _marker: PhantomData<Rpc>,
 }
 
-/// Client side RPC request with recv buffer.
-/// RpcRecvRequest can only be send to one server.
-pub struct RpcRecvRequest<'a, Req, Resp, Rpc> {
-    request: RpcRequest<'a, Req, Resp, Rpc>,
-    recv_data: &'a mut [u8],
-}
-
-impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcInData<false>,
-{
+impl<'a, Rpc: RpcType<'a>> RpcRequest<'a, Rpc> {
     /// New RPC request without input data.
-    pub fn new(request: &Req) -> Self {
+    pub fn new(request: Rpc::Req) -> Self {
         Self {
-            request: Bytes::from(bincode::serialize(request).unwrap()),
+            request: Bytes::from(bincode::serialize(&request).unwrap()),
             send_data: None,
-            _marker: PhantomData::default(),
+            recv_data: None,
+            _marker: PhantomData,
         }
     }
-}
 
-impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcInData<true>,
-{
     /// Net RPC request with input data.
-    pub fn new_data(request: &Req, data: &'a [u8]) -> Self {
+    pub fn send(self, data: &'a [u8]) -> Self
+    where
+        Rpc: RpcInData,
+    {
         Self {
-            request: Bytes::from(bincode::serialize(request).unwrap()),
             send_data: Some(data),
-            _marker: PhantomData::default(),
+            ..self
         }
     }
-}
 
-impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
-{
     /// Provide a buffer to receive data from response.
     /// This function requires RPC interface contains `OutData`.
     ///
     /// Caller should make sure that buffer has enough space to receive response data.
     /// Otherwise, `call()` will return `Err(Error::BufferTooSmall)`.
-    pub fn recv(self, data: &'a mut [u8]) -> RpcRecvRequest<'a, Req, Resp, Rpc> {
-        RpcRecvRequest {
-            request: self,
-            recv_data: data,
+    pub fn recv(self, data: &'a mut [u8]) -> Self
+    where
+        Rpc: RpcOutData,
+    {
+        Self {
+            recv_data: Some(data),
+            ..self
         }
     }
-}
 
-impl<'a, 'de, Req: Serialize, Resp: Deserialize<'de>, Rpc> RpcRequest<'a, Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp>,
-{
     /// Set RPC timeout.
     pub fn with_timeout(self, _timeout: std::time::Duration) -> Self {
         // todo: implement timeout
@@ -104,95 +89,39 @@ where
 
     /// Call RPC on remote server.
     pub async fn call<'n>(
-        &self,
+        &mut self,
         network: &'n NetLocalHandle,
         dst: SocketAddr,
-    ) -> Result<RpcResponse<Req, Resp, Rpc>, Error> {
+    ) -> Result<RpcResponse<Rpc>, Error> {
         network.call(dst, self).await
-    }
-
-    /// Broadcast RPC to all targets.
-    pub async fn broadcast(&self, _net: &NetLocalHandle) {
-        todo!()
-    }
-}
-
-impl<'a, 'de, Req, Resp: Deserialize<'de>, Rpc> RpcRecvRequest<'a, Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
-{
-    /// Call RPC on remote server.
-    pub async fn call<'n>(
-        mut self,
-        network: &'n NetLocalHandle,
-        dst: SocketAddr,
-    ) -> Result<(RpcRecvResponse<Req, Resp, Rpc>, usize), Error> {
-        network.call_with_recv(dst, &mut self).await
     }
 }
 
 /// Client side RPC response.
-pub struct RpcResponse<Req, Resp, Rpc> {
+pub struct RpcResponse<Rpc> {
     resp: Bytes,
-    data: RpcData,
-    _marker: PhantomData<fn(Req) -> (Resp, Rpc)>,
+    recv_len: usize,
+    _marker: PhantomData<Rpc>,
 }
 
-impl<'de, Req, Resp, Rpc> RpcResponse<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp>,
-{
-    fn new(resp: Bytes, data: RpcData) -> Self {
+impl<'a, Rpc: RpcType<'a>> RpcResponse<Rpc> {
+    fn new(resp: Bytes, recv_len: usize) -> Self {
         Self {
             resp,
-            data,
-            _marker: PhantomData::default(),
-        }
-    }
-}
-
-impl<'de, Req, Resp: Deserialize<'de>, Rpc> RpcResponse<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<false>,
-{
-    /// RPC response.
-    pub fn response(&'de self) -> Resp {
-        // decode response here
-        bincode::deserialize(&self.resp).unwrap()
-    }
-}
-
-impl<'de, Req, Resp: Deserialize<'de>, Rpc> RpcResponse<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
-{
-    /// Response and data.
-    pub fn response_and_data(&'de mut self) -> (Resp, &'de mut RpcData) {
-        (bincode::deserialize(&self.resp).unwrap(), &mut self.data)
-    }
-}
-
-/// Client side RPC response with data already received.
-pub struct RpcRecvResponse<Req, Resp, Rpc> {
-    resp: Bytes,
-    _marker: PhantomData<fn(Req) -> (Resp, Rpc)>,
-}
-
-impl<'de, Req, Resp: Deserialize<'de>, Rpc> RpcRecvResponse<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
-{
-    fn new(resp: Bytes) -> Self {
-        Self {
-            resp,
-            _marker: PhantomData::default(),
+            recv_len,
+            _marker: PhantomData,
         }
     }
 
     /// RPC response.
-    pub fn response(&'de self) -> Resp {
+    pub fn response(&'a self) -> Rpc::Resp {
         // decode response here
         bincode::deserialize(&self.resp).unwrap()
+    }
+
+    /// The length of received data.
+    pub fn recv_len(&self) -> usize {
+        self.recv_len
     }
 }
 
@@ -269,21 +198,16 @@ impl Drop for RpcData {
 }
 
 /// Server side RPC request.
-pub struct Request<Req, Resp, Rpc> {
+pub struct Request<Rpc> {
     network: NetLocalHandle,
     remote: SocketAddr,
     resp_tag: u64,
     request: Bytes,
     data: RpcData,
-    // make request Send.
-    #[allow(clippy::type_complexity)]
-    _marker: PhantomData<fn() -> (Req, Resp, Rpc)>,
+    _marker: PhantomData<Rpc>,
 }
 
-impl<Req, Resp: Serialize, Rpc> Request<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp>,
-{
+impl<'a, Rpc: RpcType<'a>> Request<Rpc> {
     /// New RPC request
     fn new(
         network: NetLocalHandle,
@@ -298,7 +222,7 @@ where
             resp_tag,
             request,
             data,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -312,73 +236,48 @@ where
         &self.remote
     }
 
-    async fn reply_internal(mut self, resp: &Resp, data: &[u8]) -> Result<(), Error> {
+    async fn reply_internal(mut self, resp: &Rpc::Resp, data: &[u8]) -> Result<(), Error> {
         self.data.discard().await;
         self.network
             .reply(self.remote, self.resp_tag, resp, data)
             .await
     }
-}
 
-impl<'de, Req: Deserialize<'de>, Resp: Serialize, Rpc> Request<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcInData<false>,
-{
     /// RPC request arguments.
-    pub fn request(&'de self) -> Req {
+    pub fn request(&'a self) -> Rpc::Req {
         bincode::deserialize(&self.request).unwrap()
     }
-}
 
-impl<'de, Req: Deserialize<'de>, Resp: Serialize, Rpc> Request<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcInData<true>,
-{
-    /// Request and data
-    pub fn request_and_data<'a>(&'a mut self) -> (Req, &'a mut RpcData)
+    /// Get request and data.
+    pub fn request_and_data(&'a mut self) -> (Rpc::Req, &'a mut RpcData)
     where
-        Req: 'a,
+        Rpc: RpcInData,
     {
-        (
-            bincode::deserialize::<'de, Req>(unsafe {
-                std::mem::transmute::<&'a [u8], &'de [u8]>(&self.request)
-            })
-            .unwrap(),
-            &mut self.data,
-        )
+        let request = bincode::deserialize(&self.request).unwrap();
+        (request, &mut self.data)
     }
-}
 
-impl<'de, Req: Deserialize<'de>, Resp: Serialize, Rpc> Request<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<false>,
-{
-    /// Reply RPC without data.
-    pub async fn reply(self, resp: &Resp) -> Result<(), Error> {
+    /// Reply RPC.
+    pub async fn reply(self, resp: &Rpc::Resp) -> Result<(), Error> {
         self.reply_internal(resp, &[]).await
     }
-}
 
-impl<Req, Resp: Serialize, Rpc> Request<Req, Resp, Rpc>
-where
-    Rpc: RpcType<Req, Resp> + RpcOutData<true>,
-{
     /// Reply RPC with data.
-    pub async fn reply_data(self, resp: &Resp, data: &[u8]) -> Result<(), Error> {
+    pub async fn reply_data(self, resp: &Rpc::Resp, data: &[u8]) -> Result<(), Error>
+    where
+        Rpc: RpcOutData,
+    {
         self.reply_internal(resp, data).await
     }
 }
 
 impl NetLocalHandle {
     /// RPC call.
-    pub async fn call<'de, Req, Resp: Deserialize<'de>, Rpc>(
+    pub async fn call<'a, Rpc: RpcType<'a>>(
         &self,
         dst: SocketAddr,
-        req: &RpcRequest<'_, Req, Resp, Rpc>,
-    ) -> Result<RpcResponse<Req, Resp, Rpc>, Error>
-    where
-        Rpc: RpcType<Req, Resp>,
-    {
+        req: &mut RpcRequest<'a, Rpc>,
+    ) -> Result<RpcResponse<Rpc>, Error> {
         let resp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
         let request = req.request.clone();
         let data = req
@@ -393,35 +292,22 @@ impl NetLocalHandle {
         let (rsp, data) = *rsp
             .downcast::<(Vec<u8>, Bytes)>()
             .expect("message type mismatch");
+        let len = if let Some(recv_data) = req.recv_data.as_mut() {
+            let len = recv_data.len().min(data.len());
+            recv_data[..len].copy_from_slice(&data[..len]);
+            len
+        } else {
+            0
+        };
 
-        Ok(RpcResponse::new(Bytes::from(rsp), RpcData::Data(data)))
-    }
-
-    /// Call RPC with receive buffer.
-    pub async fn call_with_recv<'de, Req, Resp: Deserialize<'de>, Rpc>(
-        &self,
-        dst: SocketAddr,
-        req: &mut RpcRecvRequest<'_, Req, Resp, Rpc>,
-    ) -> Result<(RpcRecvResponse<Req, Resp, Rpc>, usize), Error>
-    where
-        Rpc: RpcType<Req, Resp> + RpcOutData<true>,
-    {
-        // todo: avoid extra copy
-        let RpcResponse { resp, mut data, .. } = self.call(dst, &req.request).await?;
-
-        // todo: avoid extra copy
-        let data_len = data.len();
-        data.receive(req.recv_data).await?;
-        Ok((RpcRecvResponse::new(resp), data_len))
+        Ok(RpcResponse::new(Bytes::from(rsp), len))
     }
 
     /// Add a RPC handler.
-    pub fn add_rpc_handler<'de, Req: Deserialize<'de>, Resp: Serialize, AsyncFn, Fut, Rpc>(
-        &self,
-        f: AsyncFn,
-    ) where
-        Rpc: RpcType<Req, Resp>,
-        AsyncFn: FnOnce(Request<Req, Resp, Rpc>) -> Fut + Send + Clone + 'static,
+    pub fn add_rpc_handler<AsyncFn, Fut, Rpc>(&self, f: AsyncFn)
+    where
+        Rpc: for<'a> RpcType<'a>,
+        AsyncFn: FnOnce(Request<Rpc>) -> Fut + Send + Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let net = self.clone();
@@ -493,16 +379,16 @@ mod test {
         extern crate self as madsim;
 
         // Get value of `key`.
-        fn get<'a>(key: &'a str, value: RpcOutData) -> bool;
+        fn get<'a>(key: &'a str, value: &'a mut [u8]) -> bool;
 
         // Set value of `key`, return old value if key exists.
-        fn put<'a>(key: &'a str, new: RpcInData, old: RpcOutData) -> bool;
+        fn put<'a>(key: &'a str, new: &'a [u8], old: &'a mut [u8]) -> bool;
 
         // Get next `key`.
-        fn next<'a, 'b>(key: &'a str) -> Option<&'b str>;
+        fn next<'a>(key: &'a str) -> Option<&'a str>;
 
         // Ping server.
-        fn ping();
+        fn ping<'a>();
     }
 
     struct KvServer {
@@ -527,11 +413,11 @@ mod test {
             net.add_rpc_handler(move |req| server.next(req));
         }
 
-        async fn ping(self: Arc<Self>, req: Request<(), (), kv::Ping>) {
-            req.reply(&()).await.unwrap()
+        async fn ping(self: Arc<Self>, req: Request<kv::Ping>) {
+            req.reply(&()).await.unwrap();
         }
 
-        async fn get(self: Arc<Self>, req: Request<&str, bool, kv::Get>) {
+        async fn get(self: Arc<Self>, req: Request<kv::Get>) {
             let key = req.request();
             let data = self.map.lock().unwrap().get(key).cloned();
             req.reply_data(&data.is_some(), &data.unwrap_or_default())
@@ -539,18 +425,17 @@ mod test {
                 .unwrap();
         }
 
-        async fn put(self: Arc<Self>, mut req: Request<&str, bool, kv::Put>) {
+        async fn put(self: Arc<Self>, mut req: Request<kv::Put>) {
             let (key, value) = req.request_and_data();
-            let key = key.to_owned();
             let value = value.get().await.unwrap();
-            let data = self.map.lock().unwrap().insert(key, value);
+            let data = self.map.lock().unwrap().insert(key.into(), value);
 
             req.reply_data(&data.is_some(), &data.unwrap_or_default())
                 .await
                 .unwrap();
         }
 
-        async fn next(self: Arc<Self>, req: Request<&str, Option<&str>, kv::Next>) {
+        async fn next(self: Arc<Self>, req: Request<kv::Next>) {
             let key = req.request();
             let next = self
                 .map
@@ -570,52 +455,35 @@ mod test {
         let value2 = vec![4_u8; 1024];
 
         let mut buf = vec![0_u8; 1024];
-        let (resp, data_len) = kv::get(&key)
-            .recv(&mut buf)
+        let resp = kv::get(&key, &mut buf).call(net, server).await.unwrap();
+        assert!(!resp.response());
+        assert_eq!(resp.recv_len(), 0);
+
+        let resp = kv::put(&key, &value1, &mut buf)
             .call(net, server)
             .await
             .unwrap();
         assert!(!resp.response());
-        assert_eq!(data_len, 0);
+        assert_eq!(resp.recv_len(), 0);
 
-        let mut resp = kv::put(&key, &value1).call(net, server).await.unwrap();
-        let (find_old, data) = resp.response_and_data();
-        assert!(!find_old);
-        assert!(data.is_empty());
+        let resp = kv::get(&key, &mut buf).call(net, server).await.unwrap();
+        assert!(resp.response());
+        assert_eq!(&value1, &buf[..resp.recv_len()]);
 
-        let (resp, data_len) = kv::get(&key)
-            .recv(&mut buf)
+        let resp = kv::put(&key, &value2, &mut buf)
             .call(net, server)
             .await
             .unwrap();
         assert!(resp.response());
-        assert_eq!(&value1, &buf[..data_len]);
+        assert_eq!(&value1, &buf[..resp.recv_len()]);
 
-        let mut resp = kv::get(&key).call(net, server).await.unwrap();
-        let (find, value) = resp.response_and_data();
-        assert!(find);
-        assert_eq!(&value1, &value.get().await.unwrap());
-
-        let (resp, data_len) = kv::put(&key, &value2)
-            .recv(&mut buf)
-            .call(net, server)
-            .await
-            .unwrap();
+        let resp = kv::get(&key, &mut buf).call(net, server).await.unwrap();
         assert!(resp.response());
-        assert_eq!(&value1, &buf[..data_len]);
+        assert_eq!(&value2, &buf[..resp.recv_len()]);
 
-        let (resp, data_len) = kv::get(&key)
-            .recv(&mut buf)
-            .call(net, server)
-            .await
-            .unwrap();
+        let resp = kv::get(&key, &mut buf).call(net, server).await.unwrap();
         assert!(resp.response());
-        assert_eq!(&value2, &buf[..data_len]);
-
-        let mut resp = kv::get(&key).call(net, server).await.unwrap();
-        let (find, value) = resp.response_and_data();
-        assert!(find);
-        assert_eq!(&value2, &value.get().await.unwrap());
+        assert_eq!(&value2, &buf[..resp.recv_len()]);
 
         let resp = kv::next(&key).call(net, server).await.unwrap();
         let next = resp.response();
