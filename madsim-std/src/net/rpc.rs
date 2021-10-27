@@ -127,7 +127,7 @@ impl NetLocalHandle {
         let req_tag = R::ID;
         let rsp_tag = rand::thread_rng().gen::<u64>();
         let rsp_tag_buf = rsp_tag.to_be_bytes();
-        let req = flexbuffers::to_vec(request).unwrap();
+        let req = bincode::serialize(&request).unwrap();
         let req_len_buf = (req.len() as u32).to_be_bytes();
         let iov = [
             IoSlice::new(&rsp_tag_buf[..]),
@@ -141,7 +141,7 @@ impl NetLocalHandle {
         assert_eq!(from, dst);
         let rsp_len = data.get_u32() as usize;
         let rsp_bytes = data.split_to(rsp_len);
-        let rsp = flexbuffers::from_slice(&rsp_bytes).unwrap();
+        let rsp = bincode::deserialize(&rsp_bytes).unwrap();
         Ok((rsp, data))
     }
 
@@ -168,12 +168,12 @@ impl NetLocalHandle {
                 let rsp_tag = data.get_u64();
                 let req_len = data.get_u32() as usize;
                 let req_bytes = data.split_to(req_len);
-                let req: R = flexbuffers::from_slice(&req_bytes).unwrap();
+                let req: R = bincode::deserialize(&req_bytes).unwrap();
                 let rsp_future = f(req, data);
                 let net = net.clone();
                 crate::task::spawn(async move {
                     let (rsp, data) = rsp_future.await;
-                    let rsp = flexbuffers::to_vec(rsp).unwrap();
+                    let rsp = bincode::serialize(&rsp).unwrap();
                     let rsp_len_buf = (rsp.len() as u32).to_be_bytes();
                     let iov = [
                         IoSlice::new(&rsp_len_buf[..]),
