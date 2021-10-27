@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 struct Req;
 impl Request for Req {
     type Response = ();
+    const ID: u64 = 1;
 }
 
 fn empty_rpc(c: &mut Criterion) {

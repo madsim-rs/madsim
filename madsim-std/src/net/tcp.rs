@@ -103,7 +103,8 @@ impl NetLocalHandle {
         peer: Option<SocketAddr>,
         stream: TcpStream,
     ) -> (SocketAddr, mpsc::Sender<SendMsg>) {
-        let (reader, mut writer) = stream.into_split();
+        let (reader, writer) = stream.into_split();
+        let mut writer = tokio::io::BufWriter::new(writer);
         let mut reader = FramedRead::new(reader, LengthDelimitedCodec::new());
         let (sender, mut recver) = mpsc::channel(10);
         let peer = if let Some(peer) = peer {
