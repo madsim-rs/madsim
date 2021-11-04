@@ -1,12 +1,12 @@
 //! todo: add documentation
-//!
-use super::*;
 
+use crate::{
+    net::NetLocalHandle,
+    rand::{self, Rng},
+};
 use bytes::{Buf, Bytes};
-use core::future::Future;
-use core::marker::PhantomData;
-use serde::ser::Serialize;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::{future::Future, marker::PhantomData, net::SocketAddr, time::Duration};
 use thiserror::Error;
 
 /// RPC type.
@@ -41,6 +41,7 @@ pub struct RpcRequest<'a, Rpc: RpcType<'a>> {
     request: Bytes,
     send_data: Option<&'a [u8]>,
     recv_data: Option<&'a mut [u8]>,
+    timeout: Option<Duration>,
     _marker: PhantomData<Rpc>,
 }
 
@@ -51,6 +52,7 @@ impl<'a, Rpc: RpcType<'a>> RpcRequest<'a, Rpc> {
             request: Bytes::from(bincode::serialize(&request).unwrap()),
             send_data: None,
             recv_data: None,
+            timeout: None,
             _marker: PhantomData,
         }
     }
@@ -82,18 +84,11 @@ impl<'a, Rpc: RpcType<'a>> RpcRequest<'a, Rpc> {
     }
 
     /// Set RPC timeout.
-    pub fn with_timeout(self, _timeout: std::time::Duration) -> Self {
-        // todo: implement timeout
-        self
-    }
-
-    /// Call RPC on remote server.
-    pub async fn call<'n>(
-        &mut self,
-        network: &'n NetLocalHandle,
-        dst: SocketAddr,
-    ) -> Result<RpcResponse<Rpc>, Error> {
-        network.call(dst, self).await
+    pub fn timeout(self, duration: std::time::Duration) -> Self {
+        Self {
+            timeout: Some(duration),
+            ..self
+        }
     }
 }
 
@@ -208,24 +203,6 @@ pub struct Request<Rpc> {
 }
 
 impl<'a, Rpc: RpcType<'a>> Request<Rpc> {
-    /// New RPC request
-    fn new(
-        network: NetLocalHandle,
-        remote: SocketAddr,
-        resp_tag: u64,
-        request: Bytes,
-        data: RpcData,
-    ) -> Self {
-        Self {
-            network,
-            remote,
-            resp_tag,
-            request,
-            data,
-            _marker: PhantomData,
-        }
-    }
-
     /// RPC data.
     pub fn data(&mut self) -> &mut RpcData {
         &mut self.data
@@ -238,9 +215,12 @@ impl<'a, Rpc: RpcType<'a>> Request<Rpc> {
 
     async fn reply_internal(mut self, resp: &Rpc::Resp, data: &[u8]) -> Result<(), Error> {
         self.data.discard().await;
+        let resp = bincode::serialize(resp).unwrap();
+        let data = Bytes::copy_from_slice(data);
         self.network
-            .reply(self.remote, self.resp_tag, resp, data)
+            .send_to_raw(self.remote, self.resp_tag, Box::new((resp, data)))
             .await
+            .map_err(|_| Error::TransportFailed)
     }
 
     /// RPC request arguments.
@@ -271,78 +251,69 @@ impl<'a, Rpc: RpcType<'a>> Request<Rpc> {
     }
 }
 
-impl NetLocalHandle {
+impl<'a, Rpc: RpcType<'a>> RpcRequest<'a, Rpc> {
     /// RPC call.
-    pub async fn call<'a, Rpc: RpcType<'a>>(
-        &self,
+    pub async fn call(
+        &mut self,
+        net: &NetLocalHandle,
         dst: SocketAddr,
-        req: &mut RpcRequest<'a, Rpc>,
     ) -> Result<RpcResponse<Rpc>, Error> {
-        let resp_tag = self.handle.rand.with(|rng| rng.gen::<u64>());
-        let request = req.request.clone();
-        let data = req
+        let resp_tag = rand::rng().gen::<u64>();
+        let request = self.request.clone();
+        let data = self
             .send_data
             .map(|data| Bytes::copy_from_slice(data))
             .unwrap_or_default();
-        self.send_to_raw(dst, Rpc::ID, Box::new((resp_tag, request, data)))
+        net.send_to_raw(dst, Rpc::ID, Box::new((resp_tag, request, data)))
             .await
             .map_err(|_| Error::TransportFailed)?;
-        let (rsp, from) = self.recv_from_raw(resp_tag).await.unwrap();
+        let (rsp, from) = net.recv_from_raw(resp_tag).await.unwrap();
         assert_eq!(from, dst);
         let (rsp, data) = *rsp
             .downcast::<(Vec<u8>, Bytes)>()
             .expect("message type mismatch");
-        let len = if let Some(recv_data) = req.recv_data.as_mut() {
+        let len = if let Some(recv_data) = self.recv_data.as_mut() {
             let len = recv_data.len().min(data.len());
             recv_data[..len].copy_from_slice(&data[..len]);
             len
         } else {
             0
         };
-
         Ok(RpcResponse::new(Bytes::from(rsp), len))
     }
+}
 
-    /// Add a RPC handler.
-    pub fn add_rpc_handler<AsyncFn, Fut, Rpc>(&self, f: AsyncFn)
-    where
-        Rpc: for<'a> RpcType<'a>,
-        AsyncFn: FnOnce(Request<Rpc>) -> Fut + Send + Clone + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        let net = self.clone();
-        crate::task::spawn(async move {
-            loop {
-                let (data, from) = net.recv_from_raw(Rpc::ID).await.unwrap();
-                let (resp_tag, req, data) = *data
-                    .downcast::<(u64, Bytes, Bytes)>()
-                    .expect("message type mismatch");
-                let net = net.clone();
-                let f = f.clone();
-                crate::task::spawn(async move {
-                    let request = Request::new(net, from, resp_tag, req, RpcData::Data(data));
-                    f(request).await;
-                })
-                .detach();
-            }
-        })
-        .detach();
-    }
-
-    /// Send response.
-    pub async fn reply<Resp: Serialize>(
-        &self,
-        dst: SocketAddr,
-        tag: u64,
-        resp: &Resp,
-        data: &[u8],
-    ) -> Result<(), Error> {
-        let resp = bincode::serialize(resp).unwrap();
-        let data = Bytes::copy_from_slice(data);
-        self.send_to_raw(dst, tag, Box::new((resp, data)))
-            .await
-            .map_err(|_| Error::TransportFailed)
-    }
+/// Add a RPC handler.
+pub fn add_rpc_handler<AsyncFn, Fut, Rpc>(f: AsyncFn)
+where
+    Rpc: for<'a> RpcType<'a>,
+    AsyncFn: FnOnce(Request<Rpc>) -> Fut + Send + Clone + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let net = NetLocalHandle::current();
+    crate::task::spawn(async move {
+        loop {
+            let (data, from) = net.recv_from_raw(Rpc::ID).await.unwrap();
+            let (resp_tag, request, data) = *data
+                .downcast::<(u64, Bytes, Bytes)>()
+                .expect("message type mismatch");
+            let net = net.clone();
+            let f = f.clone();
+            crate::task::spawn(async move {
+                let request = Request {
+                    network: net,
+                    remote: from,
+                    resp_tag,
+                    request,
+                    data: RpcData::Data(data),
+                    _marker: PhantomData,
+                };
+                f(request).await;
+            })
+            .detach();
+        }
+    })
+    .detach();
 }
 
 #[cfg(test)]
@@ -350,6 +321,7 @@ mod test {
     use super::*;
     use crate::Runtime;
     use std::collections::BTreeMap;
+    use std::sync::Arc;
     use std::sync::Mutex;
 
     #[test]
@@ -361,9 +333,8 @@ mod test {
 
         server
             .spawn(async move {
-                let net = NetLocalHandle::current();
                 let server = Arc::new(KvServer::new());
-                server.register_kv(&net);
+                server.register_kv();
             })
             .detach();
 
@@ -402,15 +373,15 @@ mod test {
             }
         }
 
-        fn register_kv(self: Arc<Self>, net: &NetLocalHandle) {
+        fn register_kv(self: Arc<Self>) {
             let server = self.clone();
-            net.add_rpc_handler(move |req| server.ping(req));
+            add_rpc_handler(move |req| server.ping(req));
             let server = self.clone();
-            net.add_rpc_handler(move |req| server.get(req));
+            add_rpc_handler(move |req| server.get(req));
             let server = self.clone();
-            net.add_rpc_handler(move |req| server.put(req));
+            add_rpc_handler(move |req| server.put(req));
             let server = self;
-            net.add_rpc_handler(move |req| server.next(req));
+            add_rpc_handler(move |req| server.next(req));
         }
 
         async fn ping(self: Arc<Self>, req: Request<kv::Ping>) {

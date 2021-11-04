@@ -52,8 +52,6 @@ pub use self::network::{Config, Stat};
 use bytes::Bytes;
 
 mod network;
-#[cfg(feature = "rpc")]
-pub mod rpc;
 
 /// Network handle to the runtime.
 #[derive(Clone)]

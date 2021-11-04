@@ -176,7 +176,7 @@ impl RpcMethod {
         };
         tokens.push(quote! {
             pub struct #type_ident;
-            impl #generics madsim::net::rpc::RpcType<'a> for #type_ident {
+            impl #generics madsim::rpc::RpcType<'a> for #type_ident {
                 const ID: u64 = #id;
                 type Req = #req;
                 type Resp = #resp;
@@ -184,12 +184,12 @@ impl RpcMethod {
         });
         if self.in_data.is_some() {
             tokens.push(quote! {
-                impl madsim::net::rpc::RpcInData for #type_ident {}
+                impl madsim::rpc::RpcInData for #type_ident {}
             });
         }
         if self.out_data.is_some() {
             tokens.push(quote! {
-                impl madsim::net::rpc::RpcOutData for #type_ident {}
+                impl madsim::rpc::RpcOutData for #type_ident {}
             });
         }
 
@@ -205,9 +205,9 @@ impl RpcMethod {
         };
         tokens.push(quote! {
             pub fn #ident #generics (#inputs) ->
-                madsim::net::rpc::RpcRequest<'a, #type_ident>
+                madsim::rpc::RpcRequest<'a, #type_ident>
             {
-                madsim::net::rpc::RpcRequest::new(#req_ident)
+                madsim::rpc::RpcRequest::new(#req_ident)
                     #with_in_data #with_out_data
             }
         });

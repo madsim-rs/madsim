@@ -42,8 +42,6 @@ use self::network::{Network, Payload};
 use crate::{rand::*, time::*};
 
 mod network;
-#[cfg(feature = "rpc")]
-pub mod rpc;
 
 pub(crate) struct NetRuntime {
     handle: NetHandle,
@@ -189,7 +187,7 @@ impl NetLocalHandle {
     }
 
     /// Sends a raw message.
-    async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
+    pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         self.handle
             .network
             .lock()
@@ -202,7 +200,7 @@ impl NetLocalHandle {
     }
 
     /// Receives a raw message.
-    async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
+    pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
         let recver = self.handle.network.lock().unwrap().recv(self.addr, tag);
         let msg = recver.await.unwrap();
         // random delay

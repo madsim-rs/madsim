@@ -15,25 +15,18 @@ categories = ["asynchronous", "simulation"]
 
 [features]
 logger = ["env_logger"]
-rpc = ["serde", "flexbuffers"]
 
 [dependencies]
 log = "0.4"
 rand = { version = "0.8", features = ["small_rng"] }
 futures = "0.3"
-serde = { version = "1.0", features = ["derive"], optional = true }
 env_logger = { version = "0.9", optional = true }
 tokio = { version = "1.11", features = ["rt", "fs", "net", "time", "io-util"] }
 tokio-util = { version = "0.6", features = ["codec"] }
 bytes = "1.0"
-flexbuffers = { version = "2.0", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
-
-[[bench]]
-name = "rpc"
-harness = false
 
 [package.metadata.docs.rs]
 all-features = true
