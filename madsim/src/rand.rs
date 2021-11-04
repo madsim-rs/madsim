@@ -98,7 +98,7 @@ impl RandHandle {
         lock.log
             .take()
             .or_else(|| lock.check.take().map(|(s, _)| s))
-            .map(|s| Log(s))
+            .map(Log)
     }
 }
 

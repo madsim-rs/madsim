@@ -139,6 +139,11 @@ impl NetLocalHandle {
         crate::context::net_local_handle()
     }
 
+    /// Return the socket address of the local endpoint.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.addr
+    }
+
     /// Sends data with tag on the socket to the given address.
     ///
     /// # Example
