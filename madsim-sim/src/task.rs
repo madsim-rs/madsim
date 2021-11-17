@@ -18,7 +18,7 @@ use std::{
 };
 
 pub(crate) struct Executor {
-    queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
+    queue: Mutex<mpsc::Receiver<(Runnable, Arc<TaskInfo>)>>,
     handle: TaskHandle,
     time: TimeRuntime,
     time_limit: Option<Duration>,
@@ -34,10 +34,10 @@ impl Executor {
     pub fn new() -> Self {
         let (sender, queue) = mpsc::channel();
         Executor {
-            queue,
+            queue: Mutex::new(queue),
             handle: TaskHandle {
                 info: Arc::new(Mutex::new(HashMap::new())),
-                sender,
+                sender: Mutex::new(sender),
             },
             time: TimeRuntime::new(),
             time_limit: None,
@@ -57,7 +57,7 @@ impl Executor {
     }
 
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        let sender = self.handle.sender.clone();
+        let sender = self.handle.sender.lock().unwrap().clone();
         let info = Arc::new(TaskInfo {
             addr: "0.0.0.0:0".parse().unwrap(),
             killed: AtomicBool::new(false),
@@ -93,7 +93,7 @@ impl Executor {
     }
 
     fn run_all_ready(&self) {
-        while let Ok((runnable, info)) = self.queue.try_recv() {
+        while let Ok((runnable, info)) = self.queue.lock().unwrap().try_recv() {
             if info.killed.load(Ordering::SeqCst) {
                 continue;
             }
@@ -111,10 +111,19 @@ impl Deref for Executor {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct TaskHandle {
-    sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
+    sender: Mutex<mpsc::Sender<(Runnable, Arc<TaskInfo>)>>,
     info: Arc<Mutex<HashMap<SocketAddr, Arc<TaskInfo>>>>,
+}
+
+impl Clone for TaskHandle {
+    fn clone(&self) -> Self {
+        let sender = self.sender.lock().unwrap().clone();
+        Self {
+            sender: Mutex::new(sender),
+            info: self.info.clone(),
+        }
+    }
 }
 
 impl TaskHandle {
@@ -138,7 +147,7 @@ impl TaskHandle {
             })
             .clone();
         TaskLocalHandle {
-            sender: self.sender.clone(),
+            sender: self.sender.lock().unwrap().clone(),
             info,
         }
     }
