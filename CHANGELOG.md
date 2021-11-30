@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2021-11-30
+
+### Fixed
+
+- Fix deadlock on M1 macOS: add epsilon on time increasing
+
 ## [0.1.2] - 2021-11-04
 
 ### Added

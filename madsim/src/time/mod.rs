@@ -35,7 +35,13 @@ impl TimeRuntime {
     /// Advance the time and fire timers.
     pub fn advance(&self) -> bool {
         let mut timer = self.handle.timer.lock().unwrap();
-        if let Some(time) = timer.next() {
+        if let Some(mut time) = timer.next() {
+            // WARN: in some platform such as M1 macOS,
+            //       let t0: Instant;
+            //       let t1: Instant;
+            //       t0 + (t1 - t0) < t1 !!
+            // we should add eps to make sure 'now >= deadline' and avoid deadlock
+            time += Duration::from_nanos(50);
             timer.expire(time);
             self.handle.clock.set_elapsed(time);
             true
