@@ -1,6 +1,7 @@
 //! Macros for use with Madsim
 
 mod request;
+mod service;
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -11,6 +12,11 @@ pub fn message_derive_rtype(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
     request::expand(&ast).into()
+}
+
+#[proc_macro_attribute]
+pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
+    service::service(args, input)
 }
 
 #[allow(clippy::needless_doctest_main)]
