@@ -211,10 +211,10 @@ mod tests {
             let t0 = Instant::now();
 
             sleep(Duration::from_secs(1)).await;
-            assert_eq!(t0.elapsed(), Duration::from_secs(1));
+            assert!(t0.elapsed() >= Duration::from_secs(1));
 
             sleep_until(t0 + Duration::from_secs(2)).await;
-            assert_eq!(t0.elapsed(), Duration::from_secs(2));
+            assert!(t0.elapsed() >= Duration::from_secs(2));
 
             assert!(
                 timeout(Duration::from_secs(2), sleep(Duration::from_secs(1)))
