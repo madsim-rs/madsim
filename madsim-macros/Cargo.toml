@@ -8,16 +8,16 @@ homepage = "https://github.com/madsys-dev/madsim"
 repository = "https://github.com/madsys-dev/madsim"
 license = "Apache-2.0"
 categories = ["asynchronous"]
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0"
+darling = "0.13"
+proc-macro2 = "1"
 quote = "1"
-syn = { version = "1.0", features = ["full"] }
+syn = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 madsim = { path = "../madsim", features = ["macros"] }

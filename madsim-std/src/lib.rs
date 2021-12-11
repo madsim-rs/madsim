@@ -14,9 +14,6 @@ pub mod rand;
 pub mod task;
 pub mod time;
 
-#[cfg(feature = "macros")]
-pub use madsim_macros::*;
-
 /// The madsim runtime.
 ///
 /// The runtime provides basic components for deterministic simulation,

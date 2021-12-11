@@ -1,7 +1,9 @@
+use darling::FromMeta;
 use proc_macro::TokenStream as TokenStream1;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::*;
+use std::convert::TryFrom;
+use syn::{spanned::Spanned, *};
 
 pub fn service(_args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let mut input = parse_macro_input!(input as ItemImpl);
@@ -14,27 +16,45 @@ pub fn service(_args: TokenStream1, input: TokenStream1) -> TokenStream1 {
 }
 
 fn service2(input: &mut ItemImpl) -> Result<TokenStream> {
-    let calls = take_rpc_attributes(input);
+    let calls = take_rpc_attributes(input)?;
     gen_add_rpc_handler(input, &calls);
     Ok(quote! { #input })
 }
 
 /// Find and remove `#[rpc]` attributes.
-fn take_rpc_attributes(input: &mut ItemImpl) -> Vec<RpcFn> {
-    let mut fns = Vec::new();
+fn take_rpc_attributes(input: &mut ItemImpl) -> Result<Vec<RpcFn>> {
+    #[derive(Debug, Default, FromMeta)]
+    #[darling(default)]
+    struct RpcArgs {
+        read: bool,
+        write: bool,
+    }
+
+    let mut fns = vec![];
     for item in &mut input.items {
         let method = match item {
             ImplItem::Method(m) => m,
             _ => continue,
         };
-        let _call_meta = match take_attribute(&mut method.attrs, "rpc") {
+        let rpc_meta = match take_attribute(&mut method.attrs, "rpc") {
             Some(v) => v.parse_meta().unwrap(),
             _ => continue,
         };
-        let fn_info = RpcFn::from(&method.sig);
-        fns.push(fn_info);
+        let mut rpc_fn = RpcFn::try_from(&method.sig)?;
+        if let Meta::List(_) = rpc_meta {
+            let args = RpcArgs::from_meta(&rpc_meta).unwrap();
+            if args.read && args.write {
+                return Err(Error::new(
+                    rpc_meta.span(),
+                    "can not be both read and write",
+                ));
+            }
+            rpc_fn.read = args.read;
+            rpc_fn.write = args.write;
+        }
+        fns.push(rpc_fn);
     }
-    fns
+    Ok(fns)
 }
 
 /// Generate `add_rpc_handler` function.
@@ -43,12 +63,33 @@ fn gen_add_rpc_handler(input: &mut ItemImpl, calls: &[RpcFn]) {
         let name = &f.name;
         let await_suffix = if f.is_async { quote!(.await) } else { quote!() };
         let rpc_type = &f.rpc_type;
-        quote! {
-            let this = self.clone();
-            net.add_rpc_handler(move |req: #rpc_type| {
-                let this = this.clone();
-                async move { this.#name(req)#await_suffix }
-            });
+        if f.write {
+            quote! {
+                let this = self.clone();
+                net.add_rpc_handler_with_data(move |req: #rpc_type, data| {
+                    let this = this.clone();
+                    async move {
+                        let ret = this.#name(req, &data)#await_suffix;
+                        (ret, vec![])
+                    }
+                });
+            }
+        } else if f.read {
+            quote! {
+                let this = self.clone();
+                net.add_rpc_handler_with_data(move |req: #rpc_type, _| {
+                    let this = this.clone();
+                    async move { this.#name(req)#await_suffix }
+                });
+            }
+        } else {
+            quote! {
+                let this = self.clone();
+                net.add_rpc_handler(move |req: #rpc_type| {
+                    let this = this.clone();
+                    async move { this.#name(req)#await_suffix }
+                });
+            }
         }
     });
     let add_rpc_handler = quote! {
@@ -78,19 +119,26 @@ struct RpcFn {
     name: Ident,
     is_async: bool,
     rpc_type: Type,
+    read: bool,
+    write: bool,
 }
 
-impl From<&Signature> for RpcFn {
-    fn from(sig: &Signature) -> Self {
+impl TryFrom<&Signature> for RpcFn {
+    type Error = Error;
+    fn try_from(sig: &Signature) -> Result<Self> {
         // TODO: assert inputs[0] is &self
-        assert_eq!(sig.inputs.len(), 2);
-        RpcFn {
+        if sig.inputs.len() < 2 {
+            return Err(Error::new(sig.inputs.span(), "expect at least 2 arguments"));
+        }
+        Ok(RpcFn {
             name: sig.ident.clone(),
             is_async: sig.asyncness.is_some(),
             rpc_type: match &sig.inputs[1] {
                 FnArg::Typed(pat) => (*pat.ty).clone(),
                 _ => panic!("invalid argument"),
             },
-        }
+            read: false,
+            write: false,
+        })
     }
 }
