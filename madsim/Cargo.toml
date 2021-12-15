@@ -22,8 +22,8 @@ macros = ["madsim-macros"]
 
 [dependencies]
 madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
-madsim-sim = { path = "../madsim-sim", features = ["rpc"], optional = true }
-madsim-std = { path = "../madsim-std", features = ["rpc"], optional = true }
+madsim-sim = { path = "../madsim-sim", features = ["rpc", "logger"], optional = true }
+madsim-std = { path = "../madsim-std", features = ["rpc", "logger"], optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
