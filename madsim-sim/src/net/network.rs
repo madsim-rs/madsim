@@ -67,9 +67,6 @@ impl Network {
     }
 
     pub fn insert(&mut self, target: SocketAddr) {
-        if self.endpoints.contains_key(&target) {
-            return;
-        }
         debug!("insert: {}", target);
         self.endpoints.insert(target, Default::default());
     }
