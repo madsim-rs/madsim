@@ -268,6 +268,16 @@ impl Handle {
         self.net.reset(addr);
     }
 
+    /// Pause the execution of a host.
+    pub fn pause(&self, addr: SocketAddr) {
+        self.task.pause(addr);
+    }
+
+    /// Resume the execution of a host.
+    pub fn resume(&self, addr: SocketAddr) {
+        self.task.resume(addr);
+    }
+
     /// Create a host which will be bound to the specified address.
     pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
         let addr = addr.to_socket_addrs().unwrap().next().unwrap();

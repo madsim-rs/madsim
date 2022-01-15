@@ -27,6 +27,8 @@ pub(crate) struct Executor {
 pub(crate) struct TaskInfo {
     pub addr: SocketAddr,
     pub name: String,
+    /// A flag indicating that the task should be paused.
+    paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
     killed: AtomicBool,
     /// A function to spawn the initial task.
@@ -39,7 +41,7 @@ impl Executor {
         Executor {
             queue,
             handle: TaskHandle {
-                info: Arc::new(Mutex::new(HashMap::new())),
+                hosts: Arc::new(Mutex::new(HashMap::new())),
                 sender,
             },
             time: TimeRuntime::new(),
@@ -60,10 +62,12 @@ impl Executor {
     }
 
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        // push the future into ready queue.
         let sender = self.handle.sender.clone();
         let info = Arc::new(TaskInfo {
             addr: "0.0.0.0:0".parse().unwrap(),
             name: "main".into(),
+            paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
             init: None,
         });
@@ -97,11 +101,19 @@ impl Executor {
         }
     }
 
+    /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
         while let Ok((runnable, info)) = self.queue.try_recv() {
             if info.killed.load(Ordering::SeqCst) {
+                // killed task: ignore
+                continue;
+            } else if info.paused.load(Ordering::SeqCst) {
+                // paused task: push to waiting list
+                let mut hosts = self.hosts.lock().unwrap();
+                hosts.get_mut(&info.addr).unwrap().paused.push(runnable);
                 continue;
             }
+            // run task
             let _guard = crate::context::enter_task(info);
             runnable.run();
         }
@@ -119,25 +131,52 @@ impl Deref for Executor {
 #[derive(Clone)]
 pub(crate) struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
-    info: Arc<Mutex<HashMap<SocketAddr, Arc<TaskInfo>>>>,
+    hosts: Arc<Mutex<HashMap<SocketAddr, Host>>>,
+}
+
+struct Host {
+    info: Arc<TaskInfo>,
+    paused: Vec<Runnable>,
 }
 
 impl TaskHandle {
     /// Kill all tasks of the address.
     pub fn kill(&self, addr: SocketAddr) {
-        let mut info = self.info.lock().unwrap();
-        if let Some(info) = info.remove(&addr) {
-            info.killed.store(true, Ordering::SeqCst);
+        if let Some(host) = self.hosts.lock().unwrap().remove(&addr) {
+            host.info.killed.store(true, Ordering::SeqCst);
         }
     }
 
     /// Kill all tasks of the address and restart the initial task.
     pub fn restart(&self, addr: SocketAddr) {
-        let mut infos = self.info.lock().unwrap();
-        let info = infos.remove(&addr).expect("host not found");
+        let info = self
+            .hosts
+            .lock()
+            .unwrap()
+            .remove(&addr)
+            .expect("host not found")
+            .info;
         info.killed.store(true, Ordering::SeqCst);
-        drop(infos);
         self.create_host(info.addr, info.name.clone(), info.init.clone());
+    }
+
+    /// Pause all tasks of the address.
+    pub fn pause(&self, addr: SocketAddr) {
+        let hosts = self.hosts.lock().unwrap();
+        let host = hosts.get(&addr).expect("host not found");
+        host.info.paused.store(true, Ordering::SeqCst);
+    }
+
+    /// Resume the execution of the address.
+    pub fn resume(&self, addr: SocketAddr) {
+        let mut hosts = self.hosts.lock().unwrap();
+        let host = hosts.get_mut(&addr).expect("host not found");
+        host.info.paused.store(false, Ordering::SeqCst);
+
+        // take paused tasks from waiting list and push them to ready queue
+        for runnable in host.paused.drain(..) {
+            self.sender.send((runnable, host.info.clone())).unwrap();
+        }
     }
 
     /// Create a new host.
@@ -150,15 +189,21 @@ impl TaskHandle {
         let info = Arc::new(TaskInfo {
             addr,
             name,
+            paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            init,
+            init: init.clone(),
         });
-        self.info.lock().unwrap().insert(addr, info.clone());
+        let host = Host {
+            info: info.clone(),
+            paused: vec![],
+        };
+        self.hosts.lock().unwrap().insert(addr, host);
+
         let handle = TaskLocalHandle {
             sender: self.sender.clone(),
-            info: info.clone(),
+            info,
         };
-        if let Some(init) = &info.init {
+        if let Some(init) = &init {
             init(&handle);
         }
         handle
@@ -166,8 +211,8 @@ impl TaskHandle {
 
     /// Get the host handle.
     pub fn get_host(&self, addr: SocketAddr) -> Option<TaskLocalHandle> {
-        let info = self.info.lock().unwrap();
-        let info = info.get(&addr)?.clone();
+        let hosts = self.hosts.lock().unwrap();
+        let info = hosts.get(&addr)?.info.clone();
         Some(TaskLocalHandle {
             sender: self.sender.clone(),
             info,
@@ -275,14 +320,13 @@ mod tests {
             })
             .detach();
 
-        let handle = runtime.handle();
         runtime.block_on(async move {
             let t0 = time::Instant::now();
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
             assert_eq!(flag1.load(Ordering::SeqCst), 2);
             assert_eq!(flag2.load(Ordering::SeqCst), 2);
-            handle.task.kill(addr1);
+            Handle::current().kill(addr1);
 
             time::sleep_until(t0 + Duration::from_secs(5)).await;
             assert_eq!(flag1.load(Ordering::SeqCst), 2);
@@ -319,13 +363,48 @@ mod tests {
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
             assert_eq!(flag.load(Ordering::SeqCst), 2);
-            Handle::current().task.restart(addr1);
+            Handle::current().restart(addr1);
 
             time::sleep_until(t0 + Duration::from_secs(6)).await;
             assert_eq!(flag.load(Ordering::SeqCst), 2);
 
             time::sleep_until(t0 + Duration::from_secs(8)).await;
             assert_eq!(flag.load(Ordering::SeqCst), 4);
+        });
+    }
+
+    #[test]
+    fn pause_resume() {
+        let runtime = Runtime::new();
+        let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
+        let addr1 = host1.local_addr();
+
+        let flag1 = Arc::new(AtomicUsize::new(0));
+        let flag1_ = flag1.clone();
+        host1
+            .spawn(async move {
+                loop {
+                    time::sleep(Duration::from_secs(2)).await;
+                    flag1_.fetch_add(2, Ordering::SeqCst);
+                }
+            })
+            .detach();
+
+        runtime.block_on(async move {
+            let t0 = time::Instant::now();
+
+            time::sleep_until(t0 + Duration::from_secs(3)).await;
+            assert_eq!(flag1.load(Ordering::SeqCst), 2);
+            Handle::current().pause(addr1);
+            Handle::current().pause(addr1);
+
+            time::sleep_until(t0 + Duration::from_secs(5)).await;
+            assert_eq!(flag1.load(Ordering::SeqCst), 2);
+
+            Handle::current().resume(addr1);
+            Handle::current().resume(addr1);
+            time::sleep_until(t0 + Duration::from_secs_f32(5.5)).await;
+            assert_eq!(flag1.load(Ordering::SeqCst), 4);
         });
     }
 }
