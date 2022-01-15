@@ -17,8 +17,8 @@
 //! use madsim::{Runtime, net::{NetLocalHandle, rpc::*}};
 //!
 //! let runtime = Runtime::new();
-//! let host1 = runtime.create_host("0.0.0.1:1").unwrap();
-//! let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+//! let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
+//! let host2 = runtime.create_host("0.0.0.2:1").build().unwrap();
 //! let addr1 = host1.local_addr();
 //! let addr2 = host2.local_addr();
 //!

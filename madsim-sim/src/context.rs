@@ -1,11 +1,11 @@
 //! Thread local runtime context
-use crate::Handle;
+use crate::{task::TaskInfo, Handle};
 
-use std::{cell::RefCell, net::SocketAddr};
+use std::{cell::RefCell, sync::Arc};
 
 thread_local! {
     static CONTEXT: RefCell<Option<Handle>> = RefCell::new(None);
-    static ADDR: RefCell<Option<SocketAddr>> = RefCell::new(None);
+    static TASK: RefCell<Option<Arc<TaskInfo>>> = RefCell::new(None);
 }
 
 pub(crate) fn current() -> Handle {
@@ -13,8 +13,8 @@ pub(crate) fn current() -> Handle {
 }
 
 #[allow(dead_code)]
-pub(crate) fn current_addr() -> Option<SocketAddr> {
-    ADDR.with(|addr| *addr.borrow())
+pub(crate) fn current_task() -> Option<Arc<TaskInfo>> {
+    TASK.with(|task| task.borrow().clone())
 }
 
 pub(crate) fn rand_handle() -> crate::rand::RandHandle {
@@ -30,17 +30,24 @@ pub(crate) fn try_time_handle() -> Option<crate::time::TimeHandle> {
 }
 
 pub(crate) fn task_local_handle() -> crate::task::TaskLocalHandle {
-    let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).task.local_handle(addr))
+    let addr = TASK.with(|task| task.borrow().as_ref().expect(MSG).addr);
+    CONTEXT.with(|ctx| {
+        ctx.borrow()
+            .as_ref()
+            .expect(MSG)
+            .task
+            .get_host(addr)
+            .unwrap()
+    })
 }
 
 pub(crate) fn net_local_handle() -> crate::net::NetLocalHandle {
-    let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
+    let addr = TASK.with(|task| task.borrow().as_ref().expect(MSG).addr);
     CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).net.get_host(addr))
 }
 
 pub(crate) fn fs_local_handle() -> crate::fs::FsLocalHandle {
-    let addr = ADDR.with(|addr| addr.borrow().expect(MSG));
+    let addr = TASK.with(|task| task.borrow().as_ref().expect(MSG).addr);
     CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).fs.local_handle(addr))
 }
 
@@ -64,18 +71,18 @@ impl Drop for EnterGuard {
     }
 }
 
-pub(crate) fn enter_task(new: SocketAddr) -> TaskEnterGuard {
-    ADDR.with(|ctx| {
+pub(crate) fn enter_task(new: Arc<TaskInfo>) -> TaskEnterGuard {
+    TASK.with(|ctx| {
         let old = ctx.borrow_mut().replace(new);
         TaskEnterGuard(old)
     })
 }
 
-pub(crate) struct TaskEnterGuard(Option<SocketAddr>);
+pub(crate) struct TaskEnterGuard(Option<Arc<TaskInfo>>);
 
 impl Drop for TaskEnterGuard {
     fn drop(&mut self) {
-        ADDR.with(|ctx| {
+        TASK.with(|ctx| {
             *ctx.borrow_mut() = self.0.take();
         });
     }

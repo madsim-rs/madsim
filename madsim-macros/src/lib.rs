@@ -26,7 +26,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// #[madsim::main]
 /// async fn main() {
 ///     println!("Hello world");
@@ -35,7 +35,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// Equivalent code not using `#[madsim::main]`
 ///
-/// ```
+/// ```ignore
 /// fn main() {
 ///     madsim::Runtime::new().block_on(async {
 ///         println!("Hello world");

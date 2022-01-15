@@ -90,7 +90,7 @@ impl Runtime {
     /// Create a host which will be bound to the specified address.
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
         self.handle.create_host(addr)
     }
 
@@ -231,7 +231,7 @@ impl Handle {
     /// use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
     ///
     /// let rt = Runtime::new();
-    /// let host = rt.create_host("0.0.0.1:1").unwrap();
+    /// let host = rt.create_host("0.0.0.1:1").build().unwrap();
     /// let addr = host.local_addr();
     ///
     /// // host increases the counter every 2s
@@ -258,22 +258,24 @@ impl Handle {
     pub fn kill(&self, addr: SocketAddr) {
         self.hosts.lock().unwrap().remove(&addr);
         self.task.kill(addr);
-        // self.net.kill(addr);
+        self.net.reset(addr);
         // self.fs.power_fail(addr);
     }
 
+    /// Restart a host。
+    pub fn restart(&self, addr: SocketAddr) {
+        self.task.restart(addr);
+        self.net.reset(addr);
+    }
+
     /// Create a host which will be bound to the specified address.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
         let addr = addr.to_socket_addrs().unwrap().next().unwrap();
         assert_ne!(addr, SocketAddr::from(([0, 0, 0, 0], 0)), "invalid address");
         if !self.hosts.lock().unwrap().insert(addr) {
             panic!("host already exists: {}", addr);
         }
-        Ok(LocalHandle {
-            task: self.task.local_handle(addr),
-            net: self.net.create_host(addr),
-            fs: self.fs.local_handle(addr),
-        })
+        HostBuilder::new(self, addr)
     }
 
     /// Return a handle of the specified host.
@@ -282,9 +284,60 @@ impl Handle {
             return None;
         }
         Some(LocalHandle {
-            task: self.task.local_handle(addr),
+            task: self.task.get_host(addr).unwrap(),
             net: self.net.get_host(addr),
             fs: self.fs.local_handle(addr),
+        })
+    }
+}
+
+/// Builds a host with custom configurations.
+pub struct HostBuilder<'a> {
+    handle: &'a Handle,
+    addr: SocketAddr,
+    name: Option<String>,
+    init: Option<Arc<dyn Fn(&task::TaskLocalHandle)>>,
+}
+
+impl<'a> HostBuilder<'a> {
+    fn new(handle: &'a Handle, addr: SocketAddr) -> Self {
+        HostBuilder {
+            handle,
+            addr,
+            name: None,
+            init: None,
+        }
+    }
+
+    /// Names the host.
+    ///
+    /// The default name is socket address.
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    /// Set the initial task for the host.
+    ///
+    /// This task will be automatically respawned after crash.
+    pub fn init<F>(mut self, future: impl Fn() -> F + 'static) -> Self
+    where
+        F: Future + 'static,
+    {
+        self.init = Some(Arc::new(move |handle| {
+            handle.spawn_local(future()).detach();
+        }));
+        self
+    }
+
+    /// Build a host.
+    pub fn build(self) -> io::Result<LocalHandle> {
+        let addr = self.addr;
+        let name = self.name.unwrap_or_else(|| addr.to_string());
+        Ok(LocalHandle {
+            task: self.handle.task.create_host(addr, name, self.init),
+            net: self.handle.net.create_host(addr),
+            fs: self.handle.fs.local_handle(addr),
         })
     }
 }
@@ -339,7 +392,7 @@ fn init_logger() {
                 if matches!(start, Some(t0) if time.elapsed() < t0) {
                     return write!(buf, "");
                 }
-                let addr = crate::context::current_addr().unwrap();
+                let task = crate::context::current_task().unwrap();
                 writeln!(
                     buf,
                     "{}{:>5}{}{:.6}s{}{}{}{:>10}{} {}",
@@ -348,7 +401,7 @@ fn init_logger() {
                     style.value("]["),
                     time.elapsed().as_secs_f64(),
                     style.value("]["),
-                    addr,
+                    task.name,
                     style.value("]["),
                     record.target(),
                     style.value(']'),

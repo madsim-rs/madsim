@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn create_open_read_write() {
         let runtime = Runtime::new();
-        let host = runtime.create_host("0.0.0.1:1").unwrap();
+        let host = runtime.create_host("0.0.0.1:1").build().unwrap();
         let f = host.spawn(async move {
             assert_eq!(
                 File::open("file").await.err().unwrap().kind(),
