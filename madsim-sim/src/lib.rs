@@ -311,6 +311,9 @@ impl LocalHandle {
     pub fn local_addr(&self) -> SocketAddr {
         self.net.local_addr()
     }
+
+    /// To match the API exposed by std
+    pub async fn terminate(&mut self) {}
 }
 
 #[cfg(feature = "logger")]
