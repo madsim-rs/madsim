@@ -1,20 +1,14 @@
 use criterion::*;
-use madsim::{
-    net::{rpc::*, NetLocalHandle},
-    Runtime,
-};
+use madsim::{net::NetLocalHandle, Request, Runtime};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Request)]
+#[rtype("()")]
 struct Req;
-impl Request for Req {
-    type Response = ();
-    const ID: u64 = 1;
-}
 
 fn empty_rpc(c: &mut Criterion) {
     let runtime = Runtime::new();
-    let host = runtime.create_host("127.0.0.1:0").unwrap();
+    let host = runtime.create_host("127.0.0.1:0").build().unwrap();
     let addr = host.local_addr();
     host.spawn(async move {
         let net = NetLocalHandle::current();
@@ -34,7 +28,7 @@ fn empty_rpc(c: &mut Criterion) {
 
 fn rpc_data(c: &mut Criterion) {
     let runtime = Runtime::new();
-    let host = runtime.create_host("127.0.0.1:0").unwrap();
+    let host = runtime.create_host("127.0.0.1:0").build().unwrap();
     let addr = host.local_addr();
     host.spawn(async move {
         let net = NetLocalHandle::current();

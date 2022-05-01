@@ -25,12 +25,14 @@
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);
 //! impl Request for Req1 {
+//!     const ID: u64 = 1;
 //!     type Response = u32;
 //! }
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req2(u32);
 //! impl Request for Req2 {
+//!     const ID: u64 = 2;
 //!     type Response = u32;
 //! }
 //!

@@ -89,7 +89,7 @@ impl Runtime {
     /// Create a host which will be bound to the specified address.
     ///
     /// The returned handle can be used to spawn tasks that run on this host.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
         self.handle.create_host(addr)
     }
 
@@ -145,18 +145,65 @@ impl Handle {
     }
 
     /// Create a host which will be bound to the specified address.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> io::Result<LocalHandle> {
-        let handle = LocalHandle::new(self, addr)?;
-        self.locals
-            .lock()
-            .unwrap()
-            .insert(handle.local_addr(), handle.clone());
-        Ok(handle)
+    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
+        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
+        HostBuilder::new(self, addr)
     }
 
     /// Return a handle of the specified host.
     pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
         self.locals.lock().unwrap().get(&addr).cloned()
+    }
+}
+
+/// Builds a host with custom configurations.
+pub struct HostBuilder<'a> {
+    handle: &'a Handle,
+    addr: SocketAddr,
+    name: Option<String>,
+    init: Option<Arc<dyn Fn()>>,
+}
+
+impl<'a> HostBuilder<'a> {
+    fn new(handle: &'a Handle, addr: SocketAddr) -> Self {
+        HostBuilder {
+            handle,
+            addr,
+            name: None,
+            init: None,
+        }
+    }
+
+    /// Names the host.
+    ///
+    /// The default name is socket address.
+    pub fn name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
+    /// Set the initial task for the host.
+    ///
+    /// This task will be automatically respawned after crash.
+    pub fn init<F>(mut self, future: impl Fn() -> F + 'static) -> Self
+    where
+        F: Future + 'static,
+    {
+        self.init = Some(Arc::new(move || {
+            task::spawn_local(future()).detach();
+        }));
+        self
+    }
+
+    /// Build a host.
+    pub fn build(self) -> io::Result<LocalHandle> {
+        let handle = LocalHandle::new(self.handle, self.addr)?;
+        self.handle
+            .locals
+            .lock()
+            .unwrap()
+            .insert(handle.local_addr(), handle.clone());
+        Ok(handle)
     }
 }
 
@@ -235,5 +282,5 @@ impl LocalHandle {
 fn init_logger() {
     use std::sync::Once;
     static LOGGER_INIT: Once = Once::new();
-    LOGGER_INIT.call_once(|| env_logger::init());
+    LOGGER_INIT.call_once(env_logger::init);
 }
