@@ -30,13 +30,11 @@
 //! runtime.block_on(f);
 //! ```
 
-pub use self::network::{Config, Stat};
 #[cfg(not(feature = "ucx"))]
 pub use self::tcp::*;
 #[cfg(feature = "ucx")]
 pub use self::ucx::*;
 
-mod network;
 #[cfg(feature = "rpc")]
 pub mod rpc;
 #[cfg(not(feature = "ucx"))]

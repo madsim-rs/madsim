@@ -1,6 +1,5 @@
 //! Tag-matching API over TCP.
 
-use super::network::{Config, Stat};
 use bytes::{Buf, Bytes};
 use futures::StreamExt;
 use log::*;
@@ -21,7 +20,7 @@ use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
 
 /// Network handle to the runtime.
 #[derive(Clone)]
-pub struct NetHandle {}
+pub(crate) struct NetHandle {}
 
 impl NetHandle {
     pub(crate) fn new() -> Self {
@@ -37,26 +36,6 @@ impl NetHandle {
     ) -> io::Result<NetLocalHandle> {
         NetLocalHandle::new(rt, local, addr)
     }
-
-    /// Get the statistics.
-    pub fn stat(&self) -> Stat {
-        Stat::default()
-    }
-
-    /// Update network configurations.
-    pub fn update_config(&self, _f: impl FnOnce(&mut Config)) {}
-
-    /// Connect a host to the network.
-    pub fn connect(&self, _addr: SocketAddr) {}
-
-    /// Disconnect a host from the network.
-    pub fn disconnect(&self, _addr: SocketAddr) {}
-
-    /// Connect a pair of hosts.
-    pub fn connect2(&self, _addr1: SocketAddr, _addr2: SocketAddr) {}
-
-    /// Disconnect a pair of hosts.
-    pub fn disconnect2(&self, _addr1: SocketAddr, _addr2: SocketAddr) {}
 }
 
 /// Local host network handle to the runtime.

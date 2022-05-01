@@ -5,7 +5,6 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     sync::{mpsc, Arc, Mutex},
     thread::JoinHandle,
-    time::Duration,
 };
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -99,21 +98,6 @@ impl Runtime {
         let _local_guard = crate::context::enter_local(self.local_handle.clone());
         self.local.block_on(&self.rt, future)
     }
-
-    /// Set a time limit of the execution.
-    pub fn set_time_limit(&mut self, _limit: Duration) {
-        todo!()
-    }
-
-    /// Dummy. Do NOT call.
-    pub fn enable_deterministic_check(&self, _log: Option<()>) {
-        panic!("madsim-std does not support deterministic check");
-    }
-
-    /// Dummy. Do NOT call.
-    pub fn take_rand_log(self) -> Option<()> {
-        None
-    }
 }
 
 /// Supervisor handle to the runtime.
@@ -121,8 +105,8 @@ impl Runtime {
 #[allow(missing_docs)]
 pub struct Handle {
     locals: Arc<Mutex<HashMap<SocketAddr, LocalHandle>>>,
-    pub net: net::NetHandle,
-    pub fs: fs::FsHandle,
+    net: net::NetHandle,
+    fs: fs::FsHandle,
 }
 
 impl Handle {
@@ -137,11 +121,6 @@ impl Handle {
     /// ```
     pub fn current() -> Self {
         crate::context::current()
-    }
-
-    /// Kill a host.
-    pub fn kill(&self, _addr: SocketAddr) {
-        todo!()
     }
 
     /// Create a host which will be bound to the specified address.

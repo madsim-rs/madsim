@@ -194,14 +194,13 @@ impl Runtime {
 
 /// Supervisor handle to the runtime.
 #[derive(Clone)]
-#[allow(missing_docs)]
 pub struct Handle {
     hosts: Arc<Mutex<HashSet<SocketAddr>>>,
     rand: rand::RandHandle,
     time: time::TimeHandle,
     task: task::TaskHandle,
-    pub net: net::NetHandle,
-    pub fs: fs::FsHandle,
+    net: net::NetHandle,
+    fs: fs::FsHandle,
 }
 
 impl Handle {
@@ -217,6 +216,16 @@ impl Handle {
     /// ```
     pub fn current() -> Self {
         context::current()
+    }
+
+    /// Get the network handle.
+    pub fn net(&self) -> &net::NetHandle {
+        &self.net
+    }
+
+    /// Get the file system handle.
+    pub fn fs(&self) -> &fs::FsHandle {
+        &self.fs
     }
 
     /// Kill a host.
@@ -376,7 +385,9 @@ impl LocalHandle {
     }
 
     /// To match the API exposed by std
-    pub async fn terminate(&mut self) {}
+    pub async fn terminate(&mut self) {
+        todo!()
+    }
 }
 
 #[cfg(feature = "logger")]

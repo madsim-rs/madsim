@@ -3,7 +3,6 @@
 use std::{
     fs::Metadata,
     io::{Result, SeekFrom},
-    net::SocketAddr,
     path::Path,
 };
 
@@ -12,24 +11,13 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 /// File system handle to the runtime.
 #[derive(Clone)]
-pub struct FsHandle {}
+pub(crate) struct FsHandle {}
 
 impl FsHandle {
     pub(crate) fn new() -> Self {
         FsHandle {}
     }
-
-    /// Simulate a power failure. All data that does not reach the disk will be lost.
-    pub fn power_fail(&self, _addr: SocketAddr) {
-        todo!()
-    }
-
-    /// Get the size of given file.
-    pub fn get_file_size(&self, _addr: SocketAddr, _path: impl AsRef<Path>) -> Result<u64> {
-        todo!()
-    }
 }
-
 /// A reference to an open file on the filesystem.
 pub struct File {
     inner: tokio::fs::File,
