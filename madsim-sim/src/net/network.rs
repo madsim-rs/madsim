@@ -1,9 +1,11 @@
 use crate::{rand::*, time::TimeHandle};
 use futures::channel::oneshot;
 use log::*;
+use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
+    hash::{Hash, Hasher},
     net::SocketAddr,
     ops::Range,
     sync::{Arc, Mutex},
@@ -22,10 +24,13 @@ pub(crate) struct Network {
 }
 
 /// Network configurations.
-#[derive(Debug)]
-#[allow(missing_docs)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Config {
+    /// Possibility of packet loss.
+    #[serde(default)]
     pub packet_loss_rate: f64,
+    /// The latency range of sending packets.
+    #[serde(default = "default_send_latency")]
     pub send_latency: Range<Duration>,
 }
 
@@ -33,8 +38,20 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             packet_loss_rate: 0.0,
-            send_latency: Duration::from_millis(1)..Duration::from_millis(10),
+            send_latency: default_send_latency(),
         }
+    }
+}
+
+const fn default_send_latency() -> Range<Duration> {
+    Duration::from_millis(1)..Duration::from_millis(10)
+}
+
+#[allow(clippy::derive_hash_xor_eq)]
+impl Hash for Config {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.packet_loss_rate.to_bits().hash(state);
+        self.send_latency.hash(state);
     }
 }
 
@@ -46,11 +63,11 @@ pub struct Stat {
 }
 
 impl Network {
-    pub fn new(rand: RandHandle, time: TimeHandle) -> Self {
+    pub fn new(rand: RandHandle, time: TimeHandle, config: Config) -> Self {
         Self {
             rand,
             time,
-            config: Config::default(),
+            config,
             stat: Stat::default(),
             endpoints: HashMap::new(),
             clogged: HashSet::new(),

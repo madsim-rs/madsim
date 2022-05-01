@@ -17,6 +17,9 @@ use std::{
     time::Duration,
 };
 
+pub use self::config::Config;
+
+mod config;
 mod context;
 pub mod fs;
 pub mod net;
@@ -48,19 +51,19 @@ impl Default for Runtime {
 }
 
 impl Runtime {
-    /// Create a new runtime instance.
+    /// Create a new runtime instance with default seed and config.
     pub fn new() -> Self {
-        Self::new_with_seed(0)
+        Self::with_seed_and_config(0, Config::default())
     }
 
-    /// Create a new runtime instance with given seed.
-    pub fn new_with_seed(seed: u64) -> Self {
+    /// Create a new runtime instance with given seed and config.
+    pub fn with_seed_and_config(seed: u64, config: Config) -> Self {
         #[cfg(feature = "logger")]
         crate::init_logger();
 
         let rand = rand::RandHandle::new_with_seed(seed);
         let task = task::Executor::new();
-        let net = net::NetRuntime::new(rand.clone(), task.time_handle().clone());
+        let net = net::NetRuntime::new(rand.clone(), task.time_handle().clone(), config.net);
         let fs = fs::FsRuntime::new(rand.clone(), task.time_handle().clone());
         // create endpoint for supervisor
         net.handle().create_host("0.0.0.0:0".parse().unwrap());

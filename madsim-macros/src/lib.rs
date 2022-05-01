@@ -101,6 +101,10 @@ fn parse_main(
 ///
 ///     By default, the number is 1.
 ///
+/// - `MADSIM_TEST_CONFIG`: Set the config file path.
+///
+///     By default, tests will use the default configuration.
+///
 /// - `MADSIM_TEST_TIME_LIMIT`: Set the time limit for the test.
 ///
 ///     The test will panic if time limit exceeded in the simulation.
@@ -140,6 +144,12 @@ fn parse_test(
             } else {
                 SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
             };
+            let config = if let Ok(config_path) = std::env::var("MADSIM_TEST_CONFIG") {
+                let content = std::fs::read_to_string(config_path).expect("failed to read config file");
+                content.parse::<madsim::Config>().expect("failed to parse config file")
+            } else {
+                madsim::Config::default()
+            };
             let mut count: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_NUM") {
                 num_str.parse().expect("MADSIM_TEST_NUM should be an integer")
             } else {
@@ -156,8 +166,9 @@ fn parse_test(
             for i in 0..count {
                 let seed = if check { seed } else { seed + i };
                 let rand_log0 = rand_log.take();
+                let config_ = config.clone();
                 let ret = std::panic::catch_unwind(move || {
-                    let mut rt = madsim::Runtime::new_with_seed(seed);
+                    let mut rt = madsim::Runtime::with_seed_and_config(seed, config_);
                     if check {
                         rt.enable_determinism_check(rand_log0);
                     }
@@ -168,6 +179,7 @@ fn parse_test(
                     rt.take_rand_log()
                 });
                 if let Err(e) = ret {
+                    println!("MADSIM_CONFIG_HASH={:016X}", config.hash());
                     println!("MADSIM_TEST_SEED={}", seed);
                     std::panic::resume_unwind(e);
                 }

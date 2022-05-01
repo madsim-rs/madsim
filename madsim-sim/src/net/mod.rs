@@ -50,9 +50,9 @@ pub(crate) struct NetRuntime {
 }
 
 impl NetRuntime {
-    pub fn new(rand: RandHandle, time: TimeHandle) -> Self {
+    pub fn new(rand: RandHandle, time: TimeHandle, config: Config) -> Self {
         let handle = NetHandle {
-            network: Arc::new(Mutex::new(Network::new(rand.clone(), time.clone()))),
+            network: Arc::new(Mutex::new(Network::new(rand.clone(), time.clone(), config))),
             rand,
             time,
         };
