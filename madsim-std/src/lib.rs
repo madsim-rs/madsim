@@ -177,10 +177,10 @@ struct TermHandle {
 impl LocalHandle {
     /// SIGTERM, can only call once.
     pub async fn terminate(&mut self) {
-        self.term.as_mut().map(|term| {
+        if let Some(term) = &mut self.term {
             term.tx.send(()).unwrap();
             term.join.lock().unwrap().take().unwrap().join().unwrap();
-        });
+        };
     }
 
     /// Spawn a future onto the runtime.
@@ -224,9 +224,9 @@ impl LocalHandle {
             });
         });
         let mut handle = recver.recv().unwrap();
-        handle.term.as_mut().map(|term| {
+        if let Some(term) = &mut handle.term {
             term.join = Arc::new(Mutex::new(Some(join)));
-        });
+        }
         Ok(handle)
     }
 }

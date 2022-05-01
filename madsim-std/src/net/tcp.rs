@@ -71,7 +71,7 @@ type Sender = HashMap<SocketAddr, mpsc::Sender<SendMsg>>;
 
 struct SendMsg {
     tag: u64,
-    bufs: &'static [IoSlice<'static>],
+    bufs: &'static mut [IoSlice<'static>],
     done: oneshot::Sender<()>,
 }
 
@@ -144,11 +144,19 @@ impl NetLocalHandle {
         });
 
         tokio::spawn(async move {
-            while let Some(SendMsg { tag, bufs, done }) = recver.recv().await {
+            while let Some(SendMsg {
+                tag,
+                mut bufs,
+                done,
+            }) = recver.recv().await
+            {
                 let len = 8 + bufs.iter().map(|s| s.len()).sum::<usize>();
                 writer.write_u32(len as _).await.unwrap();
                 writer.write_u64(tag).await.unwrap();
-                writer.write_vectored(bufs).await.unwrap();
+                while !bufs.is_empty() {
+                    let n = writer.write_vectored(bufs).await.unwrap();
+                    advance_slices(&mut bufs, n);
+                }
                 writer.flush().await.unwrap();
                 done.send(()).unwrap();
             }
@@ -191,7 +199,8 @@ impl NetLocalHandle {
     /// });
     /// ```
     pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, data: &[u8]) -> io::Result<()> {
-        self.send_to_vectored(dst, tag, &[IoSlice::new(data)]).await
+        self.send_to_vectored(dst, tag, &mut [IoSlice::new(data)])
+            .await
     }
 
     /// Like [`send_to`], except that it writes from a slice of buffers.
@@ -201,7 +210,7 @@ impl NetLocalHandle {
         &self,
         dst: impl ToSocketAddrs,
         tag: u64,
-        bufs: &[IoSlice<'_>],
+        bufs: &mut [IoSlice<'_>],
     ) -> io::Result<()> {
         let dst = dst.to_socket_addrs()?.next().unwrap();
         trace!("send: {} -> {}, tag={}", self.addr, dst, tag);
@@ -288,5 +297,27 @@ impl Mailbox {
             self.registered.push((tag, tx));
         }
         rx
+    }
+}
+
+// from std 1.60.0 `IoSlice::advance_slices`
+fn advance_slices(bufs: &mut &mut [IoSlice<'_>], n: usize) {
+    // Number of buffers to remove.
+    let mut remove = 0;
+    // Total length of all the to be removed buffers.
+    let mut accumulated_len = 0;
+    for buf in bufs.iter() {
+        if accumulated_len + buf.len() > n {
+            break;
+        } else {
+            accumulated_len += buf.len();
+            remove += 1;
+        }
+    }
+
+    *bufs = &mut std::mem::take(bufs)[remove..];
+    if !bufs.is_empty() {
+        // bufs[0].advance(n - accumulated_len)
+        bufs[0] = IoSlice::new(unsafe { std::mem::transmute(&bufs[0][n - accumulated_len..]) });
     }
 }

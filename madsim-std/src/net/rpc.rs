@@ -129,13 +129,13 @@ impl NetLocalHandle {
         let rsp_tag_buf = rsp_tag.to_be_bytes();
         let req = bincode::serialize(&request).unwrap();
         let req_len_buf = (req.len() as u32).to_be_bytes();
-        let iov = [
+        let mut iov = [
             IoSlice::new(&rsp_tag_buf[..]),
             IoSlice::new(&req_len_buf[..]),
             IoSlice::new(&req),
             IoSlice::new(data),
         ];
-        self.send_to_vectored(dst, req_tag, &iov).await?;
+        self.send_to_vectored(dst, req_tag, &mut iov).await?;
 
         let (mut data, from) = self.recv_from_raw(rsp_tag).await?;
         assert_eq!(from, dst);
@@ -175,12 +175,12 @@ impl NetLocalHandle {
                     let (rsp, data) = rsp_future.await;
                     let rsp = bincode::serialize(&rsp).unwrap();
                     let rsp_len_buf = (rsp.len() as u32).to_be_bytes();
-                    let iov = [
+                    let mut iov = [
                         IoSlice::new(&rsp_len_buf[..]),
                         IoSlice::new(&rsp),
                         IoSlice::new(&data),
                     ];
-                    net.send_to_vectored(from, rsp_tag, &iov).await.unwrap();
+                    net.send_to_vectored(from, rsp_tag, &mut iov).await.unwrap();
                 })
                 .detach();
             }
