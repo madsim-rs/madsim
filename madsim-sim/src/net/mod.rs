@@ -7,8 +7,8 @@
 //! use madsim::{Runtime, net::NetLocalHandle};
 //!
 //! let runtime = Runtime::new();
-//! let host1 = runtime.create_host("0.0.0.1:1").unwrap();
-//! let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+//! let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
+//! let host2 = runtime.create_host("0.0.0.2:1").build().unwrap();
 //! let addr1 = host1.local_addr();
 //! let addr2 = host2.local_addr();
 //!
@@ -99,6 +99,14 @@ impl NetHandle {
     pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
         let mut network = self.network.lock().unwrap();
         network.update_config(f);
+    }
+
+    /// Reset an endpoint.
+    ///
+    /// All connections will be closed.
+    pub fn reset(&self, addr: SocketAddr) {
+        let mut network = self.network.lock().unwrap();
+        network.reset(addr);
     }
 
     /// Connect a host to the network.
@@ -204,7 +212,9 @@ impl NetLocalHandle {
     /// Receives a raw message.
     async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
         let recver = self.handle.network.lock().unwrap().recv(self.addr, tag);
-        let msg = recver.await.unwrap();
+        let msg = recver
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
         // random delay
         let delay = Duration::from_micros(self.handle.rand.with(|rng| rng.gen_range(0..5)));
         self.handle.time.sleep(delay).await;
@@ -217,13 +227,13 @@ impl NetLocalHandle {
 #[cfg(test)]
 mod tests {
     use super::NetLocalHandle;
-    use crate::{time::*, Runtime};
+    use crate::{time::*, Handle, Runtime};
 
     #[test]
     fn send_recv() {
         let runtime = Runtime::new();
-        let host1 = runtime.create_host("0.0.0.1:1").unwrap();
-        let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+        let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
+        let host2 = runtime.create_host("0.0.0.2:1").build().unwrap();
         let addr1 = host1.local_addr();
         let addr2 = host2.local_addr();
 
@@ -256,8 +266,8 @@ mod tests {
     #[test]
     fn receiver_drop() {
         let runtime = Runtime::new();
-        let host1 = runtime.create_host("0.0.0.1:1").unwrap();
-        let host2 = runtime.create_host("0.0.0.2:1").unwrap();
+        let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
+        let host2 = runtime.create_host("0.0.0.2:1").build().unwrap();
         let addr1 = host1.local_addr();
         let addr2 = host2.local_addr();
 
@@ -285,5 +295,26 @@ mod tests {
         });
 
         runtime.block_on(f);
+    }
+
+    #[test]
+    fn reset() {
+        let runtime = Runtime::new();
+        let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
+        let addr1 = host1.local_addr();
+
+        let f = host1.spawn(async move {
+            let net = NetLocalHandle::current();
+            let err = net.recv_from(1, &mut []).await.unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+        });
+
+        runtime.block_on(async move {
+            sleep(Duration::from_secs(1)).await;
+
+            let handle = Handle::current();
+            handle.net.reset(addr1);
+            f.await;
+        });
     }
 }

@@ -78,6 +78,12 @@ impl Network {
         self.clogged.remove(target);
     }
 
+    pub fn reset(&mut self, target: SocketAddr) {
+        assert!(self.endpoints.contains_key(&target));
+        debug!("reset: {}", target);
+        self.endpoints.insert(target, Default::default());
+    }
+
     pub fn clog(&mut self, target: SocketAddr) {
         assert!(self.endpoints.contains_key(&target));
         debug!("clog: {}", target);
