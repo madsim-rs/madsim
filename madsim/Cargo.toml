@@ -1,7 +1,7 @@
 [package]
 name = "madsim"
 version = "0.1.1"
-edition = "2018"
+edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
 readme = "../README.md"
@@ -16,14 +16,21 @@ categories = ["asynchronous", "simulation"]
 [features]
 default = ["macros"]
 sim = ["madsim-sim"]
-std = ["madsim-std"]
-ucx = ["std", "madsim-std/ucx"]
+ucx = ["madsim-std/ucx"]
 macros = ["madsim-macros"]
 
 [dependencies]
 madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
 madsim-sim = { path = "../madsim-sim", features = ["rpc", "logger"], optional = true }
-madsim-std = { path = "../madsim-std", features = ["rpc", "logger"], optional = true }
+madsim-std = { path = "../madsim-std", features = ["rpc", "logger"] }
+
+[dev-dependencies]
+criterion = "0.3"
+serde = { version = "1", features = ["derive"] }
+
+[[bench]]
+name = "rpc"
+harness = false
 
 [package.metadata.docs.rs]
 all-features = true

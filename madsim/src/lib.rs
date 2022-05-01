@@ -4,5 +4,5 @@ pub use madsim_macros::*;
 #[cfg(feature = "sim")]
 pub use madsim_sim::*;
 
-#[cfg(feature = "std")]
+#[cfg(not(feature = "sim"))]
 pub use madsim_std::*;

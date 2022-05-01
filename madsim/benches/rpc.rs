@@ -1,5 +1,5 @@
 use criterion::*;
-use madsim_sim::{
+use madsim::{
     net::{rpc::*, NetLocalHandle},
     Runtime,
 };
@@ -22,7 +22,7 @@ fn empty_rpc(c: &mut Criterion) {
     })
     .detach();
 
-    c.bench_function("[sim] empty RPC", |b| {
+    c.bench_function("empty RPC", |b| {
         b.iter(|| {
             runtime.block_on(async move {
                 let net = NetLocalHandle::current();
@@ -45,7 +45,7 @@ fn rpc_data(c: &mut Criterion) {
     })
     .detach();
 
-    let mut group = c.benchmark_group("[sim] RPC with data");
+    let mut group = c.benchmark_group("RPC with data");
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
     for size in [16, 256, 4096, 65536, 1048576] {
         group.throughput(Throughput::Bytes(size as u64));

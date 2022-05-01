@@ -1,7 +1,7 @@
 [package]
 name = "madsim-macros"
 version = "0.1.1"
-edition = "2018"
+edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Madsim's proc-macro."
 homepage = "https://github.com/madsys-dev/madsim"
@@ -14,7 +14,7 @@ categories = ["asynchronous"]
 proc-macro = true
 
 [dependencies]
-darling = "0.13"
+darling = "0.14"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "1", features = ["full"] }

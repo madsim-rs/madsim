@@ -1,7 +1,7 @@
 [package]
 name = "madsim-std"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Real world backend for MadSim."
 readme = "../README.md"
@@ -25,17 +25,10 @@ futures = "0.3"
 serde = { version = "1.0", features = ["derive"], optional = true }
 env_logger = { version = "0.9", optional = true }
 tokio = { version = "1.11", features = ["rt", "fs", "net", "time", "io-util"] }
-tokio-util = { version = "0.6", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1.0"
 bincode = { version = "1.3", optional = true }
-async-ucx = { git = "https://github.com/madsys-dev/async-ucx", rev = "a3119f3", features = ["event"], optional = true }
-
-[dev-dependencies]
-criterion = "0.3"
-
-[[bench]]
-name = "rpc"
-harness = false
+async-ucx = { version = "0.1", features = ["event"], optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
