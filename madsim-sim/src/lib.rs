@@ -145,7 +145,7 @@ impl Runtime {
         self.task.set_time_limit(limit);
     }
 
-    /// Enable deterministic check during the simulation.
+    /// Enable determinism check during the simulation.
     ///
     /// # Example
     ///
@@ -157,23 +157,23 @@ impl Runtime {
     /// let f = || async {
     ///     for _ in 0..10 {
     ///         madsim::rand::rng().gen::<u64>();
-    ///         // introduce non-deterministic
+    ///         // introduce non-determinism
     ///         let rand_num = rand::thread_rng().gen_range(0..10);
     ///         sleep(Duration::from_nanos(rand_num)).await;
     ///     }
     /// };
     ///
     /// let mut rt = Runtime::new();
-    /// rt.enable_deterministic_check(None);    // enable log
+    /// rt.enable_determinism_check(None);      // enable log
     /// rt.block_on(f());
     /// let log = rt.take_rand_log();           // take log for next turn
     ///
     /// let mut rt = Runtime::new();
-    /// rt.enable_deterministic_check(log);     // enable check
+    /// rt.enable_determinism_check(log);       // enable check
     /// rt.block_on(f());                       // run the same logic again,
     ///                                         // should panic here.
     /// ```
-    pub fn enable_deterministic_check(&self, log: Option<rand::Log>) {
+    pub fn enable_determinism_check(&self, log: Option<rand::Log>) {
         assert_eq!(
             self.task.time_handle().elapsed(),
             Duration::default(),
@@ -186,7 +186,7 @@ impl Runtime {
         }
     }
 
-    /// Take random log so that you can check deterministic in the next turn.
+    /// Take random log so that you can check determinism in the next turn.
     pub fn take_rand_log(self) -> Option<rand::Log> {
         self.rand.take_log()
     }

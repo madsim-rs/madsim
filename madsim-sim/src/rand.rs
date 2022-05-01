@@ -4,7 +4,7 @@
 //!
 //! User should call [`rng()`] to retrieve the deterministic random number
 //! generator from the current madsim context. **Do not** use [`random()`] or
-//! [`thread_rng()`] from the rand crate directly, because no deterministic is
+//! [`thread_rng()`] from the rand crate directly, because no determinism is
 //! guaranteed.
 //!
 //! # Example
@@ -74,9 +74,9 @@ impl RandHandle {
             if let Some((check, i)) = &mut lock.check {
                 if check.get(*i) != Some(&v) {
                     if let Some(time) = t {
-                        panic!("non-deterministic detected at {:?}", time);
+                        panic!("non-determinism detected at {:?}", time);
                     }
-                    panic!("non-deterministic detected");
+                    panic!("non-determinism detected");
                 }
                 *i += 1;
             }
@@ -126,6 +126,6 @@ impl RngCore for RandHandle {
     }
 }
 
-/// Random log for deterministic check.
+/// Random log for determinism check.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Log(Vec<u8>);

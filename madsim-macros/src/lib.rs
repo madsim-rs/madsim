@@ -107,10 +107,10 @@ fn parse_main(
 ///
 ///     By default, there is no time limit.
 ///
-/// - `MADSIM_TEST_CHECK_DETERMINISTIC`: Enable deterministic check.
+/// - `MADSIM_TEST_CHECK_DETERMINISM`: Enable determinism check.
 ///
 ///     The test will be run at least twice with the same seed.
-///     If any non-deterministic detected, it will panic as soon as possible.
+///     If any non-determinism detected, it will panic as soon as possible.
 ///
 ///     By default, it is disabled.
 #[proc_macro_attribute]
@@ -148,7 +148,7 @@ fn parse_test(
             let time_limit_s = std::env::var("MADSIM_TEST_TIME_LIMIT").ok().map(|num_str| {
                 num_str.parse::<f64>().expect("MADSIM_TEST_TIME_LIMIT should be an number")
             });
-            let check = std::env::var("MADSIM_TEST_CHECK_DETERMINISTIC").is_ok();
+            let check = std::env::var("MADSIM_TEST_CHECK_DETERMINISM").is_ok();
             if check {
                 count = count.max(2);
             }
@@ -159,7 +159,7 @@ fn parse_test(
                 let ret = std::panic::catch_unwind(move || {
                     let mut rt = madsim::Runtime::new_with_seed(seed);
                     if check {
-                        rt.enable_deterministic_check(rand_log0);
+                        rt.enable_determinism_check(rand_log0);
                     }
                     if let Some(limit) = time_limit_s {
                         rt.set_time_limit(Duration::from_secs_f64(limit));
