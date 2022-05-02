@@ -1,15 +1,19 @@
 //! Thread local runtime context
 use crate::{task::TaskInfo, Handle};
 
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, net::SocketAddr, sync::Arc};
 
 thread_local! {
     static CONTEXT: RefCell<Option<Handle>> = RefCell::new(None);
     static TASK: RefCell<Option<Arc<TaskInfo>>> = RefCell::new(None);
 }
 
-pub(crate) fn current() -> Handle {
-    CONTEXT.with(|ctx| ctx.borrow().clone().expect(MSG))
+pub(crate) fn current<T>(map: impl FnOnce(&Handle) -> T) -> T {
+    CONTEXT.with(move |ctx| map(ctx.borrow().as_ref().expect(MSG)))
+}
+
+pub(crate) fn try_current<T>(map: impl FnOnce(&Handle) -> T) -> Option<T> {
+    CONTEXT.with(move |ctx| ctx.borrow().as_ref().map(map))
 }
 
 #[allow(dead_code)]
@@ -17,38 +21,8 @@ pub(crate) fn current_task() -> Option<Arc<TaskInfo>> {
     TASK.with(|task| task.borrow().clone())
 }
 
-pub(crate) fn rand_handle() -> crate::rand::RandHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).rand.clone())
-}
-
-pub(crate) fn time_handle() -> crate::time::TimeHandle {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).time.clone())
-}
-
-pub(crate) fn try_time_handle() -> Option<crate::time::TimeHandle> {
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().map(|h| h.time.clone()))
-}
-
-pub(crate) fn task_local_handle() -> crate::task::TaskLocalHandle {
-    let addr = TASK.with(|task| task.borrow().as_ref().expect(MSG).addr);
-    CONTEXT.with(|ctx| {
-        ctx.borrow()
-            .as_ref()
-            .expect(MSG)
-            .task
-            .get_host(addr)
-            .unwrap()
-    })
-}
-
-pub(crate) fn net_local_handle() -> crate::net::NetLocalHandle {
-    let addr = TASK.with(|task| task.borrow().as_ref().expect(MSG).addr);
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).net.get_host(addr))
-}
-
-pub(crate) fn fs_local_handle() -> crate::fs::FsLocalHandle {
-    let addr = TASK.with(|task| task.borrow().as_ref().expect(MSG).addr);
-    CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).fs.local_handle(addr))
+pub(crate) fn current_addr() -> SocketAddr {
+    TASK.with(|task| task.borrow().as_ref().expect(MSG).addr)
 }
 
 /// Set this [`Handle`] as the current active [`Handle`].

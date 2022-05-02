@@ -9,7 +9,8 @@
 #![deny(missing_docs)]
 
 use std::{
-    collections::HashSet,
+    any::TypeId,
+    collections::{HashMap, HashSet},
     future::Future,
     io,
     net::{SocketAddr, ToSocketAddrs},
@@ -23,6 +24,7 @@ mod config;
 mod context;
 pub mod fs;
 pub mod net;
+pub mod plugin;
 pub mod rand;
 pub mod task;
 pub mod time;
@@ -63,20 +65,31 @@ impl Runtime {
 
         let rand = rand::RandHandle::new_with_seed(seed);
         let task = task::Executor::new();
-        let net = net::NetRuntime::new(rand.clone(), task.time_handle().clone(), config.net);
-        let fs = fs::FsRuntime::new(rand.clone(), task.time_handle().clone());
-        // create endpoint for supervisor
-        net.handle().create_host("0.0.0.0:0".parse().unwrap());
-
         let handle = Handle {
             hosts: Default::default(),
             rand: rand.clone(),
             time: task.time_handle().clone(),
             task: task.handle().clone(),
-            net: net.handle().clone(),
-            fs: fs.handle().clone(),
+            sims: Default::default(),
+            config,
         };
-        Runtime { rand, task, handle }
+        let rt = Runtime { rand, task, handle };
+        rt.add_simulator::<fs::FsSim>();
+        rt.add_simulator::<net::NetSim>();
+        rt
+    }
+
+    /// Register a simulator.
+    pub fn add_simulator<S: plugin::Simulator>(&self) {
+        let mut sims = self.handle.sims.lock().unwrap();
+        let sim = Arc::new(S::new(
+            &self.handle.rand,
+            &self.handle.time,
+            &self.handle.config,
+        ));
+        // create host for supervisor
+        sim.create("0.0.0.0:0".parse().unwrap());
+        sims.insert(TypeId::of::<S>(), sim);
     }
 
     /// Return a handle to the runtime.
@@ -202,8 +215,8 @@ pub struct Handle {
     rand: rand::RandHandle,
     time: time::TimeHandle,
     task: task::TaskHandle,
-    net: net::NetHandle,
-    fs: fs::FsHandle,
+    sims: Arc<Mutex<HashMap<TypeId, Arc<dyn plugin::Simulator>>>>,
+    config: Config,
 }
 
 impl Handle {
@@ -218,66 +231,27 @@ impl Handle {
     /// let handle = madsim::Handle::current();
     /// ```
     pub fn current() -> Self {
-        context::current()
-    }
-
-    /// Get the network handle.
-    pub fn net(&self) -> &net::NetHandle {
-        &self.net
-    }
-
-    /// Get the file system handle.
-    pub fn fs(&self) -> &fs::FsHandle {
-        &self.fs
+        context::current(|h| h.clone())
     }
 
     /// Kill a host.
     ///
     /// - All tasks spawned on this host will be killed immediately.
     /// - All data that has not been flushed to the disk will be lost.
-    ///
-    /// # Example
-    /// ```
-    /// # use madsim_sim as madsim;
-    /// use madsim::{Runtime, time::{sleep, Duration}};
-    /// use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-    ///
-    /// let rt = Runtime::new();
-    /// let host = rt.create_host("0.0.0.1:1").build().unwrap();
-    /// let addr = host.local_addr();
-    ///
-    /// // host increases the counter every 2s
-    /// let flag = Arc::new(AtomicUsize::new(0));
-    /// let flag_ = flag.clone();
-    /// host.spawn(async move {
-    ///     loop {
-    ///         sleep(Duration::from_secs(2)).await;
-    ///         flag_.fetch_add(2, Ordering::SeqCst);
-    ///     }
-    /// }).detach();
-    ///  
-    /// let handle = rt.handle();
-    /// rt.block_on(async move {
-    ///     sleep(Duration::from_secs(3)).await;
-    ///     assert_eq!(flag.load(Ordering::SeqCst), 2);
-    ///
-    ///     handle.kill(addr);
-    ///
-    ///     sleep(Duration::from_secs(2)).await;
-    ///     assert_eq!(flag.load(Ordering::SeqCst), 2);
-    /// });
-    /// ```
     pub fn kill(&self, addr: SocketAddr) {
         self.hosts.lock().unwrap().remove(&addr);
         self.task.kill(addr);
-        self.net.reset(addr);
-        // self.fs.power_fail(addr);
+        for sim in self.sims.lock().unwrap().values() {
+            sim.reset(addr);
+        }
     }
 
     /// Restart a host。
     pub fn restart(&self, addr: SocketAddr) {
         self.task.restart(addr);
-        self.net.reset(addr);
+        for sim in self.sims.lock().unwrap().values() {
+            sim.reset(addr);
+        }
     }
 
     /// Pause the execution of a host.
@@ -307,8 +281,6 @@ impl Handle {
         }
         Some(LocalHandle {
             task: self.task.get_host(addr).unwrap(),
-            net: self.net.get_host(addr),
-            fs: self.fs.local_handle(addr),
         })
     }
 }
@@ -356,10 +328,11 @@ impl<'a> HostBuilder<'a> {
     pub fn build(self) -> io::Result<LocalHandle> {
         let addr = self.addr;
         let name = self.name.unwrap_or_else(|| addr.to_string());
+        for sim in self.handle.sims.lock().unwrap().values() {
+            sim.create(addr);
+        }
         Ok(LocalHandle {
             task: self.handle.task.create_host(addr, name, self.init),
-            net: self.handle.net.create_host(addr),
-            fs: self.handle.fs.local_handle(addr),
         })
     }
 }
@@ -368,8 +341,6 @@ impl<'a> HostBuilder<'a> {
 #[derive(Clone)]
 pub struct LocalHandle {
     task: task::TaskLocalHandle,
-    net: net::NetLocalHandle,
-    fs: fs::FsLocalHandle,
 }
 
 impl LocalHandle {
@@ -380,11 +351,6 @@ impl LocalHandle {
         F::Output: Send + 'static,
     {
         self.task.spawn(future)
-    }
-
-    /// Returns the local socket address.
-    pub fn local_addr(&self) -> SocketAddr {
-        self.net.local_addr()
     }
 
     /// To match the API exposed by std
@@ -415,7 +381,7 @@ fn init_logger() {
                 log::Level::Debug => Color::Blue,
                 log::Level::Trace => Color::Cyan,
             });
-            if let Some(time) = crate::context::try_time_handle() {
+            if let Some(time) = TimeHandle::try_current() {
                 if matches!(start, Some(t0) if time.elapsed() < t0) {
                     return write!(buf, "");
                 }

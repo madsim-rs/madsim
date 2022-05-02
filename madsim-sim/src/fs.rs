@@ -1,6 +1,5 @@
 //! Asynchronous file system.
 
-use crate::{rand::RandHandle, time::TimeHandle};
 use log::*;
 use std::{
     collections::HashMap,
@@ -10,46 +9,44 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-pub(crate) struct FsRuntime {
-    handle: FsHandle,
+use crate::{
+    plugin::{addr, simulator, Simulator},
+    rand::RandHandle,
+    time::TimeHandle,
+    Config,
+};
+
+/// File system simulator.
+#[derive(Default)]
+pub struct FsSim {
+    handles: Mutex<HashMap<SocketAddr, FsLocalHandle>>,
 }
 
-impl FsRuntime {
-    pub fn new(rand: RandHandle, time: TimeHandle) -> Self {
-        let handle = FsHandle {
-            handles: Arc::new(Mutex::new(HashMap::new())),
-            rand,
-            time,
-        };
-        FsRuntime { handle }
+impl Simulator for FsSim {
+    fn new(_rand: &RandHandle, _time: &TimeHandle, _config: &Config) -> Self {
+        Default::default()
     }
 
-    pub fn handle(&self) -> &FsHandle {
-        &self.handle
-    }
-}
-
-/// File system handle to the runtime.
-#[derive(Clone)]
-pub struct FsHandle {
-    handles: Arc<Mutex<HashMap<SocketAddr, FsLocalHandle>>>,
-    rand: RandHandle,
-    time: TimeHandle,
-}
-
-impl FsHandle {
-    /// Return a handle of the specified host.
-    pub(crate) fn local_handle(&self, addr: SocketAddr) -> FsLocalHandle {
+    fn create(&self, addr: SocketAddr) {
         let mut handles = self.handles.lock().unwrap();
-        handles
-            .entry(addr)
-            .or_insert_with(|| FsLocalHandle::new(addr))
-            .clone()
+        handles.insert(addr, FsLocalHandle::new(addr));
+    }
+
+    fn reset(&self, addr: SocketAddr) {
+        self.power_fail(addr);
+    }
+}
+
+impl FsSim {
+    /// Return a handle of the specified host.
+    fn get_host(&self, addr: SocketAddr) -> FsLocalHandle {
+        let handles = self.handles.lock().unwrap();
+        handles[&addr].clone()
     }
 
     /// Simulate a power failure. All data that does not reach the disk will be lost.
     pub fn power_fail(&self, _addr: SocketAddr) {
-        todo!()
+        // TODO
     }
 
     /// Get the size of given file.
@@ -64,9 +61,9 @@ impl FsHandle {
     }
 }
 
-/// Local host file system handle to the runtime.
+/// Local host file system simulator.
 #[derive(Clone)]
-pub(crate) struct FsLocalHandle {
+struct FsLocalHandle {
     addr: SocketAddr,
     fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
@@ -81,7 +78,7 @@ impl FsLocalHandle {
     }
 
     fn current() -> Self {
-        crate::context::fs_local_handle()
+        simulator::<FsSim>().get_host(addr())
     }
 
     async fn open(&self, path: impl AsRef<Path>) -> Result<File> {

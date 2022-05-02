@@ -227,6 +227,11 @@ pub(crate) struct TaskLocalHandle {
 }
 
 impl TaskLocalHandle {
+    fn current() -> Self {
+        let addr = crate::context::current_addr();
+        crate::context::current(|h| h.task.get_host(addr).unwrap())
+    }
+
     pub fn spawn<F>(&self, future: F) -> Task<F::Output>
     where
         F: Future + Send + 'static,
@@ -260,7 +265,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    let handle = crate::context::task_local_handle();
+    let handle = TaskLocalHandle::current();
     handle.spawn(future)
 }
 
@@ -270,7 +275,7 @@ where
     F: Future + 'static,
     F::Output: 'static,
 {
-    let handle = crate::context::task_local_handle();
+    let handle = TaskLocalHandle::current();
     handle.spawn_local(future)
 }
 
@@ -280,7 +285,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    let handle = crate::context::task_local_handle();
+    let handle = TaskLocalHandle::current();
     handle.spawn(async move { f() })
 }
 
@@ -293,9 +298,10 @@ mod tests {
     #[test]
     fn kill() {
         let runtime = Runtime::new();
-        let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
-        let host2 = runtime.create_host("0.0.0.2:1").build().unwrap();
-        let addr1 = host1.local_addr();
+        let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let addr2 = "0.0.0.2:1".parse::<SocketAddr>().unwrap();
+        let host1 = runtime.create_host(addr1).build().unwrap();
+        let host2 = runtime.create_host(addr2).build().unwrap();
 
         let flag1 = Arc::new(AtomicUsize::new(0));
         let flag2 = Arc::new(AtomicUsize::new(0));
@@ -340,9 +346,10 @@ mod tests {
 
         let flag = Arc::new(AtomicUsize::new(0));
 
+        let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
         let flag_ = flag.clone();
-        let host1 = runtime
-            .create_host("0.0.0.1:1")
+        runtime
+            .create_host(addr1)
             .init(move || {
                 let flag = flag_.clone();
                 async move {
@@ -356,7 +363,6 @@ mod tests {
             })
             .build()
             .unwrap();
-        let addr1 = host1.local_addr();
 
         runtime.block_on(async move {
             let t0 = time::Instant::now();
@@ -376,8 +382,8 @@ mod tests {
     #[test]
     fn pause_resume() {
         let runtime = Runtime::new();
-        let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
-        let addr1 = host1.local_addr();
+        let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let host1 = runtime.create_host(addr1).build().unwrap();
 
         let flag1 = Arc::new(AtomicUsize::new(0));
         let flag1_ = flag1.clone();

@@ -60,16 +60,20 @@ impl TimeRuntime {
 
 /// Handle to a shared time source.
 #[derive(Clone)]
-pub(crate) struct TimeHandle {
+pub struct TimeHandle {
     timer: Arc<Mutex<Timer>>,
     clock: ClockHandle,
 }
 
 impl TimeHandle {
-    #[allow(dead_code)]
+    /// Returns a `TimeHandle` view over the currently running Runtime.
+    pub fn current() -> Self {
+        crate::context::current(|h| h.time.clone())
+    }
+
     /// Returns a `TimeHandle` view over the currently running Runtime.
     pub fn try_current() -> Option<Self> {
-        crate::context::try_time_handle()
+        crate::context::try_current(|h| h.time.clone())
     }
 
     /// Return the current time.
@@ -135,13 +139,13 @@ pub mod error {
 
 /// Waits until `duration` has elapsed.
 pub fn sleep(duration: Duration) -> impl Future<Output = ()> + Send {
-    let handle = crate::context::time_handle();
+    let handle = TimeHandle::current();
     handle.sleep(duration)
 }
 
 /// Waits until `deadline` is reached.
 pub fn sleep_until(deadline: Instant) -> impl Future<Output = ()> + Send {
-    let handle = crate::context::time_handle();
+    let handle = TimeHandle::current();
     handle.sleep_until(deadline)
 }
 
@@ -150,7 +154,7 @@ pub fn timeout<T: Future>(
     duration: Duration,
     future: T,
 ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
-    let handle = crate::context::time_handle();
+    let handle = TimeHandle::current();
     handle.timeout(duration, future)
 }
 

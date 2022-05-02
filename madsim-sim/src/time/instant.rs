@@ -47,7 +47,7 @@ impl Instant {
     /// let now = Instant::now();
     /// ```
     pub fn now() -> Instant {
-        let handle = crate::context::time_handle();
+        let handle = super::TimeHandle::current();
         handle.now()
     }
 

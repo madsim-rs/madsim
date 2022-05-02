@@ -63,7 +63,7 @@ impl RandHandle {
         let ret = f(&mut lock.rng);
         // log or check
         if lock.log.is_some() || lock.check.is_some() {
-            let t = crate::context::try_time_handle().map(|t| t.elapsed());
+            let t = crate::time::TimeHandle::try_current().map(|t| t.elapsed());
             fn hash_u128(x: u128) -> u8 {
                 x.to_ne_bytes().iter().fold(0, |a, b| a ^ b)
             }
@@ -105,7 +105,7 @@ impl RandHandle {
 
 /// Retrieve the deterministic random number generator from the current madsim context.
 pub fn rng() -> RandHandle {
-    crate::context::rand_handle()
+    crate::context::current(|h| h.rand.clone())
 }
 
 impl RngCore for RandHandle {
