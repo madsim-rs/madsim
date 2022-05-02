@@ -2,25 +2,25 @@
 //!
 //! # Methods
 //!
-//! RPC extension adds the following methods for [`NetLocalHandle`]:
+//! RPC extension adds the following methods for [`Endpoint`]:
 //!
-//! - [`call`][NetLocalHandle::call]
-//! - [`call_with_data`][NetLocalHandle::call_with_data]
-//! - [`call_timeout`][NetLocalHandle::call_timeout]
-//! - [`add_rpc_handler`][NetLocalHandle::add_rpc_handler]
-//! - [`add_rpc_handler_with_data`][NetLocalHandle::add_rpc_handler_with_data]
+//! - [`call`][Endpoint::call]
+//! - [`call_with_data`][Endpoint::call_with_data]
+//! - [`call_timeout`][Endpoint::call_timeout]
+//! - [`add_rpc_handler`][Endpoint::add_rpc_handler]
+//! - [`add_rpc_handler_with_data`][Endpoint::add_rpc_handler_with_data]
 //!
 //! # Examples
 //!
 //! ```
 //! # use madsim_sim as madsim;
-//! use madsim::{Runtime, net::{NetLocalHandle, rpc::*}};
+//! use madsim::{Runtime, net::{Endpoint, SocketAddr, rpc::*}};
 //!
 //! let runtime = Runtime::new();
-//! let host1 = runtime.create_host("0.0.0.1:1").build().unwrap();
-//! let host2 = runtime.create_host("0.0.0.2:1").build().unwrap();
-//! let addr1 = host1.local_addr();
-//! let addr2 = host2.local_addr();
+//! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
+//! let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
+//! let host1 = runtime.create_host(addr1).build().unwrap();
+//! let host2 = runtime.create_host(addr2).build().unwrap();
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);
@@ -38,7 +38,7 @@
 //!
 //! host1
 //!     .spawn(async move {
-//!         let net = NetLocalHandle::current();
+//!         let net = Endpoint::bind(addr1).await.unwrap();
 //!         net.add_rpc_handler(|x: Req1| async move { x.0 + 1 });
 //!         net.add_rpc_handler_with_data(|x: Req2, data| async move {
 //!             (x.0 + 2, b"hello".to_vec())
@@ -47,7 +47,7 @@
 //!     .detach();
 //!
 //! let f = host2.spawn(async move {
-//!     let net = NetLocalHandle::current();
+//!     let net = Endpoint::bind(addr2).await.unwrap();
 //!
 //!     let rsp = net.call(addr1, Req1(1)).await.unwrap();
 //!     assert_eq!(rsp, 2);
@@ -90,7 +90,7 @@ pub const fn hash_str(s: &str) -> u64 {
     h
 }
 
-impl NetLocalHandle {
+impl Endpoint {
     /// Call function on a remote host with timeout.
     pub async fn call_timeout<R: Request>(
         &self,

@@ -94,7 +94,7 @@ fn gen_add_rpc_handler(input: &mut ItemImpl, calls: &[RpcFn]) {
     });
     let add_rpc_handler = quote! {
         fn add_rpc_handler(&self) {
-            let net = madsim::net::NetLocalHandle::current();
+            let net = madsim::net::Endpoint::current();
             #(#bodys)*
         }
     };

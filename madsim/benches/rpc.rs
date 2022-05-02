@@ -1,5 +1,5 @@
 use criterion::*;
-use madsim::{net::NetLocalHandle, Request, Runtime};
+use madsim::{net::Endpoint, Request, Runtime};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Request)]
@@ -11,7 +11,7 @@ fn empty_rpc(c: &mut Criterion) {
     let host = runtime.create_host("127.0.0.1:0").build().unwrap();
     let addr = host.local_addr();
     host.spawn(async move {
-        let net = NetLocalHandle::current();
+        let net = Endpoint::current();
         net.add_rpc_handler(|_: Req| async move {});
     })
     .detach();
@@ -19,7 +19,7 @@ fn empty_rpc(c: &mut Criterion) {
     c.bench_function("empty RPC", |b| {
         b.iter(|| {
             runtime.block_on(async move {
-                let net = NetLocalHandle::current();
+                let net = Endpoint::current();
                 net.call(addr, Req).await.unwrap();
             })
         })
@@ -31,7 +31,7 @@ fn rpc_data(c: &mut Criterion) {
     let host = runtime.create_host("127.0.0.1:0").build().unwrap();
     let addr = host.local_addr();
     host.spawn(async move {
-        let net = NetLocalHandle::current();
+        let net = Endpoint::current();
         net.add_rpc_handler_with_data(|_: Req, data| async move {
             black_box(data);
             ((), vec![])
@@ -47,7 +47,7 @@ fn rpc_data(c: &mut Criterion) {
             let data = vec![0u8; size];
             b.iter(|| {
                 runtime.block_on(async {
-                    let net = NetLocalHandle::current();
+                    let net = Endpoint::current();
                     net.call_with_data(addr, Req, &data).await.unwrap();
                 })
             });

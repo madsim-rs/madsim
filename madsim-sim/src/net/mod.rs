@@ -4,24 +4,23 @@
 //!
 //! ```
 //! # use madsim_sim as madsim;
-//! use madsim::{Runtime, net::NetLocalHandle};
-//! use std::net::SocketAddr;
+//! use madsim::{Runtime, net::{Endpoint, SocketAddr}};
 //!
 //! let runtime = Runtime::new();
-//! let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
-//! let addr2 = "0.0.0.2:1".parse::<SocketAddr>().unwrap();
+//! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
+//! let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
 //! let host1 = runtime.create_host(addr1).build().unwrap();
 //! let host2 = runtime.create_host(addr2).build().unwrap();
 //!
 //! host1
 //!     .spawn(async move {
-//!         let net = NetLocalHandle::current();
+//!         let net = Endpoint::bind(addr1).await.unwrap();
 //!         net.send_to(addr2, 1, &[1]).await.unwrap();
 //!     })
 //!     .detach();
 //!
 //! let f = host2.spawn(async move {
-//!     let net = NetLocalHandle::current();
+//!     let net = Endpoint::bind(addr2).await.unwrap();
 //!     let mut buf = vec![0; 0x10];
 //!     let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
 //!     assert_eq!(from, addr1);
@@ -34,17 +33,18 @@
 use log::*;
 use std::{
     io,
-    net::{SocketAddr, ToSocketAddrs},
+    net::ToSocketAddrs,
     sync::{Arc, Mutex},
 };
 
 pub use self::network::{Config, Stat};
 use self::network::{Network, Payload};
 use crate::{
-    plugin::{addr, simulator, Simulator},
+    plugin,
     rand::{RandHandle, Rng},
     time::{Duration, TimeHandle},
 };
+pub use std::net::SocketAddr;
 
 mod network;
 #[cfg(feature = "rpc")]
@@ -57,7 +57,7 @@ pub struct NetSim {
     time: TimeHandle,
 }
 
-impl Simulator for NetSim {
+impl plugin::Simulator for NetSim {
     fn new(rand: &RandHandle, time: &TimeHandle, config: &crate::Config) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), time.clone(), config.net.clone())),
@@ -77,14 +77,6 @@ impl Simulator for NetSim {
 }
 
 impl NetSim {
-    /// Return a handle of the specified host.
-    pub(crate) fn get_host(self: &Arc<Self>, addr: SocketAddr) -> NetLocalHandle {
-        NetLocalHandle {
-            net: self.clone(),
-            addr,
-        }
-    }
-
     /// Get the statistics.
     pub fn stat(&self) -> Stat {
         self.network.lock().unwrap().stat().clone()
@@ -129,26 +121,34 @@ impl NetSim {
         network.clog_link(addr1, addr2);
         network.clog_link(addr2, addr1);
     }
+
+    async fn rand_delay(&self) {
+        let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
+        self.time.sleep(delay).await;
+    }
 }
 
-/// Local host network handle to the runtime.
+/// An endpoint.
 #[derive(Clone)]
-pub struct NetLocalHandle {
+pub struct Endpoint {
     net: Arc<NetSim>,
     addr: SocketAddr,
 }
 
-impl NetLocalHandle {
-    /// Returns a [`NetLocalHandle`] view over the currently running [`Runtime`].
-    ///
-    /// [`Runtime`]: crate::Runtime
-    pub fn current() -> Self {
-        simulator::<NetSim>().get_host(addr())
+impl Endpoint {
+    /// Creates a [`Endpoint`] from the given address.
+    pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
+        use plugin::Simulator;
+        let net = plugin::simulator::<NetSim>();
+        let addr = addr.to_socket_addrs()?.next().unwrap();
+        net.create(addr);
+        net.rand_delay().await;
+        Ok(Endpoint { net, addr })
     }
 
     /// Returns the local socket address.
-    pub fn local_addr(&self) -> SocketAddr {
-        self.addr
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(self.addr)
     }
 
     /// Sends data with tag on the socket to the given address.
@@ -156,10 +156,10 @@ impl NetLocalHandle {
     /// # Example
     /// ```
     /// # use madsim_sim as madsim;
-    /// use madsim::{Runtime, net::NetLocalHandle};
+    /// use madsim::{Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
-    ///     let net = NetLocalHandle::current();
+    ///     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
     ///     net.send_to("127.0.0.1:4242", 0, &[0; 10]).await.expect("couldn't send data");
     /// });
     /// ```
@@ -174,10 +174,10 @@ impl NetLocalHandle {
     /// # Example
     /// ```no_run
     /// # use madsim_sim as madsim;
-    /// use madsim::{Runtime, net::NetLocalHandle};
+    /// use madsim::{Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
-    ///     let net = NetLocalHandle::current();
+    ///     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
     ///     let mut buf = [0; 10];
     ///     let (len, src) = net.recv_from(0, &mut buf).await.expect("couldn't receive data");
     /// });
@@ -198,9 +198,7 @@ impl NetLocalHandle {
             .lock()
             .unwrap()
             .send(self.addr, dst, tag, data);
-        // random delay
-        let delay = Duration::from_micros(self.net.rand.with(|rng| rng.gen_range(0..5)));
-        self.net.time.sleep(delay).await;
+        self.net.rand_delay().await;
         Ok(())
     }
 
@@ -210,9 +208,7 @@ impl NetLocalHandle {
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
-        // random delay
-        let delay = Duration::from_micros(self.net.rand.with(|rng| rng.gen_range(0..5)));
-        self.net.time.sleep(delay).await;
+        self.net.rand_delay().await;
 
         trace!("recv: {} <- {}, tag={}", self.addr, msg.from, msg.tag);
         Ok((msg.data, msg.from))
@@ -221,22 +217,20 @@ impl NetLocalHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
-
-    use super::{NetLocalHandle, NetSim};
+    use super::*;
     use crate::{plugin::simulator, time::*, Runtime};
 
     #[test]
     fn send_recv() {
         let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
-        let addr2 = "0.0.0.2:1".parse::<SocketAddr>().unwrap();
+        let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
         let host1 = runtime.create_host(addr1).build().unwrap();
         let host2 = runtime.create_host(addr2).build().unwrap();
 
         host1
             .spawn(async move {
-                let net = NetLocalHandle::current();
+                let net = Endpoint::bind(addr1).await.unwrap();
                 net.send_to(addr2, 1, &[1]).await.unwrap();
 
                 sleep(Duration::from_secs(1)).await;
@@ -245,7 +239,7 @@ mod tests {
             .detach();
 
         let f = host2.spawn(async move {
-            let net = NetLocalHandle::current();
+            let net = Endpoint::bind(addr2).await.unwrap();
             let mut buf = vec![0; 0x10];
             let (len, from) = net.recv_from(2, &mut buf).await.unwrap();
             assert_eq!(len, 1);
@@ -263,21 +257,21 @@ mod tests {
     #[test]
     fn receiver_drop() {
         let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
-        let addr2 = "0.0.0.2:1".parse::<SocketAddr>().unwrap();
+        let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
         let host1 = runtime.create_host(addr1).build().unwrap();
         let host2 = runtime.create_host(addr2).build().unwrap();
 
         host1
             .spawn(async move {
-                let net = NetLocalHandle::current();
+                let net = Endpoint::bind(addr1).await.unwrap();
                 sleep(Duration::from_secs(2)).await;
                 net.send_to(addr2, 1, &[1]).await.unwrap();
             })
             .detach();
 
         let f = host2.spawn(async move {
-            let net = NetLocalHandle::current();
+            let net = Endpoint::bind(addr2).await.unwrap();
             let mut buf = vec![0; 0x10];
             timeout(Duration::from_secs(1), net.recv_from(1, &mut buf))
                 .await
@@ -297,11 +291,11 @@ mod tests {
     #[test]
     fn reset() {
         let runtime = Runtime::new();
-        let addr1 = "0.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let host1 = runtime.create_host(addr1).build().unwrap();
 
         let f = host1.spawn(async move {
-            let net = NetLocalHandle::current();
+            let net = Endpoint::bind(addr1).await.unwrap();
             let err = net.recv_from(1, &mut []).await.unwrap_err();
             assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
         });
