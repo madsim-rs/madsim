@@ -1,11 +1,12 @@
-use crate::{rand::*, time::TimeHandle};
+use crate::{rand::*, time::TimeHandle, NodeId};
 use futures::channel::oneshot;
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     hash::{Hash, Hasher},
+    io,
     net::SocketAddr,
     ops::Range,
     sync::{Arc, Mutex},
@@ -18,9 +19,16 @@ pub(crate) struct Network {
     time: TimeHandle,
     config: Config,
     stat: Stat,
-    endpoints: HashMap<SocketAddr, Arc<Mutex<Endpoint>>>,
-    clogged: HashSet<SocketAddr>,
-    clogged_link: HashSet<(SocketAddr, SocketAddr)>,
+    nodes: HashMap<NodeId, Node>,
+    addr_to_node: HashMap<SocketAddr, NodeId>,
+    clogged_node: HashSet<NodeId>,
+    clogged_link: HashSet<(NodeId, NodeId)>,
+}
+
+/// Network for a node.
+#[derive(Default)]
+struct Node {
+    sockets: HashMap<SocketAddr, Arc<Mutex<Mailbox>>>,
 }
 
 /// Network configurations.
@@ -69,8 +77,9 @@ impl Network {
             time,
             config,
             stat: Stat::default(),
-            endpoints: HashMap::new(),
-            clogged: HashSet::new(),
+            nodes: HashMap::new(),
+            addr_to_node: HashMap::new(),
+            clogged_node: HashSet::new(),
             clogged_link: HashSet::new(),
         }
     }
@@ -83,81 +92,113 @@ impl Network {
         &self.stat
     }
 
-    pub fn insert(&mut self, target: SocketAddr) {
-        debug!("insert: {}", target);
-        self.endpoints.insert(target, Default::default());
+    pub fn insert_node(&mut self, id: NodeId) {
+        debug!("insert: {id}");
+        self.nodes.insert(id, Default::default());
     }
 
-    #[allow(dead_code)]
-    pub fn remove(&mut self, target: &SocketAddr) {
-        debug!("remove: {}", target);
-        self.endpoints.remove(target);
-        self.clogged.remove(target);
+    pub fn reset_node(&mut self, id: NodeId) {
+        assert!(self.nodes.contains_key(&id));
+        debug!("reset: {id}");
+        if let Some(node) = self.nodes.insert(id, Default::default()) {
+            for addr in node.sockets.keys() {
+                self.addr_to_node.remove(addr);
+            }
+        }
     }
 
-    pub fn reset(&mut self, target: SocketAddr) {
-        assert!(self.endpoints.contains_key(&target));
-        debug!("reset: {}", target);
-        self.endpoints.insert(target, Default::default());
+    pub fn clog_node(&mut self, id: NodeId) {
+        assert!(self.nodes.contains_key(&id));
+        debug!("clog: {id}");
+        self.clogged_node.insert(id);
     }
 
-    pub fn clog(&mut self, target: SocketAddr) {
-        assert!(self.endpoints.contains_key(&target));
-        debug!("clog: {}", target);
-        self.clogged.insert(target);
+    pub fn unclog_node(&mut self, id: NodeId) {
+        assert!(self.nodes.contains_key(&id));
+        debug!("unclog: {id}");
+        self.clogged_node.remove(&id);
     }
 
-    pub fn unclog(&mut self, target: SocketAddr) {
-        assert!(self.endpoints.contains_key(&target));
-        debug!("unclog: {}", target);
-        self.clogged.remove(&target);
-    }
-
-    pub fn clog_link(&mut self, src: SocketAddr, dst: SocketAddr) {
-        assert!(self.endpoints.contains_key(&src));
-        assert!(self.endpoints.contains_key(&dst));
-        debug!("clog: {} -> {}", src, dst);
+    pub fn clog_link(&mut self, src: NodeId, dst: NodeId) {
+        assert!(self.nodes.contains_key(&src));
+        assert!(self.nodes.contains_key(&dst));
+        debug!("clog: {src} -> {dst}");
         self.clogged_link.insert((src, dst));
     }
 
-    pub fn unclog_link(&mut self, src: SocketAddr, dst: SocketAddr) {
-        assert!(self.endpoints.contains_key(&src));
-        assert!(self.endpoints.contains_key(&dst));
-        debug!("unclog: {} -> {}", src, dst);
+    pub fn unclog_link(&mut self, src: NodeId, dst: NodeId) {
+        assert!(self.nodes.contains_key(&src));
+        assert!(self.nodes.contains_key(&dst));
+        debug!("unclog: {src} -> {dst}");
         self.clogged_link.remove(&(src, dst));
     }
 
+    pub fn bind(&mut self, node: NodeId, addr: SocketAddr) -> io::Result<()> {
+        debug!("bind: {addr} -> {node}");
+        match self.addr_to_node.entry(addr) {
+            Entry::Occupied(_) => Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "address already in use",
+            )),
+            Entry::Vacant(o) => {
+                o.insert(node);
+                self.nodes
+                    .get_mut(&node)
+                    .unwrap()
+                    .sockets
+                    .insert(addr, Default::default());
+                Ok(())
+            }
+        }
+    }
+
+    pub fn close(&mut self, addr: SocketAddr) {
+        debug!("close: {addr}");
+        if let Some(node) = self.addr_to_node.remove(&addr) {
+            if let Some(node) = self.nodes.get_mut(&node) {
+                node.sockets.remove(&addr);
+            }
+        }
+    }
+
     pub fn send(&mut self, src: SocketAddr, dst: SocketAddr, tag: u64, data: Payload) {
-        trace!("send: {} -> {}, tag={}", src, dst, tag);
-        assert!(self.endpoints.contains_key(&src));
-        if !self.endpoints.contains_key(&dst)
-            || self.clogged.contains(&src)
-            || self.clogged.contains(&dst)
-            || self.clogged_link.contains(&(src, dst))
+        trace!("send: {src} -> {dst}, tag={tag}");
+        let src_node = self.addr_to_node[&src];
+        let dst_node = match self.addr_to_node.get(&dst) {
+            Some(x) => *x,
+            None => {
+                trace!("destination not found: {dst}");
+                return;
+            }
+        };
+        if self.clogged_node.contains(&src_node)
+            || self.clogged_node.contains(&dst_node)
+            || self.clogged_link.contains(&(src_node, dst_node))
         {
-            trace!("no connection");
+            trace!("clogged");
             return;
         }
         if self.rand.gen_bool(self.config.packet_loss_rate) {
             trace!("packet loss");
             return;
         }
-        let ep = self.endpoints[&dst].clone();
+        let ep = self.nodes[&dst_node].sockets[&dst].clone();
         let msg = Message {
             tag,
             data,
             from: src,
         };
         let latency = self.rand.gen_range(self.config.send_latency.clone());
-        trace!("delay: {:?}", latency);
+        trace!("delay: {latency:?}");
         self.time.add_timer(self.time.now() + latency, move || {
-            ep.lock().unwrap().send(msg);
+            ep.lock().unwrap().deliver(msg);
         });
         self.stat.msg_count += 1;
     }
 
     pub fn recv(&mut self, dst: SocketAddr, tag: u64) -> oneshot::Receiver<Message> {
-        self.endpoints[&dst].lock().unwrap().recv(tag)
+        let node = self.addr_to_node.get(&dst).expect("socket not found");
+        self.nodes[node].sockets[&dst].lock().unwrap().recv(tag)
     }
 }
 
@@ -169,14 +210,17 @@ pub struct Message {
 
 pub type Payload = Box<dyn Any + Send + Sync>;
 
+/// Tag message mailbox for an endpoint.
 #[derive(Default)]
-struct Endpoint {
+struct Mailbox {
+    /// Pending receive requests.
     registered: Vec<(u64, oneshot::Sender<Message>)>,
+    /// Messages that have not been received.
     msgs: Vec<Message>,
 }
 
-impl Endpoint {
-    fn send(&mut self, msg: Message) {
+impl Mailbox {
+    fn deliver(&mut self, msg: Message) {
         let mut i = 0;
         let mut msg = Some(msg);
         while i < self.registered.len() {

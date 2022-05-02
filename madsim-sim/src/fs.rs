@@ -4,14 +4,14 @@ use log::*;
 use std::{
     collections::HashMap,
     io::{Error, ErrorKind, Result},
-    net::SocketAddr,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
 };
 
 use crate::{
-    plugin::{addr, simulator, Simulator},
+    plugin::{node, simulator, Simulator},
     rand::RandHandle,
+    task::NodeId,
     time::TimeHandle,
     Config,
 };
@@ -19,7 +19,7 @@ use crate::{
 /// File system simulator.
 #[derive(Default)]
 pub struct FsSim {
-    handles: Mutex<HashMap<SocketAddr, FsLocalHandle>>,
+    handles: Mutex<HashMap<NodeId, FsNodeHandle>>,
 }
 
 impl Simulator for FsSim {
@@ -27,32 +27,32 @@ impl Simulator for FsSim {
         Default::default()
     }
 
-    fn create(&self, addr: SocketAddr) {
+    fn create_node(&self, id: NodeId) {
         let mut handles = self.handles.lock().unwrap();
-        handles.insert(addr, FsLocalHandle::new(addr));
+        handles.insert(id, FsNodeHandle::new(id));
     }
 
-    fn reset(&self, addr: SocketAddr) {
-        self.power_fail(addr);
+    fn reset_node(&self, id: NodeId) {
+        self.power_fail(id);
     }
 }
 
 impl FsSim {
-    /// Return a handle of the specified host.
-    fn get_host(&self, addr: SocketAddr) -> FsLocalHandle {
+    /// Return a handle of the specified node.
+    fn get_node(&self, id: NodeId) -> FsNodeHandle {
         let handles = self.handles.lock().unwrap();
-        handles[&addr].clone()
+        handles[&id].clone()
     }
 
     /// Simulate a power failure. All data that does not reach the disk will be lost.
-    pub fn power_fail(&self, _addr: SocketAddr) {
+    pub fn power_fail(&self, _id: NodeId) {
         // TODO
     }
 
     /// Get the size of given file.
-    pub fn get_file_size(&self, addr: SocketAddr, path: impl AsRef<Path>) -> Result<u64> {
+    pub fn get_file_size(&self, node: NodeId, path: impl AsRef<Path>) -> Result<u64> {
         let path = path.as_ref();
-        let handle = self.handles.lock().unwrap()[&addr].clone();
+        let handle = self.handles.lock().unwrap()[&node].clone();
         let fs = handle.fs.lock().unwrap();
         let inode = fs.get(path).ok_or_else(|| {
             Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
@@ -61,29 +61,29 @@ impl FsSim {
     }
 }
 
-/// Local host file system simulator.
+/// File system simulator for a node.
 #[derive(Clone)]
-struct FsLocalHandle {
-    addr: SocketAddr,
+struct FsNodeHandle {
+    node: NodeId,
     fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
 
-impl FsLocalHandle {
-    fn new(addr: SocketAddr) -> Self {
-        trace!("fs: new at {}", addr);
-        FsLocalHandle {
-            addr,
+impl FsNodeHandle {
+    fn new(node: NodeId) -> Self {
+        trace!("fs: new at {}", node);
+        FsNodeHandle {
+            node,
             fs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     fn current() -> Self {
-        simulator::<FsSim>().get_host(addr())
+        simulator::<FsSim>().get_node(node())
     }
 
     async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
-        trace!("fs({}): open at {:?}", self.addr, path);
+        trace!("fs({}): open at {:?}", self.node, path);
         let fs = self.fs.lock().unwrap();
         let inode = fs
             .get(path)
@@ -97,7 +97,7 @@ impl FsLocalHandle {
 
     async fn create(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
-        trace!("fs({}): create at {:?}", self.addr, path);
+        trace!("fs({}): create at {:?}", self.node, path);
         let mut fs = self.fs.lock().unwrap();
         let inode = fs
             .entry(path.into())
@@ -153,7 +153,7 @@ pub struct File {
 impl File {
     /// Attempts to open a file in read-only mode.
     pub async fn open(path: impl AsRef<Path>) -> Result<File> {
-        let handle = FsLocalHandle::current();
+        let handle = FsNodeHandle::current();
         handle.open(path).await
     }
 
@@ -161,7 +161,7 @@ impl File {
     ///
     /// This function will create a file if it does not exist, and will truncate it if it does.
     pub async fn create(path: impl AsRef<Path>) -> Result<File> {
-        let handle = FsLocalHandle::current();
+        let handle = FsNodeHandle::current();
         handle.create(path).await
     }
 
@@ -231,7 +231,7 @@ impl File {
 
 /// Read the entire contents of a file into a bytes vector.
 pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
-    let handle = FsLocalHandle::current();
+    let handle = FsNodeHandle::current();
     let file = handle.open(path).await?;
     let data = file.inode.data.read().unwrap().clone();
     // TODO: random delay
@@ -240,7 +240,7 @@ pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
 
 /// Given a path, query the file system to get information about a file, directory, etc.
 pub async fn metadata(path: impl AsRef<Path>) -> Result<Metadata> {
-    let handle = FsLocalHandle::current();
+    let handle = FsNodeHandle::current();
     handle.metadata(path).await
 }
 
@@ -265,8 +265,8 @@ mod tests {
     #[test]
     fn create_open_read_write() {
         let runtime = Runtime::new();
-        let host = runtime.create_host("0.0.0.1:1").build().unwrap();
-        let f = host.spawn(async move {
+        let node = runtime.create_node().build().unwrap();
+        let f = node.spawn(async move {
             assert_eq!(
                 File::open("file").await.err().unwrap().kind(),
                 ErrorKind::NotFound

@@ -15,12 +15,13 @@
 //! ```
 //! # use madsim_sim as madsim;
 //! use madsim::{Runtime, net::{Endpoint, SocketAddr, rpc::*}};
+//! use std::sync::Arc;
 //!
 //! let runtime = Runtime::new();
 //! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
 //! let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-//! let host1 = runtime.create_host(addr1).build().unwrap();
-//! let host2 = runtime.create_host(addr2).build().unwrap();
+//! let node1 = runtime.create_node().build().unwrap();
+//! let node2 = runtime.create_node().build().unwrap();
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);
@@ -36,17 +37,17 @@
 //!     type Response = u32;
 //! }
 //!
-//! host1
+//! let rpc = node1
 //!     .spawn(async move {
-//!         let net = Endpoint::bind(addr1).await.unwrap();
+//!         let net = Arc::new(Endpoint::bind(addr1).await.unwrap());
 //!         net.add_rpc_handler(|x: Req1| async move { x.0 + 1 });
 //!         net.add_rpc_handler_with_data(|x: Req2, data| async move {
 //!             (x.0 + 2, b"hello".to_vec())
 //!         });
-//!     })
-//!     .detach();
+//!     });
 //!
-//! let f = host2.spawn(async move {
+//! let f = node2.spawn(async move {
+//!     rpc.await;
 //!     let net = Endpoint::bind(addr2).await.unwrap();
 //!
 //!     let rsp = net.call(addr1, Req1(1)).await.unwrap();
@@ -130,7 +131,7 @@ impl Endpoint {
     }
 
     /// Add a RPC handler.
-    pub fn add_rpc_handler<R: Request, AsyncFn, Fut>(&self, mut f: AsyncFn)
+    pub fn add_rpc_handler<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
     where
         AsyncFn: FnMut(R) -> Fut + Send + 'static,
         Fut: Future<Output = R::Response> + Send + 'static,
@@ -139,7 +140,7 @@ impl Endpoint {
     }
 
     /// Add a RPC handler that send and receive data.
-    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(&self, mut f: AsyncFn)
+    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
     where
         AsyncFn: FnMut(R, Bytes) -> Fut + Send + 'static,
         Fut: Future<Output = (R::Response, Vec<u8>)> + Send + 'static,

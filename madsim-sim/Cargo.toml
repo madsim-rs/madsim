@@ -30,5 +30,8 @@ downcast-rs = { version = "1.2", default-features = false }
 env_logger = { version = "0.9", optional = true }
 bytes = { version = "1.0", optional = true }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["sync"] }
+
 [package.metadata.docs.rs]
 all-features = true

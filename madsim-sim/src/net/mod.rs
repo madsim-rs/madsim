@@ -5,29 +5,33 @@
 //! ```
 //! # use madsim_sim as madsim;
 //! use madsim::{Runtime, net::{Endpoint, SocketAddr}};
+//! use std::sync::Arc;
 //!
 //! let runtime = Runtime::new();
 //! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
 //! let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-//! let host1 = runtime.create_host(addr1).build().unwrap();
-//! let host2 = runtime.create_host(addr2).build().unwrap();
+//! let node1 = runtime.create_node().build().unwrap();
+//! let barrier = Arc::new(tokio::sync::Barrier::new(2));
+//! let barrier_ = barrier.clone();
 //!
-//! host1
+//! node1
 //!     .spawn(async move {
 //!         let net = Endpoint::bind(addr1).await.unwrap();
+//!         barrier_.wait().await;  // make sure addr2 has bound
+//!
 //!         net.send_to(addr2, 1, &[1]).await.unwrap();
 //!     })
 //!     .detach();
 //!
-//! let f = host2.spawn(async move {
+//! runtime.block_on(async move {
 //!     let net = Endpoint::bind(addr2).await.unwrap();
+//!     barrier.wait().await;
+//!
 //!     let mut buf = vec![0; 0x10];
 //!     let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
 //!     assert_eq!(from, addr1);
 //!     assert_eq!(&buf[..len], &[1]);
 //! });
-//!
-//! runtime.block_on(f);
 //! ```
 
 use log::*;
@@ -42,6 +46,7 @@ use self::network::{Network, Payload};
 use crate::{
     plugin,
     rand::{RandHandle, Rng},
+    task::NodeId,
     time::{Duration, TimeHandle},
 };
 pub use std::net::SocketAddr;
@@ -66,13 +71,13 @@ impl plugin::Simulator for NetSim {
         }
     }
 
-    fn create(&self, addr: SocketAddr) {
+    fn create_node(&self, id: NodeId) {
         let mut network = self.network.lock().unwrap();
-        network.insert(addr);
+        network.insert_node(id);
     }
 
-    fn reset(&self, addr: SocketAddr) {
-        self.reset(addr);
+    fn reset_node(&self, id: NodeId) {
+        self.reset_node(id);
     }
 }
 
@@ -88,38 +93,38 @@ impl NetSim {
         network.update_config(f);
     }
 
-    /// Reset an endpoint.
+    /// Reset a node.
     ///
     /// All connections will be closed.
-    pub fn reset(&self, addr: SocketAddr) {
+    pub fn reset_node(&self, id: NodeId) {
         let mut network = self.network.lock().unwrap();
-        network.reset(addr);
+        network.reset_node(id);
     }
 
-    /// Connect a host to the network.
-    pub fn connect(&self, addr: SocketAddr) {
+    /// Connect a node to the network.
+    pub fn connect(&self, id: NodeId) {
         let mut network = self.network.lock().unwrap();
-        network.unclog(addr);
+        network.unclog_node(id);
     }
 
-    /// Disconnect a host from the network.
-    pub fn disconnect(&self, addr: SocketAddr) {
+    /// Disconnect a node from the network.
+    pub fn disconnect(&self, id: NodeId) {
         let mut network = self.network.lock().unwrap();
-        network.clog(addr);
+        network.clog_node(id);
     }
 
-    /// Connect a pair of hosts.
-    pub fn connect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
+    /// Connect a pair of nodes.
+    pub fn connect2(&self, node1: NodeId, node2: NodeId) {
         let mut network = self.network.lock().unwrap();
-        network.unclog_link(addr1, addr2);
-        network.unclog_link(addr2, addr1);
+        network.unclog_link(node1, node2);
+        network.unclog_link(node2, node1);
     }
 
-    /// Disconnect a pair of hosts.
-    pub fn disconnect2(&self, addr1: SocketAddr, addr2: SocketAddr) {
+    /// Disconnect a pair of nodes.
+    pub fn disconnect2(&self, node1: NodeId, node2: NodeId) {
         let mut network = self.network.lock().unwrap();
-        network.clog_link(addr1, addr2);
-        network.clog_link(addr2, addr1);
+        network.clog_link(node1, node2);
+        network.clog_link(node2, node1);
     }
 
     async fn rand_delay(&self) {
@@ -129,7 +134,6 @@ impl NetSim {
 }
 
 /// An endpoint.
-#[derive(Clone)]
 pub struct Endpoint {
     net: Arc<NetSim>,
     addr: SocketAddr,
@@ -138,11 +142,10 @@ pub struct Endpoint {
 impl Endpoint {
     /// Creates a [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        use plugin::Simulator;
         let net = plugin::simulator::<NetSim>();
         let addr = addr.to_socket_addrs()?.next().unwrap();
-        net.create(addr);
         net.rand_delay().await;
+        net.network.lock().unwrap().bind(plugin::node(), addr)?;
         Ok(Endpoint { net, addr })
     }
 
@@ -215,22 +218,34 @@ impl Endpoint {
     }
 }
 
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        let mut network = self.net.network.lock().unwrap();
+        network.close(self.addr);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{plugin::simulator, time::*, Runtime};
+    use tokio::sync::Barrier;
 
     #[test]
     fn send_recv() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-        let host1 = runtime.create_host(addr1).build().unwrap();
-        let host2 = runtime.create_host(addr2).build().unwrap();
+        let node1 = runtime.create_node().build().unwrap();
+        let node2 = runtime.create_node().build().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
 
-        host1
+        let barrier_ = barrier.clone();
+        node1
             .spawn(async move {
                 let net = Endpoint::bind(addr1).await.unwrap();
+                barrier_.wait().await;
+
                 net.send_to(addr2, 1, &[1]).await.unwrap();
 
                 sleep(Duration::from_secs(1)).await;
@@ -238,13 +253,16 @@ mod tests {
             })
             .detach();
 
-        let f = host2.spawn(async move {
+        let f = node2.spawn(async move {
             let net = Endpoint::bind(addr2).await.unwrap();
+            barrier.wait().await;
+
             let mut buf = vec![0; 0x10];
             let (len, from) = net.recv_from(2, &mut buf).await.unwrap();
             assert_eq!(len, 1);
             assert_eq!(from, addr1);
             assert_eq!(buf[0], 2);
+
             let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
             assert_eq!(len, 1);
             assert_eq!(from, addr1);
@@ -259,18 +277,21 @@ mod tests {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-        let host1 = runtime.create_host(addr1).build().unwrap();
-        let host2 = runtime.create_host(addr2).build().unwrap();
+        let node1 = runtime.create_node().build().unwrap();
+        let node2 = runtime.create_node().build().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
 
-        host1
+        let barrier_ = barrier.clone();
+        node1
             .spawn(async move {
                 let net = Endpoint::bind(addr1).await.unwrap();
-                sleep(Duration::from_secs(2)).await;
+                barrier_.wait().await;
+
                 net.send_to(addr2, 1, &[1]).await.unwrap();
             })
             .detach();
 
-        let f = host2.spawn(async move {
+        let f = node2.spawn(async move {
             let net = Endpoint::bind(addr2).await.unwrap();
             let mut buf = vec![0; 0x10];
             timeout(Duration::from_secs(1), net.recv_from(1, &mut buf))
@@ -278,7 +299,8 @@ mod tests {
                 .err()
                 .unwrap();
             // timeout and receiver dropped here
-            sleep(Duration::from_secs(2)).await;
+            barrier.wait().await;
+
             // receive again should success
             let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
             assert_eq!(len, 1);
@@ -292,9 +314,9 @@ mod tests {
     fn reset() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
-        let host1 = runtime.create_host(addr1).build().unwrap();
+        let node1 = runtime.create_node().build().unwrap();
 
-        let f = host1.spawn(async move {
+        let f = node1.spawn(async move {
             let net = Endpoint::bind(addr1).await.unwrap();
             let err = net.recv_from(1, &mut []).await.unwrap_err();
             assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
@@ -302,7 +324,7 @@ mod tests {
 
         runtime.block_on(async move {
             sleep(Duration::from_secs(1)).await;
-            simulator::<NetSim>().reset(addr1);
+            simulator::<NetSim>().reset_node(node1.id());
             f.await;
         });
     }

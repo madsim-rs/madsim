@@ -2,13 +2,12 @@
 
 use std::{
     any::{Any, TypeId},
-    net::SocketAddr,
     sync::Arc,
 };
 
 use downcast_rs::{impl_downcast, DowncastSync};
 
-use crate::{rand::RandHandle, time::TimeHandle, Config};
+use crate::{rand::RandHandle, task::NodeId, time::TimeHandle, Config};
 
 /// Simulator
 pub trait Simulator: Any + Send + Sync + DowncastSync {
@@ -19,11 +18,11 @@ pub trait Simulator: Any + Send + Sync + DowncastSync {
     where
         Self: Sized;
 
-    /// Create a host.
-    fn create(&self, _addr: SocketAddr) {}
+    /// Create a node.
+    fn create_node(&self, _id: NodeId) {}
 
-    /// Reset a host.
-    fn reset(&self, _addr: SocketAddr) {}
+    /// Reset a node.
+    fn reset_node(&self, _id: NodeId) {}
 }
 
 impl_downcast!(sync Simulator);
@@ -40,7 +39,7 @@ pub fn simulator<S: Simulator>() -> Arc<S> {
     })
 }
 
-/// Get the address of current task.
-pub fn addr() -> SocketAddr {
-    crate::context::current_addr()
+/// Get the node ID of current task.
+pub fn node() -> NodeId {
+    crate::context::current_node()
 }

@@ -1,7 +1,10 @@
 //! Thread local runtime context
-use crate::{task::TaskInfo, Handle};
+use crate::{
+    task::{NodeId, TaskInfo},
+    Handle,
+};
 
-use std::{cell::RefCell, net::SocketAddr, sync::Arc};
+use std::{cell::RefCell, sync::Arc};
 
 thread_local! {
     static CONTEXT: RefCell<Option<Handle>> = RefCell::new(None);
@@ -21,8 +24,8 @@ pub(crate) fn current_task() -> Option<Arc<TaskInfo>> {
     TASK.with(|task| task.borrow().clone())
 }
 
-pub(crate) fn current_addr() -> SocketAddr {
-    TASK.with(|task| task.borrow().as_ref().expect(MSG).addr)
+pub(crate) fn current_node() -> NodeId {
+    TASK.with(|task| task.borrow().as_ref().expect(MSG).node)
 }
 
 /// Set this [`Handle`] as the current active [`Handle`].

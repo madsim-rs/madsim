@@ -13,12 +13,12 @@ use std::{
     collections::{HashMap, HashSet},
     future::Future,
     io,
-    net::{SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 pub use self::config::Config;
+use self::task::NodeId;
 
 mod config;
 mod context;
@@ -66,7 +66,7 @@ impl Runtime {
         let rand = rand::RandHandle::new_with_seed(seed);
         let task = task::Executor::new();
         let handle = Handle {
-            hosts: Default::default(),
+            nodes: Default::default(),
             rand: rand.clone(),
             time: task.time_handle().clone(),
             task: task.handle().clone(),
@@ -87,15 +87,15 @@ impl Runtime {
             &self.handle.time,
             &self.handle.config,
         ));
-        // create host for supervisor
-        sim.create("0.0.0.0:0".parse().unwrap());
+        // create node for supervisor
+        sim.create_node(NodeId::zero());
         sims.insert(TypeId::of::<S>(), sim);
     }
 
     /// Return a handle to the runtime.
     ///
     /// The returned handle can be used by the supervisor (future in [block_on])
-    /// to control the whole system. For example, kill a host or disconnect the
+    /// to control the whole system. For example, kill a node or disconnect the
     /// network.
     ///
     /// [block_on]: Runtime::block_on
@@ -103,11 +103,11 @@ impl Runtime {
         &self.handle
     }
 
-    /// Create a host which will be bound to the specified address.
+    /// Create a node.
     ///
-    /// The returned handle can be used to spawn tasks that run on this host.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
-        self.handle.create_host(addr)
+    /// The returned handle can be used to spawn tasks that run on this node.
+    pub fn create_node(&self) -> NodeBuilder<'_> {
+        self.handle.create_node()
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
@@ -211,7 +211,7 @@ impl Runtime {
 /// Supervisor handle to the runtime.
 #[derive(Clone)]
 pub struct Handle {
-    hosts: Arc<Mutex<HashSet<SocketAddr>>>,
+    nodes: Arc<Mutex<HashSet<NodeId>>>,
     rand: rand::RandHandle,
     time: time::TimeHandle,
     task: task::TaskHandle,
@@ -234,84 +234,77 @@ impl Handle {
         context::current(|h| h.clone())
     }
 
-    /// Kill a host.
+    /// Kill a node.
     ///
-    /// - All tasks spawned on this host will be killed immediately.
+    /// - All tasks spawned on this node will be killed immediately.
     /// - All data that has not been flushed to the disk will be lost.
-    pub fn kill(&self, addr: SocketAddr) {
-        self.hosts.lock().unwrap().remove(&addr);
-        self.task.kill(addr);
+    pub fn kill(&self, id: NodeId) {
+        self.nodes.lock().unwrap().remove(&id);
+        self.task.kill(id);
         for sim in self.sims.lock().unwrap().values() {
-            sim.reset(addr);
+            sim.reset_node(id);
         }
     }
 
-    /// Restart a host。
-    pub fn restart(&self, addr: SocketAddr) {
-        self.task.restart(addr);
+    /// Restart a node。
+    pub fn restart(&self, id: NodeId) {
+        self.task.restart(id);
         for sim in self.sims.lock().unwrap().values() {
-            sim.reset(addr);
+            sim.reset_node(id);
         }
     }
 
-    /// Pause the execution of a host.
-    pub fn pause(&self, addr: SocketAddr) {
-        self.task.pause(addr);
+    /// Pause the execution of a node.
+    pub fn pause(&self, id: NodeId) {
+        self.task.pause(id);
     }
 
-    /// Resume the execution of a host.
-    pub fn resume(&self, addr: SocketAddr) {
-        self.task.resume(addr);
+    /// Resume the execution of a node.
+    pub fn resume(&self, id: NodeId) {
+        self.task.resume(id);
     }
 
-    /// Create a host which will be bound to the specified address.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
-        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
-        assert_ne!(addr, SocketAddr::from(([0, 0, 0, 0], 0)), "invalid address");
-        if !self.hosts.lock().unwrap().insert(addr) {
-            panic!("host already exists: {}", addr);
-        }
-        HostBuilder::new(self, addr)
+    /// Create a node which will be bound to the specified address.
+    pub fn create_node(&self) -> NodeBuilder<'_> {
+        NodeBuilder::new(self)
     }
 
-    /// Return a handle of the specified host.
-    pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
-        if !self.hosts.lock().unwrap().contains(&addr) {
+    /// Return a handle of the specified node.
+    pub fn get_node(&self, id: NodeId) -> Option<NodeHandle> {
+        if !self.nodes.lock().unwrap().contains(&id) {
             return None;
         }
-        Some(LocalHandle {
-            task: self.task.get_host(addr).unwrap(),
+        Some(NodeHandle {
+            task: self.task.get_node(id).unwrap(),
         })
     }
 }
 
-/// Builds a host with custom configurations.
-pub struct HostBuilder<'a> {
+/// Builds a node with custom configurations.
+pub struct NodeBuilder<'a> {
     handle: &'a Handle,
-    addr: SocketAddr,
     name: Option<String>,
-    init: Option<Arc<dyn Fn(&task::TaskLocalHandle)>>,
+    init: Option<Arc<dyn Fn(&task::TaskNodeHandle)>>,
 }
 
-impl<'a> HostBuilder<'a> {
-    fn new(handle: &'a Handle, addr: SocketAddr) -> Self {
-        HostBuilder {
+impl<'a> NodeBuilder<'a> {
+    fn new(handle: &'a Handle) -> Self {
+        NodeBuilder {
             handle,
-            addr,
             name: None,
             init: None,
         }
     }
 
-    /// Names the host.
+    /// Names the node.
     ///
-    /// The default name is socket address.
+    /// The default name is node ID.
     pub fn name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
 
-    /// Set the initial task for the host.
+    /// Set the initial task for the node.
     ///
     /// This task will be automatically respawned after crash.
     pub fn init<F>(mut self, future: impl Fn() -> F + 'static) -> Self
@@ -324,26 +317,28 @@ impl<'a> HostBuilder<'a> {
         self
     }
 
-    /// Build a host.
-    pub fn build(self) -> io::Result<LocalHandle> {
-        let addr = self.addr;
-        let name = self.name.unwrap_or_else(|| addr.to_string());
+    /// Build a node.
+    pub fn build(self) -> io::Result<NodeHandle> {
+        let task = self.handle.task.create_node(None, self.name, self.init);
         for sim in self.handle.sims.lock().unwrap().values() {
-            sim.create(addr);
+            sim.create_node(task.id());
         }
-        Ok(LocalHandle {
-            task: self.handle.task.create_host(addr, name, self.init),
-        })
+        Ok(NodeHandle { task })
     }
 }
 
-/// Local host handle to the runtime.
+/// Handle to a node.
 #[derive(Clone)]
-pub struct LocalHandle {
-    task: task::TaskLocalHandle,
+pub struct NodeHandle {
+    task: task::TaskNodeHandle,
 }
 
-impl LocalHandle {
+impl NodeHandle {
+    /// Returns the node ID.
+    pub fn id(&self) -> NodeId {
+        self.task.id()
+    }
+
     /// Spawn a future onto the runtime.
     pub fn spawn<F>(&self, future: F) -> async_task::Task<F::Output>
     where
@@ -381,7 +376,7 @@ fn init_logger() {
                 log::Level::Debug => Color::Blue,
                 log::Level::Trace => Color::Cyan,
             });
-            if let Some(time) = TimeHandle::try_current() {
+            if let Some(time) = crate::time::TimeHandle::try_current() {
                 if matches!(start, Some(t0) if time.elapsed() < t0) {
                     return write!(buf, "");
                 }
