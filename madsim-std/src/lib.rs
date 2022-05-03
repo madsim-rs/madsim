@@ -63,7 +63,7 @@ impl Runtime {
         };
         let local_handle = LocalHandle {
             handle: rt.handle().clone(),
-            net: handle.net.create_host(&rt, &local, "127.0.0.1:0").unwrap(),
+            net: handle.net.create_node(&rt, &local, "127.0.0.1:0").unwrap(),
             term: None,
         };
         Runtime {
@@ -77,7 +77,7 @@ impl Runtime {
     /// Return a handle to the runtime.
     ///
     /// The returned handle can be used by the supervisor (future in [block_on])
-    /// to control the whole system. For example, kill a host or disconnect the
+    /// to control the whole system. For example, kill a node or disconnect the
     /// network.
     ///
     /// [block_on]: Runtime::block_on
@@ -85,11 +85,11 @@ impl Runtime {
         &self.handle
     }
 
-    /// Create a host which will be bound to the specified address.
+    /// Create a node which will be bound to the specified address.
     ///
-    /// The returned handle can be used to spawn tasks that run on this host.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
-        self.handle.create_host(addr)
+    /// The returned handle can be used to spawn tasks that run on this node.
+    pub fn create_node(&self, addr: impl ToSocketAddrs) -> NodeBuilder<'_> {
+        self.handle.create_node(addr)
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
@@ -106,7 +106,6 @@ impl Runtime {
 pub struct Handle {
     locals: Arc<Mutex<HashMap<SocketAddr, LocalHandle>>>,
     net: net::NetHandle,
-    fs: fs::FsHandle,
 }
 
 impl Handle {
@@ -123,29 +122,29 @@ impl Handle {
         crate::context::current()
     }
 
-    /// Create a host which will be bound to the specified address.
-    pub fn create_host(&self, addr: impl ToSocketAddrs) -> HostBuilder<'_> {
+    /// Create a node which will be bound to the specified address.
+    pub fn create_node(&self, addr: impl ToSocketAddrs) -> NodeBuilder<'_> {
         let addr = addr.to_socket_addrs().unwrap().next().unwrap();
-        HostBuilder::new(self, addr)
+        NodeBuilder::new(self, addr)
     }
 
-    /// Return a handle of the specified host.
-    pub fn get_host(&self, addr: SocketAddr) -> Option<LocalHandle> {
+    /// Return a handle of the specified node.
+    pub fn get_node(&self, addr: SocketAddr) -> Option<LocalHandle> {
         self.locals.lock().unwrap().get(&addr).cloned()
     }
 }
 
-/// Builds a host with custom configurations.
-pub struct HostBuilder<'a> {
+/// Builds a node with custom configurations.
+pub struct NodeBuilder<'a> {
     handle: &'a Handle,
     addr: SocketAddr,
     name: Option<String>,
     init: Option<Arc<dyn Fn()>>,
 }
 
-impl<'a> HostBuilder<'a> {
+impl<'a> NodeBuilder<'a> {
     fn new(handle: &'a Handle, addr: SocketAddr) -> Self {
-        HostBuilder {
+        NodeBuilder {
             handle,
             addr,
             name: None,
@@ -153,7 +152,7 @@ impl<'a> HostBuilder<'a> {
         }
     }
 
-    /// Names the host.
+    /// Names the node.
     ///
     /// The default name is socket address.
     pub fn name(mut self, name: String) -> Self {
@@ -161,7 +160,7 @@ impl<'a> HostBuilder<'a> {
         self
     }
 
-    /// Set the initial task for the host.
+    /// Set the initial task for the node.
     ///
     /// This task will be automatically respawned after crash.
     pub fn init<F>(mut self, future: impl Fn() -> F + 'static) -> Self
@@ -174,7 +173,7 @@ impl<'a> HostBuilder<'a> {
         self
     }
 
-    /// Build a host.
+    /// Build a node.
     pub fn build(self) -> io::Result<LocalHandle> {
         let handle = LocalHandle::new(self.handle, self.addr)?;
         self.handle
@@ -186,7 +185,7 @@ impl<'a> HostBuilder<'a> {
     }
 }
 
-/// Local host handle to the runtime.
+/// Local node handle to the runtime.
 #[derive(Clone)]
 pub struct LocalHandle {
     handle: tokio::runtime::Handle,
@@ -236,7 +235,7 @@ impl LocalHandle {
             let local = tokio::task::LocalSet::new();
             let local_handle = LocalHandle {
                 handle: rt.handle().clone(),
-                net: handle.net.create_host(&rt, &local, addr).unwrap(),
+                net: handle.net.create_node(&rt, &local, addr).unwrap(),
                 term: Some(TermHandle {
                     tx: kill_tx,
                     join: Arc::new(Mutex::new(None)),

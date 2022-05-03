@@ -27,8 +27,8 @@ impl NetHandle {
         NetHandle {}
     }
 
-    /// Create a host which will be bound to the specified address.
-    pub(crate) fn create_host(
+    /// Create a node which will be bound to the specified address.
+    pub(crate) fn create_node(
         &self,
         rt: &Runtime,
         local: &LocalSet,
@@ -38,7 +38,7 @@ impl NetHandle {
     }
 }
 
-/// Local host network handle to the runtime.
+/// Local node network handle to the runtime.
 #[derive(Clone)]
 pub struct NetLocalHandle {
     addr: SocketAddr,
@@ -63,7 +63,7 @@ impl NetLocalHandle {
             sender: Default::default(),
             mailbox: Default::default(),
         };
-        trace!("new host: {}", net.addr);
+        trace!("new node: {}", net.addr);
         let net0 = net.clone();
         // spawn acceptor
         rt.spawn(async move {

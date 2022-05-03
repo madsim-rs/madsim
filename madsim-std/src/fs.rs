@@ -9,15 +9,6 @@ use std::{
 pub use tokio::fs::{metadata, read};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
-/// File system handle to the runtime.
-#[derive(Clone)]
-pub(crate) struct FsHandle {}
-
-impl FsHandle {
-    pub(crate) fn new() -> Self {
-        FsHandle {}
-    }
-}
 /// A reference to an open file on the filesystem.
 pub struct File {
     inner: tokio::fs::File,

@@ -30,7 +30,7 @@ impl NetHandle {
         NetHandle { context }
     }
 
-    pub(crate) fn create_host(
+    pub(crate) fn create_node(
         &self,
         rt: &Runtime,
         local: &LocalSet,
@@ -40,7 +40,7 @@ impl NetHandle {
     }
 }
 
-/// Local host network handle to the runtime.
+/// Local node network handle to the runtime.
 #[derive(Clone)]
 pub struct NetLocalHandle {
     addr: SocketAddr,
@@ -151,7 +151,7 @@ impl NetLocalHandle {
             addr
         });
 
-        trace!("new host: {}", addr);
+        trace!("new node: {}", addr);
         Ok(NetLocalHandle {
             addr,
             sender,

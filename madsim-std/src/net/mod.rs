@@ -7,19 +7,19 @@
 //! use madsim::{Runtime, net::NetLocalHandle};
 //!
 //! let runtime = Runtime::new();
-//! let host1 = runtime.create_host("127.0.0.1:0").build().unwrap();
-//! let host2 = runtime.create_host("127.0.0.1:0").build().unwrap();
-//! let addr1 = host1.local_addr();
-//! let addr2 = host2.local_addr();
+//! let node1 = runtime.create_node("127.0.0.1:0").build().unwrap();
+//! let node2 = runtime.create_node("127.0.0.1:0").build().unwrap();
+//! let addr1 = node1.local_addr();
+//! let addr2 = node2.local_addr();
 //!
-//! host1
+//! node1
 //!     .spawn(async move {
 //!         let net = NetLocalHandle::current();
 //!         net.send_to(addr2, 1, &[1]).await.unwrap();
 //!     })
 //!     .detach();
 //!
-//! let f = host2.spawn(async move {
+//! let f = node2.spawn(async move {
 //!     let net = NetLocalHandle::current();
 //!     let mut buf = vec![0; 0x10];
 //!     let (len, from) = net.recv_from(1, &mut buf).await.unwrap();
@@ -50,12 +50,12 @@ mod tests {
     #[test]
     fn send_recv() {
         let rt = Runtime::new();
-        let host1 = rt.create_host("127.0.0.1:0").build().unwrap();
-        let host2 = rt.create_host("127.0.0.1:0").build().unwrap();
-        let addr1 = host1.local_addr();
-        let addr2 = host2.local_addr();
+        let node1 = rt.create_node("127.0.0.1:0").build().unwrap();
+        let node2 = rt.create_node("127.0.0.1:0").build().unwrap();
+        let addr1 = node1.local_addr();
+        let addr2 = node2.local_addr();
 
-        host1
+        node1
             .spawn(async move {
                 let net = NetLocalHandle::current();
                 net.send_to(addr2, 1, &[1]).await.unwrap();
@@ -65,7 +65,7 @@ mod tests {
             })
             .detach();
 
-        let f = host2.spawn(async move {
+        let f = node2.spawn(async move {
             let net = NetLocalHandle::current();
             let mut buf = vec![0; 0x10];
             let (len, from) = net.recv_from(2, &mut buf).await.unwrap();

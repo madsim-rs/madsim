@@ -17,10 +17,10 @@
 //! use madsim::{Runtime, net::{NetLocalHandle, rpc::*}};
 //!
 //! let runtime = Runtime::new();
-//! let host1 = runtime.create_host("127.0.0.1:0").build().unwrap();
-//! let host2 = runtime.create_host("127.0.0.1:0").build().unwrap();
-//! let addr1 = host1.local_addr();
-//! let addr2 = host2.local_addr();
+//! let node1 = runtime.create_node("127.0.0.1:0").build().unwrap();
+//! let node2 = runtime.create_node("127.0.0.1:0").build().unwrap();
+//! let addr1 = node1.local_addr();
+//! let addr2 = node2.local_addr();
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);
@@ -36,7 +36,7 @@
 //!     const ID: u64 = 2;
 //! }
 //!
-//! host1
+//! node1
 //!     .spawn(async move {
 //!         let net = NetLocalHandle::current();
 //!         net.add_rpc_handler(|x: Req1| async move { x.0 + 1 });
@@ -46,7 +46,7 @@
 //!     })
 //!     .detach();
 //!
-//! let f = host2.spawn(async move {
+//! let f = node2.spawn(async move {
 //!     let net = NetLocalHandle::current();
 //!
 //!     let rsp = net.call(addr1, Req1(1)).await.unwrap();
@@ -99,7 +99,7 @@ pub const fn hash_str(s: &str) -> u64 {
 }
 
 impl NetLocalHandle {
-    /// Call function on a remote host with timeout.
+    /// Call function on a remote node with timeout.
     pub async fn call_timeout<R: Request>(
         &self,
         dst: SocketAddr,
@@ -111,13 +111,13 @@ impl NetLocalHandle {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "RPC timeout"))?
     }
 
-    /// Call function on a remote host.
+    /// Call function on a remote node.
     pub async fn call<R: Request>(&self, dst: SocketAddr, request: R) -> io::Result<R::Response> {
         let (rsp, _data) = self.call_with_data(dst, request, &[]).await?;
         Ok(rsp)
     }
 
-    /// Call function on a remote host.
+    /// Call function on a remote node.
     pub async fn call_with_data<R: Request>(
         &self,
         dst: SocketAddr,
