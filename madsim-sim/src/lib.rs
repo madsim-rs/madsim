@@ -12,7 +12,6 @@ use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
     future::Future,
-    io,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -318,12 +317,12 @@ impl<'a> NodeBuilder<'a> {
     }
 
     /// Build a node.
-    pub fn build(self) -> io::Result<NodeHandle> {
+    pub fn build(self) -> NodeHandle {
         let task = self.handle.task.create_node(self.name, self.init);
         for sim in self.handle.sims.lock().unwrap().values() {
             sim.create_node(task.id());
         }
-        Ok(NodeHandle { task })
+        NodeHandle { task }
     }
 }
 

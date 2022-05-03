@@ -20,8 +20,8 @@
 //! let runtime = Runtime::new();
 //! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
 //! let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-//! let node1 = runtime.create_node().build().unwrap();
-//! let node2 = runtime.create_node().build().unwrap();
+//! let node1 = runtime.create_node().build();
+//! let node2 = runtime.create_node().build();
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);

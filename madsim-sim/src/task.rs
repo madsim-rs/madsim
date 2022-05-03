@@ -326,8 +326,8 @@ mod tests {
     #[test]
     fn kill() {
         let runtime = Runtime::new();
-        let node1 = runtime.create_node().build().unwrap();
-        let node2 = runtime.create_node().build().unwrap();
+        let node1 = runtime.create_node().build();
+        let node2 = runtime.create_node().build();
 
         let flag1 = Arc::new(AtomicUsize::new(0));
         let flag2 = Arc::new(AtomicUsize::new(0));
@@ -387,8 +387,7 @@ mod tests {
                     }
                 }
             })
-            .build()
-            .unwrap();
+            .build();
 
         runtime.block_on(async move {
             let t0 = time::Instant::now();
@@ -409,7 +408,7 @@ mod tests {
     #[test]
     fn pause_resume() {
         let runtime = Runtime::new();
-        let node = runtime.create_node().build().unwrap();
+        let node = runtime.create_node().build();
 
         let flag = Arc::new(AtomicUsize::new(0));
         let flag_ = flag.clone();

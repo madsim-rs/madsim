@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn create_open_read_write() {
         let runtime = Runtime::new();
-        let node = runtime.create_node().build().unwrap();
+        let node = runtime.create_node().build();
         let f = node.spawn(async move {
             assert_eq!(
                 File::open("file").await.err().unwrap().kind(),

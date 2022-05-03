@@ -10,7 +10,7 @@ struct Req;
 
 fn empty_rpc(c: &mut Criterion) {
     let runtime = Runtime::new();
-    let node = runtime.create_node().build().unwrap();
+    let node = runtime.create_node().build();
     let rpc = node.spawn(async move {
         let net = Arc::new(Endpoint::bind("127.0.0.1:10000").await.unwrap());
         net.add_rpc_handler(|_: Req| async move {});
@@ -26,7 +26,7 @@ fn empty_rpc(c: &mut Criterion) {
 
 fn rpc_data(c: &mut Criterion) {
     let runtime = Runtime::new();
-    let node = runtime.create_node().build().unwrap();
+    let node = runtime.create_node().build();
     let rpc = node.spawn(async move {
         let net = Arc::new(Endpoint::bind("127.0.0.1:10000").await.unwrap());
         net.add_rpc_handler_with_data(|_: Req, data| async move {
