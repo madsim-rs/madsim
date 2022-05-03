@@ -12,10 +12,6 @@ pub(crate) fn current() -> Handle {
     CONTEXT.with(|ctx| ctx.borrow().clone().expect(MSG))
 }
 
-pub(crate) fn net_local_handle() -> crate::net::NetLocalHandle {
-    LOCAL_CONTEXT.with(|ctx| ctx.borrow().as_ref().expect(MSG).net.clone())
-}
-
 pub(crate) fn enter(new: Handle) -> EnterGuard {
     CONTEXT.with(|ctx| {
         let old = ctx.borrow_mut().replace(new);

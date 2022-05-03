@@ -2,25 +2,24 @@
 //!
 //! # Methods
 //!
-//! RPC extension adds the following methods for [`NetLocalHandle`]:
+//! RPC extension adds the following methods for [`Endpoint`]:
 //!
-//! - [`call`][NetLocalHandle::call]
-//! - [`call_with_data`][NetLocalHandle::call_with_data]
-//! - [`call_timeout`][NetLocalHandle::call_timeout]
-//! - [`add_rpc_handler`][NetLocalHandle::add_rpc_handler]
-//! - [`add_rpc_handler_with_data`][NetLocalHandle::add_rpc_handler_with_data]
+//! - [`call`][Endpoint::call]
+//! - [`call_with_data`][Endpoint::call_with_data]
+//! - [`call_timeout`][Endpoint::call_timeout]
+//! - [`add_rpc_handler`][Endpoint::add_rpc_handler]
+//! - [`add_rpc_handler_with_data`][Endpoint::add_rpc_handler_with_data]
 //!
 //! # Examples
 //!
 //! ```
 //! # use madsim_std as madsim;
-//! use madsim::{Runtime, net::{NetLocalHandle, rpc::*}};
+//! use madsim::{Runtime, net::{Endpoint, SocketAddr, rpc::*}};
+//! use std::sync::Arc;
 //!
 //! let runtime = Runtime::new();
-//! let node1 = runtime.create_node("127.0.0.1:0").build().unwrap();
-//! let node2 = runtime.create_node("127.0.0.1:0").build().unwrap();
-//! let addr1 = node1.local_addr();
-//! let addr2 = node2.local_addr();
+//! let node1 = runtime.create_node().build().unwrap();
+//! let node2 = runtime.create_node().build().unwrap();
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);
@@ -36,23 +35,24 @@
 //!     const ID: u64 = 2;
 //! }
 //!
-//! node1
+//! let rpc = node1
 //!     .spawn(async move {
-//!         let net = NetLocalHandle::current();
+//!         let net = Arc::new(Endpoint::bind("127.0.0.1:0").await.unwrap());
 //!         net.add_rpc_handler(|x: Req1| async move { x.0 + 1 });
 //!         net.add_rpc_handler_with_data(|x: Req2, data| async move {
 //!             (x.0 + 2, b"hello".to_vec())
 //!         });
-//!     })
-//!     .detach();
+//!         net.local_addr().unwrap()
+//!     });
 //!
 //! let f = node2.spawn(async move {
-//!     let net = NetLocalHandle::current();
+//!     let addr = rpc.await;
+//!     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
 //!
-//!     let rsp = net.call(addr1, Req1(1)).await.unwrap();
+//!     let rsp = net.call(addr, Req1(1)).await.unwrap();
 //!     assert_eq!(rsp, 2);
 //!
-//!     let (rsp, data) = net.call_with_data(addr1, Req2(1), b"hi").await.unwrap();
+//!     let (rsp, data) = net.call_with_data(addr, Req2(1), b"hi").await.unwrap();
 //!     assert_eq!(rsp, 3);
 //!     assert_eq!(data, &b"hello"[..]);
 //! });
@@ -73,6 +73,7 @@ use std::{
     future::Future,
     io::{self, IoSlice},
     net::SocketAddr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -98,7 +99,7 @@ pub const fn hash_str(s: &str) -> u64 {
     h
 }
 
-impl NetLocalHandle {
+impl Endpoint {
     /// Call function on a remote node with timeout.
     pub async fn call_timeout<R: Request>(
         &self,
@@ -146,7 +147,7 @@ impl NetLocalHandle {
     }
 
     /// Add a RPC handler.
-    pub fn add_rpc_handler<R: Request, AsyncFn, Fut>(&self, mut f: AsyncFn)
+    pub fn add_rpc_handler<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
     where
         AsyncFn: FnMut(R) -> Fut + Send + 'static,
         Fut: Future<Output = R::Response> + Send + 'static,
@@ -155,7 +156,7 @@ impl NetLocalHandle {
     }
 
     /// Add a RPC handler that send and receive data.
-    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(&self, mut f: AsyncFn)
+    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
     where
         AsyncFn: FnMut(R, Bytes) -> Fut + Send + 'static,
         Fut: Future<Output = (R::Response, Vec<u8>)> + Send + 'static,

@@ -35,14 +35,14 @@ impl NetHandle {
         rt: &Runtime,
         local: &LocalSet,
         addr: impl ToSocketAddrs,
-    ) -> io::Result<NetLocalHandle> {
-        NetLocalHandle::new(rt, local, &self.context, addr)
+    ) -> io::Result<Endpoint> {
+        Endpoint::new(rt, local, &self.context, addr)
     }
 }
 
 /// Local node network handle to the runtime.
 #[derive(Clone)]
-pub struct NetLocalHandle {
+pub struct Endpoint {
     addr: SocketAddr,
     /// Client sends message from here.
     sender: mpsc::Sender<SendMsg>,
@@ -63,7 +63,7 @@ struct RecvMsg {
     done: oneshot::Sender<(usize, SocketAddr)>,
 }
 
-impl NetLocalHandle {
+impl Endpoint {
     fn new(
         rt: &Runtime,
         local: &LocalSet,
@@ -152,14 +152,14 @@ impl NetLocalHandle {
         });
 
         trace!("new node: {}", addr);
-        Ok(NetLocalHandle {
+        Ok(Endpoint {
             addr,
             sender,
             recver,
         })
     }
 
-    /// Returns a [`NetLocalHandle`] view over the currently running [`Runtime`].
+    /// Returns a [`Endpoint`] view over the currently running [`Runtime`].
     ///
     /// [`Runtime`]: crate::Runtime
     pub fn current() -> Self {
@@ -175,10 +175,10 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```ignore
-    /// use madsim_std::{Runtime, net::NetLocalHandle};
+    /// use madsim_std::{Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
-    ///     let net = NetLocalHandle::current();
+    ///     let net = Endpoint::current();
     ///     net.send_to("127.0.0.1:4242", 0, &[0; 10]).await.expect("couldn't send data");
     /// });
     /// ```
@@ -188,7 +188,7 @@ impl NetLocalHandle {
 
     /// Like [`send_to`], except that it writes from a slice of buffers.
     ///
-    /// [`send_to`]: NetLocalHandle::send_to
+    /// [`send_to`]: Endpoint::send_to
     pub async fn send_to_vectored(
         &self,
         dst: impl ToSocketAddrs,
@@ -216,10 +216,10 @@ impl NetLocalHandle {
     ///
     /// # Example
     /// ```ignore
-    /// use madsim_std::{Runtime, net::NetLocalHandle};
+    /// use madsim_std::{Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
-    ///     let net = NetLocalHandle::current();
+    ///     let net = Endpoint::current();
     ///     let mut buf = [0; 10];
     ///     let (len, src) = net.recv_from(0, &mut buf).await.expect("couldn't receive data");
     /// });

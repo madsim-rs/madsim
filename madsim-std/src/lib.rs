@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     io,
-    net::{SocketAddr, ToSocketAddrs},
+    net::SocketAddr,
     sync::{mpsc, Arc, Mutex},
     thread::JoinHandle,
 };
@@ -58,12 +58,9 @@ impl Runtime {
         let local = tokio::task::LocalSet::new();
         let handle = Handle {
             locals: Default::default(),
-            net: net::NetHandle::new(),
-            fs: fs::FsHandle::new(),
         };
         let local_handle = LocalHandle {
             handle: rt.handle().clone(),
-            net: handle.net.create_node(&rt, &local, "127.0.0.1:0").unwrap(),
             term: None,
         };
         Runtime {
@@ -88,8 +85,8 @@ impl Runtime {
     /// Create a node which will be bound to the specified address.
     ///
     /// The returned handle can be used to spawn tasks that run on this node.
-    pub fn create_node(&self, addr: impl ToSocketAddrs) -> NodeBuilder<'_> {
-        self.handle.create_node(addr)
+    pub fn create_node(&self) -> NodeBuilder<'_> {
+        self.handle.create_node()
     }
 
     /// Run a future to completion on the runtime. This is the runtime’s entry point.
@@ -105,7 +102,6 @@ impl Runtime {
 #[allow(missing_docs)]
 pub struct Handle {
     locals: Arc<Mutex<HashMap<SocketAddr, LocalHandle>>>,
-    net: net::NetHandle,
 }
 
 impl Handle {
@@ -123,9 +119,8 @@ impl Handle {
     }
 
     /// Create a node which will be bound to the specified address.
-    pub fn create_node(&self, addr: impl ToSocketAddrs) -> NodeBuilder<'_> {
-        let addr = addr.to_socket_addrs().unwrap().next().unwrap();
-        NodeBuilder::new(self, addr)
+    pub fn create_node(&self) -> NodeBuilder<'_> {
+        NodeBuilder::new(self)
     }
 
     /// Return a handle of the specified node.
@@ -137,16 +132,14 @@ impl Handle {
 /// Builds a node with custom configurations.
 pub struct NodeBuilder<'a> {
     handle: &'a Handle,
-    addr: SocketAddr,
     name: Option<String>,
     init: Option<Arc<dyn Fn()>>,
 }
 
 impl<'a> NodeBuilder<'a> {
-    fn new(handle: &'a Handle, addr: SocketAddr) -> Self {
+    fn new(handle: &'a Handle) -> Self {
         NodeBuilder {
             handle,
-            addr,
             name: None,
             init: None,
         }
@@ -175,12 +168,12 @@ impl<'a> NodeBuilder<'a> {
 
     /// Build a node.
     pub fn build(self) -> io::Result<LocalHandle> {
-        let handle = LocalHandle::new(self.handle, self.addr)?;
-        self.handle
-            .locals
-            .lock()
-            .unwrap()
-            .insert(handle.local_addr(), handle.clone());
+        let handle = LocalHandle::new(self.handle)?;
+        // self.handle
+        //     .locals
+        //     .lock()
+        //     .unwrap()
+        //     .insert(handle.local_addr(), handle.clone());
         Ok(handle)
     }
 }
@@ -189,7 +182,6 @@ impl<'a> NodeBuilder<'a> {
 #[derive(Clone)]
 pub struct LocalHandle {
     handle: tokio::runtime::Handle,
-    net: net::NetLocalHandle,
     term: Option<TermHandle>,
 }
 
@@ -217,13 +209,7 @@ impl LocalHandle {
         task::Task(self.handle.spawn(future))
     }
 
-    /// Returns the local socket address.
-    pub fn local_addr(&self) -> SocketAddr {
-        self.net.local_addr()
-    }
-
-    fn new(handle: &Handle, addr: impl ToSocketAddrs) -> io::Result<Self> {
-        let addr = addr.to_socket_addrs()?.next().unwrap();
+    fn new(handle: &Handle) -> io::Result<Self> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -235,7 +221,6 @@ impl LocalHandle {
             let local = tokio::task::LocalSet::new();
             let local_handle = LocalHandle {
                 handle: rt.handle().clone(),
-                net: handle.net.create_node(&rt, &local, addr).unwrap(),
                 term: Some(TermHandle {
                     tx: kill_tx,
                     join: Arc::new(Mutex::new(None)),
