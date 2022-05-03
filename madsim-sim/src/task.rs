@@ -47,8 +47,6 @@ pub(crate) struct TaskInfo {
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
     killed: AtomicBool,
-    /// A function to spawn the initial task.
-    init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
 }
 
 impl Executor {
@@ -86,7 +84,6 @@ impl Executor {
             name: "main".into(),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            init: None,
         });
         let (runnable, mut task) = unsafe {
             // Safety: The schedule is not Sync,
@@ -155,27 +152,37 @@ pub(crate) struct TaskHandle {
 struct Node {
     info: Arc<TaskInfo>,
     paused: Vec<Runnable>,
+    /// A function to spawn the initial task.
+    init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
 }
 
 impl TaskHandle {
     /// Kill all tasks of the node.
     pub fn kill(&self, id: NodeId) {
-        if let Some(node) = self.nodes.lock().unwrap().remove(&id) {
-            node.info.killed.store(true, Ordering::SeqCst);
-        }
+        let mut nodes = self.nodes.lock().unwrap();
+        let node = nodes.get_mut(&id).expect("node not found");
+        node.paused.clear();
+        let new_info = Arc::new(TaskInfo {
+            node: id,
+            name: node.info.name.clone(),
+            paused: AtomicBool::new(false),
+            killed: AtomicBool::new(false),
+        });
+        let old_info = std::mem::replace(&mut node.info, new_info);
+        old_info.killed.store(true, Ordering::SeqCst);
     }
 
     /// Kill all tasks of the node and restart the initial task.
     pub fn restart(&self, id: NodeId) {
-        let info = self
-            .nodes
-            .lock()
-            .unwrap()
-            .remove(&id)
-            .expect("node not found")
-            .info;
-        info.killed.store(true, Ordering::SeqCst);
-        self.create_node(Some(info.node), Some(info.name.clone()), info.init.clone());
+        self.kill(id);
+        let nodes = self.nodes.lock().unwrap();
+        let node = nodes.get(&id).expect("node not found");
+        if let Some(init) = &node.init {
+            init(&TaskNodeHandle {
+                sender: self.sender.clone(),
+                info: node.info.clone(),
+            });
+        }
     }
 
     /// Pause all tasks of the node.
@@ -200,31 +207,29 @@ impl TaskHandle {
     /// Create a new node.
     pub fn create_node(
         &self,
-        id: Option<NodeId>,
         name: Option<String>,
         init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
     ) -> TaskNodeHandle {
-        let id = id.unwrap_or_else(|| NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst)));
+        let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
         let info = Arc::new(TaskInfo {
             node: id,
-            name: name.unwrap_or_else(|| id.to_string()),
+            name: name.unwrap_or_else(|| format!("node-{}", id.0)),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            init: init.clone(),
         });
-        let node = Node {
-            info: info.clone(),
-            paused: vec![],
-        };
-        self.nodes.lock().unwrap().insert(id, node);
-
         let handle = TaskNodeHandle {
             sender: self.sender.clone(),
-            info,
+            info: info.clone(),
         };
         if let Some(init) = &init {
             init(&handle);
         }
+        let node = Node {
+            info,
+            paused: vec![],
+            init,
+        };
+        self.nodes.lock().unwrap().insert(id, node);
         handle
     }
 
@@ -354,6 +359,7 @@ mod tests {
             assert_eq!(flag1.load(Ordering::SeqCst), 2);
             assert_eq!(flag2.load(Ordering::SeqCst), 2);
             Handle::current().kill(node1.id());
+            Handle::current().kill(node1.id());
 
             time::sleep_until(t0 + Duration::from_secs(5)).await;
             assert_eq!(flag1.load(Ordering::SeqCst), 2);
@@ -389,6 +395,7 @@ mod tests {
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
             assert_eq!(flag.load(Ordering::SeqCst), 2);
+            Handle::current().kill(node.id());
             Handle::current().restart(node.id());
 
             time::sleep_until(t0 + Duration::from_secs(6)).await;

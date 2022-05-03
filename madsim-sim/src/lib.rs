@@ -319,7 +319,7 @@ impl<'a> NodeBuilder<'a> {
 
     /// Build a node.
     pub fn build(self) -> io::Result<NodeHandle> {
-        let task = self.handle.task.create_node(None, self.name, self.init);
+        let task = self.handle.task.create_node(self.name, self.init);
         for sim in self.handle.sims.lock().unwrap().values() {
             sim.create_node(task.id());
         }
