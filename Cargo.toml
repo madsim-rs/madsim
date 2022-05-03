@@ -4,5 +4,6 @@ members = [
     "madsim-sim",
     "madsim-std",
     "madsim-macros",
+    "madsim-tonic",
     "tonic-example",
 ]
