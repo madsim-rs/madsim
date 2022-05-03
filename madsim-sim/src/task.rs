@@ -252,8 +252,9 @@ pub(crate) struct TaskNodeHandle {
 
 impl TaskNodeHandle {
     fn current() -> Self {
-        let node = crate::context::current_node();
-        crate::context::current(|h| h.task.get_node(node).unwrap())
+        let info = crate::context::current_task();
+        let sender = crate::context::current(|h| h.task.sender.clone());
+        TaskNodeHandle { sender, info }
     }
 
     pub(crate) fn id(&self) -> NodeId {
@@ -322,6 +323,15 @@ mod tests {
     use super::*;
     use crate::{time, Handle, Runtime};
     use std::{sync::atomic::AtomicUsize, time::Duration};
+
+    #[test]
+    fn spawn_in_block_on() {
+        let runtime = Runtime::new();
+        runtime.block_on(async {
+            spawn(async { 1 }).await;
+            spawn_local(async { 2 }).await;
+        });
+    }
 
     #[test]
     fn kill() {

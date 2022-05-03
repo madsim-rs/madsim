@@ -10,7 +10,7 @@
 
 use std::{
     any::TypeId,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     future::Future,
     sync::{Arc, Mutex},
     time::Duration,
@@ -65,7 +65,6 @@ impl Runtime {
         let rand = rand::RandHandle::new_with_seed(seed);
         let task = task::Executor::new();
         let handle = Handle {
-            nodes: Default::default(),
             rand: rand.clone(),
             time: task.time_handle().clone(),
             task: task.handle().clone(),
@@ -210,7 +209,6 @@ impl Runtime {
 /// Supervisor handle to the runtime.
 #[derive(Clone)]
 pub struct Handle {
-    nodes: Arc<Mutex<HashSet<NodeId>>>,
     rand: rand::RandHandle,
     time: time::TimeHandle,
     task: task::TaskHandle,
@@ -238,7 +236,6 @@ impl Handle {
     /// - All tasks spawned on this node will be killed immediately.
     /// - All data that has not been flushed to the disk will be lost.
     pub fn kill(&self, id: NodeId) {
-        self.nodes.lock().unwrap().remove(&id);
         self.task.kill(id);
         for sim in self.sims.lock().unwrap().values() {
             sim.reset_node(id);
@@ -270,12 +267,7 @@ impl Handle {
 
     /// Return a handle of the specified node.
     pub fn get_node(&self, id: NodeId) -> Option<NodeHandle> {
-        if !self.nodes.lock().unwrap().contains(&id) {
-            return None;
-        }
-        Some(NodeHandle {
-            task: self.task.get_node(id).unwrap(),
-        })
+        self.task.get_node(id).map(|task| NodeHandle { task })
     }
 }
 
@@ -379,7 +371,7 @@ fn init_logger() {
                 if matches!(start, Some(t0) if time.elapsed() < t0) {
                     return write!(buf, "");
                 }
-                let task = crate::context::current_task().unwrap();
+                let task = crate::context::current_task();
                 writeln!(
                     buf,
                     "{}{:>5}{}{:.6}s{}{}{}{:>10}{} {}",

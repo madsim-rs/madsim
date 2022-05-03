@@ -19,9 +19,8 @@ pub(crate) fn try_current<T>(map: impl FnOnce(&Handle) -> T) -> Option<T> {
     CONTEXT.with(move |ctx| ctx.borrow().as_ref().map(map))
 }
 
-#[allow(dead_code)]
-pub(crate) fn current_task() -> Option<Arc<TaskInfo>> {
-    TASK.with(|task| task.borrow().clone())
+pub(crate) fn current_task() -> Arc<TaskInfo> {
+    TASK.with(|task| task.borrow().clone().expect(MSG))
 }
 
 pub(crate) fn current_node() -> NodeId {
