@@ -20,6 +20,22 @@ impl Endpoint {
     }
 }
 
+impl TryFrom<&'static str> for Endpoint {
+    type Error = Error;
+
+    fn try_from(value: &'static str) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+impl TryFrom<String> for Endpoint {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
 /// A default batteries included `transport` channel.
 #[derive(Clone)]
 pub struct Channel {}

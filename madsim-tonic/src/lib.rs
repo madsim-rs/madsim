@@ -1,6 +1,7 @@
-pub use tonic::metadata;
-pub use tonic::Status;
+pub use tonic::{metadata, Code, Status};
 
+pub mod client;
+pub mod codegen;
 pub mod transport;
 
 #[derive(Debug)]
