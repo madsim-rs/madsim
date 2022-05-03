@@ -22,7 +22,7 @@ macros = ["madsim-macros"]
 [dependencies]
 madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
 madsim-sim = { path = "../madsim-sim", features = ["rpc", "logger"], optional = true }
-madsim-std = { path = "../madsim-std", features = ["rpc", "logger"] }
+madsim-std = { path = "../madsim-std", features = ["rpc"] }
 
 [dev-dependencies]
 criterion = "0.3"

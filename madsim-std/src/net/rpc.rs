@@ -14,12 +14,8 @@
 //!
 //! ```
 //! # use madsim_std as madsim;
-//! use madsim::{Runtime, net::{Endpoint, SocketAddr, rpc::*}};
+//! use madsim::net::{Endpoint, SocketAddr, rpc::*};
 //! use std::sync::Arc;
-//!
-//! let runtime = Runtime::new();
-//! let node1 = runtime.create_node().build().unwrap();
-//! let node2 = runtime.create_node().build().unwrap();
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);
@@ -35,18 +31,18 @@
 //!     const ID: u64 = 2;
 //! }
 //!
-//! let rpc = node1
-//!     .spawn(async move {
-//!         let net = Arc::new(Endpoint::bind("127.0.0.1:0").await.unwrap());
-//!         net.add_rpc_handler(|x: Req1| async move { x.0 + 1 });
-//!         net.add_rpc_handler_with_data(|x: Req2, data| async move {
-//!             (x.0 + 2, b"hello".to_vec())
-//!         });
-//!         net.local_addr().unwrap()
+//! let runtime = tokio::runtime::Runtime::new().unwrap();
+//! let rpc = runtime.spawn(async move {
+//!     let net = Arc::new(Endpoint::bind("127.0.0.1:0").await.unwrap());
+//!     net.add_rpc_handler(|x: Req1| async move { x.0 + 1 });
+//!     net.add_rpc_handler_with_data(|x: Req2, data| async move {
+//!         (x.0 + 2, b"hello".to_vec())
 //!     });
+//!     net.local_addr().unwrap()
+//! });
 //!
-//! let f = node2.spawn(async move {
-//!     let addr = rpc.await;
+//! runtime.block_on(async move {
+//!     let addr = rpc.await.unwrap();
 //!     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
 //!
 //!     let rsp = net.call(addr, Req1(1)).await.unwrap();
@@ -56,8 +52,6 @@
 //!     assert_eq!(rsp, 3);
 //!     assert_eq!(data, &b"hello"[..]);
 //! });
-//!
-//! runtime.block_on(f);
 //! ```
 
 use super::*;
