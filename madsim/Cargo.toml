@@ -20,6 +20,7 @@ ucx = ["madsim-std/ucx"]
 macros = ["madsim-macros"]
 
 [dependencies]
+futures = "0.3"
 madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
 madsim-sim = { path = "../madsim-sim", features = ["rpc", "logger"], optional = true }
 madsim-std = { path = "../madsim-std", features = ["rpc"] }
@@ -27,6 +28,7 @@ madsim-std = { path = "../madsim-std", features = ["rpc"] }
 [dev-dependencies]
 criterion = "0.3"
 serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [[bench]]
 name = "rpc"

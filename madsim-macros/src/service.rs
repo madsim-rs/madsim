@@ -66,7 +66,7 @@ fn gen_add_rpc_handler(input: &mut ItemImpl, calls: &[RpcFn]) {
         if f.write {
             quote! {
                 let this = self.clone();
-                net.add_rpc_handler_with_data(move |req: #rpc_type, data| {
+                ep.add_rpc_handler_with_data(move |req: #rpc_type, data| {
                     let this = this.clone();
                     async move {
                         let ret = this.#name(req, &data)#await_suffix;
@@ -77,7 +77,7 @@ fn gen_add_rpc_handler(input: &mut ItemImpl, calls: &[RpcFn]) {
         } else if f.read {
             quote! {
                 let this = self.clone();
-                net.add_rpc_handler_with_data(move |req: #rpc_type, _| {
+                ep.add_rpc_handler_with_data(move |req: #rpc_type, _| {
                     let this = this.clone();
                     async move { this.#name(req)#await_suffix }
                 });
@@ -85,20 +85,29 @@ fn gen_add_rpc_handler(input: &mut ItemImpl, calls: &[RpcFn]) {
         } else {
             quote! {
                 let this = self.clone();
-                net.add_rpc_handler(move |req: #rpc_type| {
+                ep.add_rpc_handler(move |req: #rpc_type| {
                     let this = this.clone();
                     async move { this.#name(req)#await_suffix }
                 });
             }
         }
     });
-    let add_rpc_handler = quote! {
-        fn add_rpc_handler(&self) {
-            let net = madsim::net::Endpoint::current();
-            #(#bodys)*
+    let serve = quote! {
+        pub async fn serve(self, addr: std::net::SocketAddr) -> std::io::Result<()> {
+            let ep = madsim::net::Endpoint::bind(addr).await?;
+            self.serve_on(ep).await
         }
     };
-    input.items.push(syn::parse2(add_rpc_handler).unwrap());
+    let serve_on = quote! {
+        pub async fn serve_on(self, ep: madsim::net::Endpoint) -> std::io::Result<()> {
+            let ep = std::sync::Arc::new(ep);
+            #(#bodys)*
+            madsim::export::futures::future::pending::<()>().await;
+            Ok(())
+        }
+    };
+    input.items.push(syn::parse2(serve).unwrap());
+    input.items.push(syn::parse2(serve_on).unwrap());
 }
 
 /// Find and remove attribute with specific `path`.
