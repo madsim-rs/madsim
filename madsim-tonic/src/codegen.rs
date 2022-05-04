@@ -1,7 +1,7 @@
 //! Codegen exports used by `tonic-build`.
 
-pub use async_trait::async_trait;
 pub use futures_core;
+pub use tonic::async_trait;
 pub use tower_service::Service;
 
 pub use std::future::Future;

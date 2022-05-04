@@ -1,4 +1,6 @@
-use tonic::{transport::Server, Request, Response, Status};
+use futures_core::Stream;
+use std::pin::Pin;
+use tonic::{transport::Server, Request, Response, Status, Streaming};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
@@ -18,11 +20,36 @@ impl Greeter for MyGreeter {
     ) -> Result<Response<HelloReply>, Status> {
         println!("Got a request: {:?}", request);
 
-        let reply = hello_world::HelloReply {
+        let reply = HelloReply {
             message: format!("Hello {}!", request.into_inner().name).into(),
         };
 
         Ok(Response::new(reply))
+    }
+
+    type LotsOfRepliesStream = Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send>>;
+
+    async fn lots_of_replies(
+        &self,
+        request: Request<HelloRequest>,
+    ) -> Result<Response<Self::LotsOfRepliesStream>, Status> {
+        todo!()
+    }
+
+    async fn lots_of_greetings(
+        &self,
+        request: Request<Streaming<HelloRequest>>,
+    ) -> Result<Response<HelloReply>, Status> {
+        todo!()
+    }
+
+    type BidiHelloStream = Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send>>;
+
+    async fn bidi_hello(
+        &self,
+        request: Request<Streaming<HelloRequest>>,
+    ) -> Result<Response<Self::BidiHelloStream>, Status> {
+        todo!()
     }
 }
 

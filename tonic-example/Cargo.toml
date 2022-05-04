@@ -13,14 +13,14 @@ path = "src/server.rs"
 name = "client"
 path = "src/client.rs"
 
-[dependencies]
-tonic = "0.7"
-prost = "0.10"
-# madsim = { path = "../madsim" }
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+[features]
+sim = ["tonic/sim"]
 
-[dev-dependencies]
-# madsim = { path = "../madsim", features = ["sim"] }
+[dependencies]
+prost = "0.10"
+futures-core = "0.3"
+tonic = { path = "../madsim-tonic", package = "madsim-tonic" }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 
 [build-dependencies]
 tonic-build = "0.7"
