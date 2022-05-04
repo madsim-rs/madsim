@@ -10,20 +10,20 @@
 //! let runtime = Runtime::new();
 //! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
 //! let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-//! let node1 = runtime.create_node().build();
+//! let node1 = runtime.create_node().ip(addr1.ip()).build();
+//! let node2 = runtime.create_node().ip(addr2.ip()).build();
 //! let barrier = Arc::new(tokio::sync::Barrier::new(2));
 //! let barrier_ = barrier.clone();
 //!
-//! node1
-//!     .spawn(async move {
-//!         let net = Endpoint::bind(addr1).await.unwrap();
-//!         barrier_.wait().await;  // make sure addr2 has bound
+//! node1.spawn(async move {
+//!     let net = Endpoint::bind(addr1).await.unwrap();
+//!     barrier_.wait().await;  // make sure addr2 has bound
 //!
-//!         net.send_to(addr2, 1, &[1]).await.unwrap();
-//!     })
-//!     .detach();
+//!     net.send_to(addr2, 1, &[1]).await.unwrap();
+//! })
+//! .detach();
 //!
-//! runtime.block_on(async move {
+//! let f = node2.spawn(async move {
 //!     let net = Endpoint::bind(addr2).await.unwrap();
 //!     barrier.wait().await;
 //!
@@ -32,12 +32,14 @@
 //!     assert_eq!(from, addr1);
 //!     assert_eq!(&buf[..len], &[1]);
 //! });
+//!
+//! runtime.block_on(f);
 //! ```
 
 use log::*;
 use std::{
     io,
-    net::ToSocketAddrs,
+    net::{IpAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 
@@ -101,6 +103,12 @@ impl NetSim {
         network.reset_node(id);
     }
 
+    /// Set IP address of a node.
+    pub fn set_ip(&self, node: NodeId, ip: IpAddr) {
+        let mut network = self.network.lock().unwrap();
+        network.set_ip(node, ip);
+    }
+
     /// Connect a node to the network.
     pub fn connect(&self, id: NodeId) {
         let mut network = self.network.lock().unwrap();
@@ -145,7 +153,7 @@ impl Endpoint {
         let net = plugin::simulator::<NetSim>();
         let addr = addr.to_socket_addrs()?.next().unwrap();
         net.rand_delay().await;
-        net.network.lock().unwrap().bind(plugin::node(), addr)?;
+        let addr = net.network.lock().unwrap().bind(plugin::node(), addr)?;
         Ok(Endpoint { net, addr })
     }
 
@@ -200,14 +208,19 @@ impl Endpoint {
             .network
             .lock()
             .unwrap()
-            .send(self.addr, dst, tag, data);
+            .send(plugin::node(), self.addr, dst, tag, data);
         self.net.rand_delay().await;
         Ok(())
     }
 
     /// Receives a raw message.
     async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
-        let recver = self.net.network.lock().unwrap().recv(self.addr, tag);
+        let recver = self
+            .net
+            .network
+            .lock()
+            .unwrap()
+            .recv(plugin::node(), self.addr, tag);
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
@@ -221,7 +234,7 @@ impl Endpoint {
 impl Drop for Endpoint {
     fn drop(&mut self) {
         let mut network = self.net.network.lock().unwrap();
-        network.close(self.addr);
+        network.close(plugin::node(), self.addr);
     }
 }
 
@@ -236,8 +249,8 @@ mod tests {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-        let node1 = runtime.create_node().build();
-        let node2 = runtime.create_node().build();
+        let node1 = runtime.create_node().ip(addr1.ip()).build();
+        let node2 = runtime.create_node().ip(addr2.ip()).build();
         let barrier = Arc::new(Barrier::new(2));
 
         let barrier_ = barrier.clone();
@@ -277,8 +290,8 @@ mod tests {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-        let node1 = runtime.create_node().build();
-        let node2 = runtime.create_node().build();
+        let node1 = runtime.create_node().ip(addr1.ip()).build();
+        let node2 = runtime.create_node().ip(addr2.ip()).build();
         let barrier = Arc::new(Barrier::new(2));
 
         let barrier_ = barrier.clone();
@@ -314,12 +327,15 @@ mod tests {
     fn reset() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
-        let node1 = runtime.create_node().build();
+        let node1 = runtime.create_node().ip(addr1.ip()).build();
 
         let f = node1.spawn(async move {
             let net = Endpoint::bind(addr1).await.unwrap();
             let err = net.recv_from(1, &mut []).await.unwrap_err();
             assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+            // FIXME: should still error
+            // let err = net.recv_from(1, &mut []).await.unwrap_err();
+            // assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
         });
 
         runtime.block_on(async move {
@@ -327,5 +343,82 @@ mod tests {
             simulator::<NetSim>().reset_node(node1.id());
             f.await;
         });
+    }
+
+    #[test]
+    fn bind() {
+        let runtime = Runtime::new();
+        let ip = "10.0.0.1".parse::<IpAddr>().unwrap();
+        let node = runtime.create_node().ip(ip).build();
+
+        let f = node.spawn(async move {
+            // unspecified
+            let ep = Endpoint::bind("0.0.0.0:0").await.unwrap();
+            let addr = ep.local_addr().unwrap();
+            assert_eq!(addr.ip(), ip);
+            assert_ne!(addr.port(), 0);
+
+            // unspecified v6
+            let ep = Endpoint::bind(":::0").await.unwrap();
+            let addr = ep.local_addr().unwrap();
+            assert_eq!(addr.ip(), ip);
+            assert_ne!(addr.port(), 0);
+
+            // localhost
+            let ep = Endpoint::bind("127.0.0.1:0").await.unwrap();
+            let addr = ep.local_addr().unwrap();
+            assert_eq!(addr.ip().to_string(), "127.0.0.1");
+            assert_ne!(addr.port(), 0);
+
+            // localhost v6
+            let ep = Endpoint::bind("::1:0").await.unwrap();
+            let addr = ep.local_addr().unwrap();
+            assert_eq!(addr.ip().to_string(), "::1");
+            assert_ne!(addr.port(), 0);
+
+            // wrong IP
+            let err = Endpoint::bind("10.0.0.2:0").await.err().unwrap();
+            assert_eq!(err.kind(), std::io::ErrorKind::AddrNotAvailable);
+
+            // drop and reuse port
+            let _ = Endpoint::bind("10.0.0.1:100").await.unwrap();
+            let _ = Endpoint::bind("10.0.0.1:100").await.unwrap();
+        });
+        runtime.block_on(f);
+    }
+
+    #[test]
+    #[ignore]
+    fn localhost() {
+        let runtime = Runtime::new();
+        let ip1 = "10.0.0.1".parse::<IpAddr>().unwrap();
+        let ip2 = "10.0.0.2".parse::<IpAddr>().unwrap();
+        let node1 = runtime.create_node().ip(ip1).build();
+        let node2 = runtime.create_node().ip(ip2).build();
+        let barrier = Arc::new(Barrier::new(2));
+
+        let barrier_ = barrier.clone();
+        let f1 = node1.spawn(async move {
+            let ep1 = Endpoint::bind("127.0.0.1:1").await.unwrap();
+            let ep2 = Endpoint::bind("10.0.0.1:2").await.unwrap();
+            barrier_.wait().await;
+
+            // FIXME: ep1 should not receive messages from other node
+            timeout(Duration::from_secs(1), ep1.recv_from(1, &mut []))
+                .await
+                .err()
+                .expect("localhost endpoint should not receive from other nodes");
+            // ep2 should receive
+            ep2.recv_from(1, &mut []).await.unwrap();
+        });
+        let f2 = node2.spawn(async move {
+            let ep = Endpoint::bind("127.0.0.1:1").await.unwrap();
+            barrier.wait().await;
+
+            ep.send_to("10.0.0.1:1", 1, &[1]).await.unwrap();
+            ep.send_to("10.0.0.1:2", 1, &[1]).await.unwrap();
+        });
+        runtime.block_on(f1);
+        runtime.block_on(f2);
     }
 }

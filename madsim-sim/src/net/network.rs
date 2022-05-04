@@ -7,7 +7,7 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     hash::{Hash, Hasher},
     io,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     ops::Range,
     sync::{Arc, Mutex},
     time::Duration,
@@ -20,7 +20,8 @@ pub(crate) struct Network {
     config: Config,
     stat: Stat,
     nodes: HashMap<NodeId, Node>,
-    addr_to_node: HashMap<SocketAddr, NodeId>,
+    /// Maps the global IP to its node.
+    addr_to_node: HashMap<IpAddr, NodeId>,
     clogged_node: HashSet<NodeId>,
     clogged_link: HashSet<(NodeId, NodeId)>,
 }
@@ -28,7 +29,12 @@ pub(crate) struct Network {
 /// Network for a node.
 #[derive(Default)]
 struct Node {
-    sockets: HashMap<SocketAddr, Arc<Mutex<Mailbox>>>,
+    /// IP address of the node.
+    ///
+    /// NOTE: now a node can have at most one IP address.
+    ip: Option<IpAddr>,
+    /// Sockets in the node.
+    sockets: HashMap<u16, Arc<Mutex<Mailbox>>>,
 }
 
 /// Network configurations.
@@ -98,13 +104,23 @@ impl Network {
     }
 
     pub fn reset_node(&mut self, id: NodeId) {
-        assert!(self.nodes.contains_key(&id));
         debug!("reset: {id}");
-        if let Some(node) = self.nodes.insert(id, Default::default()) {
-            for addr in node.sockets.keys() {
-                self.addr_to_node.remove(addr);
-            }
+        let node = self.nodes.get_mut(&id).expect("node not found");
+        // close all sockets
+        node.sockets.clear();
+    }
+
+    pub fn set_ip(&mut self, id: NodeId, ip: IpAddr) {
+        debug!("set-ip: {id}: {ip}");
+        let node = self.nodes.get_mut(&id).expect("node not found");
+        if let Some(old_ip) = node.ip.replace(ip) {
+            self.addr_to_node.remove(&old_ip);
         }
+        let old_node = self.addr_to_node.insert(ip, id);
+        if let Some(old_node) = old_node {
+            panic!("IP conflict: {ip} {old_node}");
+        }
+        // TODO: what if we change the IP when there are opening sockets?
     }
 
     pub fn clog_node(&mut self, id: NodeId) {
@@ -133,47 +149,72 @@ impl Network {
         self.clogged_link.remove(&(src, dst));
     }
 
-    pub fn bind(&mut self, node: NodeId, addr: SocketAddr) -> io::Result<()> {
+    pub fn bind(&mut self, node: NodeId, mut addr: SocketAddr) -> io::Result<SocketAddr> {
         debug!("bind: {addr} -> {node}");
-        match self.addr_to_node.entry(addr) {
-            Entry::Occupied(_) => Err(io::Error::new(
-                io::ErrorKind::AddrInUse,
-                "address already in use",
-            )),
+        let node = self.nodes.get_mut(&node).expect("node not found");
+        // resolve IP if unspecified
+        if addr.ip().is_unspecified() {
+            if let Some(ip) = node.ip {
+                addr.set_ip(ip);
+            } else {
+                todo!("try to bind 0.0.0.0, but the node IP is also unspecified");
+            }
+        } else if addr.ip().is_loopback() {
+        } else if addr.ip() != node.ip.expect("node IP is unset") {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!("invalid address: {addr}"),
+            ));
+        }
+        // resolve port if unspecified
+        if addr.port() == 0 {
+            let port = (1..=u16::MAX)
+                .find(|port| !node.sockets.contains_key(port))
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::AddrInUse, "no available ephemeral port")
+                })?;
+            addr.set_port(port);
+        }
+        // insert socket
+        match node.sockets.entry(addr.port()) {
+            Entry::Occupied(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    format!("address already in use: {addr}"),
+                ))
+            }
             Entry::Vacant(o) => {
-                o.insert(node);
-                self.nodes
-                    .get_mut(&node)
-                    .unwrap()
-                    .sockets
-                    .insert(addr, Default::default());
-                Ok(())
+                o.insert(Default::default());
             }
         }
+        Ok(addr)
     }
 
-    pub fn close(&mut self, addr: SocketAddr) {
-        debug!("close: {addr}");
-        if let Some(node) = self.addr_to_node.remove(&addr) {
-            if let Some(node) = self.nodes.get_mut(&node) {
-                node.sockets.remove(&addr);
-            }
-        }
+    pub fn close(&mut self, node: NodeId, addr: SocketAddr) {
+        debug!("close: {node} {addr}");
+        let node = self.nodes.get_mut(&node).expect("node not found");
+        node.sockets.remove(&addr.port());
     }
 
-    pub fn send(&mut self, src: SocketAddr, dst: SocketAddr, tag: u64, data: Payload) {
-        trace!("send: {src} -> {dst}, tag={tag}");
-        let src_node = self.addr_to_node[&src];
-        let dst_node = match self.addr_to_node.get(&dst) {
+    pub fn send(
+        &mut self,
+        node: NodeId,
+        src: SocketAddr,
+        dst: SocketAddr,
+        tag: u64,
+        data: Payload,
+    ) {
+        trace!("send: {node} {src} -> {dst}, tag={tag}");
+        let dst_node = match self.addr_to_node.get(&dst.ip()) {
             Some(x) => *x,
             None => {
                 trace!("destination not found: {dst}");
                 return;
             }
         };
-        if self.clogged_node.contains(&src_node)
+        if self.clogged_node.contains(&node)
             || self.clogged_node.contains(&dst_node)
-            || self.clogged_link.contains(&(src_node, dst_node))
+            || self.clogged_link.contains(&(node, dst_node))
         {
             trace!("clogged");
             return;
@@ -182,7 +223,7 @@ impl Network {
             trace!("packet loss");
             return;
         }
-        let ep = self.nodes[&dst_node].sockets[&dst].clone();
+        let ep = self.nodes[&dst_node].sockets[&dst.port()].clone();
         let msg = Message {
             tag,
             data,
@@ -196,9 +237,11 @@ impl Network {
         self.stat.msg_count += 1;
     }
 
-    pub fn recv(&mut self, dst: SocketAddr, tag: u64) -> oneshot::Receiver<Message> {
-        let node = self.addr_to_node.get(&dst).expect("socket not found");
-        self.nodes[node].sockets[&dst].lock().unwrap().recv(tag)
+    pub fn recv(&mut self, node: NodeId, dst: SocketAddr, tag: u64) -> oneshot::Receiver<Message> {
+        self.nodes[&node].sockets[&dst.port()]
+            .lock()
+            .unwrap()
+            .recv(tag)
     }
 }
 

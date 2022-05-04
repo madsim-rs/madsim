@@ -12,6 +12,7 @@ use std::{
     any::TypeId,
     collections::HashMap,
     future::Future,
+    net::IpAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -275,6 +276,7 @@ impl Handle {
 pub struct NodeBuilder<'a> {
     handle: &'a Handle,
     name: Option<String>,
+    ip: Option<IpAddr>,
     init: Option<Arc<dyn Fn(&task::TaskNodeHandle)>>,
 }
 
@@ -283,6 +285,7 @@ impl<'a> NodeBuilder<'a> {
         NodeBuilder {
             handle,
             name: None,
+            ip: None,
             init: None,
         }
     }
@@ -308,11 +311,22 @@ impl<'a> NodeBuilder<'a> {
         self
     }
 
+    /// Set one IP address of the node.
+    pub fn ip(mut self, ip: IpAddr) -> Self {
+        self.ip = Some(ip);
+        self
+    }
+
     /// Build a node.
     pub fn build(self) -> NodeHandle {
         let task = self.handle.task.create_node(self.name, self.init);
         for sim in self.handle.sims.lock().unwrap().values() {
             sim.create_node(task.id());
+            if let Some(ip) = self.ip {
+                if let Some(net) = sim.downcast_ref::<net::NetSim>() {
+                    net.set_ip(task.id(), ip)
+                }
+            }
         }
         NodeHandle { task }
     }
