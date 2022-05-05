@@ -15,7 +15,7 @@ categories = ["asynchronous", "simulation"]
 [features]
 default = ["macros", "logger", "rpc"]
 sim = ["naive-timer", "async-task", "ahash", "toml", "downcast-rs"]
-ucx = ["async-ucx"]
+ucx = ["async-ucx", "lazy_static"]
 rpc = ["bincode"]
 macros = ["madsim-macros"]
 logger = ["env_logger"]
@@ -29,6 +29,7 @@ bytes = "1"
 downcast-rs = { version = "1.2", default-features = false, optional = true }
 env_logger = { version = "0.9", optional = true }
 futures = "0.3"
+lazy_static = { version = "1.4", optional = true }
 log = "0.4"
 madsim-macros = { version = "0.1.1", path = "../madsim-macros", optional = true }
 naive-timer = { version = "0.2", optional = true }

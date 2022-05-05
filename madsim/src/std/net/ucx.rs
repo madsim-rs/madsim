@@ -1,6 +1,6 @@
 //! Tag-matching API over UCX.
 
-use async_ucx::ucp::{Context, Endpoint};
+use async_ucx::ucp;
 use bytes::Bytes;
 use log::*;
 use std::{
@@ -12,36 +12,13 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
-use tokio::{
-    runtime::Runtime,
-    sync::{mpsc, oneshot},
-    task::LocalSet,
-};
+use tokio::sync::{mpsc, oneshot};
 
-/// Network handle to the runtime.
-#[derive(Clone)]
-pub(crate) struct NetHandle {
-    context: Arc<Context>,
+lazy_static::lazy_static! {
+    static ref CONTEXT: Arc<ucp::Context> = ucp::Context::new().expect("failed to initialize UCX context");
 }
 
-impl NetHandle {
-    pub(crate) fn new() -> Self {
-        let context = Context::new().unwrap();
-        NetHandle { context }
-    }
-
-    pub(crate) fn create_node(
-        &self,
-        rt: &Runtime,
-        local: &LocalSet,
-        addr: impl ToSocketAddrs,
-    ) -> io::Result<Endpoint> {
-        Endpoint::new(rt, local, &self.context, addr)
-    }
-}
-
-/// Local node network handle to the runtime.
-#[derive(Clone)]
+/// An endpoint.
 pub struct Endpoint {
     addr: SocketAddr,
     /// Client sends message from here.
@@ -63,95 +40,112 @@ struct RecvMsg {
     done: oneshot::Sender<(usize, SocketAddr)>,
 }
 
+fn worker_thread(
+    addr: SocketAddr,
+    addr_tx: oneshot::Sender<SocketAddr>,
+    mut send_rx: mpsc::Receiver<SendMsg>,
+    mut recv_rx: mpsc::Receiver<RecvMsg>,
+) {
+    // all UCX operations need to be done in a single thread
+    let context = CONTEXT.clone();
+    let worker = context.create_worker().unwrap();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let local = tokio::task::LocalSet::new();
+
+    // collection of all endpoints
+    // shared by sender task and listener task.
+    let eps: Rc<RefCell<HashMap<SocketAddr, Rc<ucp::Endpoint>>>> = Default::default();
+
+    let mut listener = worker.create_listener(addr).unwrap();
+    let addr = listener.socket_addr().unwrap();
+    addr_tx.send(addr).unwrap();
+
+    // spawn a task to accept connections
+    local.spawn_local({
+        let worker = worker.clone();
+        let eps = eps.clone();
+        async move {
+            loop {
+                let conn = listener.next().await;
+                let peer = conn.remote_addr().unwrap();
+                let ep = Rc::new(worker.accept(conn).await.unwrap());
+                eps.borrow_mut().insert(peer, ep);
+            }
+        }
+    });
+
+    // spawn a task to send messages
+    local.spawn_local({
+        let worker = worker.clone();
+        async move {
+            while let Some(msg) = send_rx.recv().await {
+                let mut eps = eps.borrow_mut();
+                let ep = if let Some(ep) = eps.get(&msg.dst) {
+                    ep.clone()
+                } else {
+                    // setup connection first if the endpoint does not exist.
+                    let ep = Rc::new(worker.connect_socket(msg.dst).await.unwrap());
+                    eps.insert(msg.dst, ep.clone());
+                    ep
+                };
+                tokio::task::spawn_local(async move {
+                    // insert 6 bytes src addr at front
+                    let addr = socket_addr_to_bytes(addr);
+                    let mut bufs = vec![IoSlice::new(&addr)];
+                    bufs.extend_from_slice(msg.bufs);
+                    ep.tag_send_vectored(msg.tag, &bufs).await.unwrap();
+                    msg.done.send(()).unwrap();
+                });
+            }
+        }
+    });
+
+    // spawn a task to receive messages
+    local.spawn_local({
+        let worker = worker.clone();
+        async move {
+            while let Some(RecvMsg { tag, bufs, done }) = recv_rx.recv().await {
+                let worker = worker.clone();
+                tokio::task::spawn_local(async move {
+                    // extract 6 bytes src addr at front
+                    let mut addr_buf = [0u8; 6];
+                    let mut bufs1 = vec![IoSliceMut::new(&mut addr_buf)];
+                    bufs1.reserve(bufs.len());
+                    // safety: `bufs` will be moved to the new iovec
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            bufs.as_ptr(),
+                            bufs1.as_mut_ptr().add(1),
+                            bufs.len(),
+                        );
+                        bufs1.set_len(bufs.len() + 1);
+                    }
+                    let len = worker.tag_recv_vectored(tag, &mut bufs1).await.unwrap();
+                    let addr = socket_addr_from_bytes(addr_buf);
+                    done.send((len - 6, addr)).unwrap();
+                });
+            }
+        }
+    });
+
+    // polling net events
+    local.block_on(&rt, worker.event_poll()).unwrap();
+}
+
 impl Endpoint {
-    fn new(
-        rt: &Runtime,
-        local: &LocalSet,
-        context: &Arc<Context>,
-        addr: impl ToSocketAddrs,
-    ) -> io::Result<Self> {
-        let context = context.clone();
+    /// Creates a [`Endpoint`] from the given address.
+    pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let addr = addr.to_socket_addrs()?.next().unwrap();
-        let (sender, mut send_recver) = mpsc::channel::<SendMsg>(8);
-        let (recver, mut recv_recver) = mpsc::channel::<RecvMsg>(8);
-
-        // all UCX operations need to be done in a single thread
-        let addr = local.block_on(rt, async move {
-            let worker = context.create_worker().unwrap();
-            // polling net events
-            tokio::task::spawn_local(worker.clone().event_poll());
-
-            // collection of all endpoints
-            // shared by sender task and listener task.
-            let eps: Rc<RefCell<HashMap<SocketAddr, Rc<Endpoint>>>> = Default::default();
-
-            let mut listener = worker.create_listener(addr).unwrap();
-            let addr = listener.socket_addr().unwrap();
-            // spawn a task to accept connections
-            tokio::task::spawn_local({
-                let worker = worker.clone();
-                let eps = eps.clone();
-                async move {
-                    loop {
-                        let conn = listener.next().await;
-                        let peer = conn.remote_addr().unwrap();
-                        let ep = Rc::new(worker.accept(conn).unwrap());
-                        eps.borrow_mut().insert(peer, ep);
-                    }
-                }
-            });
-
-            // spawn a task to send messages
-            tokio::task::spawn_local({
-                let worker = worker.clone();
-                async move {
-                    while let Some(msg) = send_recver.recv().await {
-                        let ep = eps
-                            .borrow_mut()
-                            .entry(msg.dst)
-                            // setup connection first if the endpoint does not exist.
-                            .or_insert_with(|| Rc::new(worker.connect(msg.dst).unwrap()))
-                            .clone();
-                        tokio::task::spawn_local(async move {
-                            // insert 6 bytes src addr at front
-                            let addr = socket_addr_to_bytes(addr);
-                            let mut bufs = vec![IoSlice::new(&addr)];
-                            bufs.extend_from_slice(msg.bufs);
-                            ep.tag_send_vectored(msg.tag, &bufs).await.unwrap();
-                            msg.done.send(()).unwrap();
-                        });
-                    }
-                }
-            });
-
-            // spawn a task to receive messages
-            tokio::task::spawn_local(async move {
-                while let Some(RecvMsg { tag, bufs, done }) = recv_recver.recv().await {
-                    let worker = worker.clone();
-                    tokio::task::spawn_local(async move {
-                        // extract 6 bytes src addr at front
-                        let mut addr_buf = [0u8; 6];
-                        let mut bufs1 = vec![IoSliceMut::new(&mut addr_buf)];
-                        bufs1.reserve(bufs.len());
-                        // safety: `bufs` will be moved to the new iovec
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(
-                                bufs.as_ptr(),
-                                bufs1.as_mut_ptr().add(1),
-                                bufs.len(),
-                            );
-                            bufs1.set_len(bufs.len() + 1);
-                        }
-                        let len = worker.tag_recv_vectored(tag, &mut bufs1).await.unwrap();
-                        let addr = socket_addr_from_bytes(addr_buf);
-                        done.send((len - 6, addr)).unwrap();
-                    });
-                }
-            });
-            addr
-        });
-
-        trace!("new node: {}", addr);
+        let (addr_tx, addr_rx) = oneshot::channel();
+        let (sender, send_rx) = mpsc::channel::<SendMsg>(8);
+        let (recver, recv_rx) = mpsc::channel::<RecvMsg>(8);
+        std::thread::spawn(move || worker_thread(addr, addr_tx, send_rx, recv_rx));
+        let addr = addr_rx.await.unwrap();
+        trace!("new ep: {addr}");
         Ok(Endpoint {
             addr,
             sender,
@@ -159,16 +153,9 @@ impl Endpoint {
         })
     }
 
-    /// Returns a [`Endpoint`] view over the currently running [`Runtime`].
-    ///
-    /// [`Runtime`]: crate::Runtime
-    pub fn current() -> Self {
-        crate::context::net_local_handle()
-    }
-
     /// Returns the local socket address.
-    pub fn local_addr(&self) -> SocketAddr {
-        self.addr
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(self.addr)
     }
 
     /// Sends data with tag on the socket to the given address.
