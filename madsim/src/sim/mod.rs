@@ -1,11 +1,3 @@
-//! A deterministic simulator for distributed systems.
-//!
-//! ## Features
-//!
-//! - `rpc`: Enables RPC through network.
-//! - `logger`: Enables built-in logger.
-//! - `macros`: Enables `#[madsim::main]` and `#[madsim::test]` macros.
-
 #![deny(missing_docs)]
 
 use std::{
@@ -21,7 +13,7 @@ pub use self::config::Config;
 use self::task::NodeId;
 
 mod config;
-mod context;
+pub(crate) mod context;
 pub mod fs;
 pub mod net;
 pub mod plugin;
@@ -61,7 +53,7 @@ impl Runtime {
     /// Create a new runtime instance with given seed and config.
     pub fn with_seed_and_config(seed: u64, config: Config) -> Self {
         #[cfg(feature = "logger")]
-        crate::init_logger();
+        init_logger();
 
         let rand = rand::RandHandle::new_with_seed(seed);
         let task = task::Executor::new();
