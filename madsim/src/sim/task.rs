@@ -335,7 +335,7 @@ mod tests {
         runtime::{Handle, Runtime},
         time,
     };
-    use std::{sync::atomic::AtomicUsize, time::Duration};
+    use std::{collections::HashSet, sync::atomic::AtomicUsize, time::Duration};
 
     #[test]
     fn spawn_in_block_on() {
@@ -459,5 +459,31 @@ mod tests {
             time::sleep_until(t0 + Duration::from_secs_f32(5.5)).await;
             assert_eq!(flag.load(Ordering::SeqCst), 4);
         });
+    }
+
+    #[test]
+    fn random_select_from_ready_tasks() {
+        let mut seqs = HashSet::new();
+        for seed in 0..10 {
+            let runtime = Runtime::with_seed_and_config(seed, crate::Config::default());
+            let seq = runtime.block_on(async {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let mut tasks = vec![];
+                for i in 0..3 {
+                    let tx = tx.clone();
+                    tasks.push(spawn(async move {
+                        for j in 0..5 {
+                            tx.send(i * 10 + j).unwrap();
+                            tokio::task::yield_now().await;
+                        }
+                    }));
+                }
+                drop(tx);
+                futures::future::join_all(tasks).await;
+                rx.into_iter().collect::<Vec<_>>()
+            });
+            seqs.insert(seq);
+        }
+        assert_eq!(seqs.len(), 10);
     }
 }
