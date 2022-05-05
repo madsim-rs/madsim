@@ -3,9 +3,9 @@
 //! # Examples
 //!
 //! ```
-//! # use madsim_sim as madsim;
-//! use madsim::{Runtime, net::{Endpoint, SocketAddr}};
+//! use madsim::{Runtime, net::Endpoint};
 //! use std::sync::Arc;
+//! use std::net::SocketAddr;
 //!
 //! let runtime = Runtime::new();
 //! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
@@ -39,7 +39,7 @@
 use log::*;
 use std::{
     io,
-    net::{IpAddr, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 
@@ -51,13 +51,14 @@ use crate::{
     task::NodeId,
     time::{Duration, TimeHandle},
 };
-pub use std::net::SocketAddr;
 
 mod network;
 #[cfg(feature = "rpc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
 pub mod rpc;
 
 /// Network simulator.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 pub struct NetSim {
     network: Mutex<Network>,
     rand: RandHandle,
@@ -166,7 +167,6 @@ impl Endpoint {
     ///
     /// # Example
     /// ```
-    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
@@ -184,7 +184,6 @@ impl Endpoint {
     ///
     /// # Example
     /// ```no_run
-    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {

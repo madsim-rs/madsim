@@ -38,6 +38,7 @@ struct Node {
 }
 
 /// Network configurations.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Config {
     /// Possibility of packet loss.
@@ -70,6 +71,7 @@ impl Hash for Config {
 }
 
 /// Network statistics.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Debug, Default, Clone)]
 pub struct Stat {
     /// Total number of messages.

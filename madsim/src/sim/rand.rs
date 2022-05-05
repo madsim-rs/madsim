@@ -10,7 +10,6 @@
 //! # Example
 //!
 //! ```
-//! # use madsim_sim as madsim;
 //! use madsim::{Runtime, rand::{self, Rng}};
 //!
 //! Runtime::new().block_on(async {
@@ -33,6 +32,7 @@ pub use rand::prelude::{
 use std::sync::{Arc, Mutex};
 
 /// Handle to a shared random state.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Clone)]
 pub struct RandHandle {
     inner: Arc<Mutex<Inner>>,
@@ -127,5 +127,6 @@ impl RngCore for RandHandle {
 }
 
 /// Random log for determinism check.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct Log(Vec<u8>);

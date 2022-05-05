@@ -25,6 +25,7 @@ pub(crate) struct Executor {
 }
 
 /// A unique identifier for a node.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct NodeId(u64);
 
@@ -287,6 +288,9 @@ impl TaskNodeHandle {
         task
     }
 }
+
+/// A spawned task.
+pub type JoinHandle<T> = Task<T>;
 
 /// Spawns a new asynchronous task, returning a [`Task`] for it.
 pub fn spawn<F>(future: F) -> Task<F::Output>

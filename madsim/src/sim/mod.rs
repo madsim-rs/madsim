@@ -16,6 +16,7 @@ mod config;
 pub(crate) mod context;
 pub mod fs;
 pub mod net;
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 pub mod plugin;
 pub mod rand;
 pub mod task;
@@ -32,6 +33,7 @@ pub mod time;
 /// [task scheduler]: crate::task
 /// [network]: crate::net
 /// [file system]: crate::fs
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 pub struct Runtime {
     rand: rand::RandHandle,
     task: task::Executor,
@@ -108,7 +110,6 @@ impl Runtime {
     /// # Example
     ///
     /// ```
-    /// # use madsim_sim as madsim;
     /// use madsim::Runtime;
     ///
     /// let rt = Runtime::new();
@@ -120,7 +121,6 @@ impl Runtime {
     /// panic instead of blocking.
     ///
     /// ```should_panic
-    /// # use madsim_sim as madsim;
     /// use madsim::Runtime;
     /// use futures::future::pending;
     ///
@@ -138,7 +138,6 @@ impl Runtime {
     /// # Example
     ///
     /// ```should_panic
-    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, time::{sleep, Duration}};
     ///
     /// let mut rt = Runtime::new();
@@ -157,7 +156,6 @@ impl Runtime {
     /// # Example
     ///
     /// ```should_panic
-    /// # use madsim_sim as madsim;
     /// use madsim::{Runtime, time::{sleep, Duration}};
     /// use rand::Rng;
     ///
@@ -200,6 +198,7 @@ impl Runtime {
 }
 
 /// Supervisor handle to the runtime.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Clone)]
 pub struct Handle {
     rand: rand::RandHandle,
@@ -217,7 +216,6 @@ impl Handle {
     /// This will panic if called outside the context of a Madsim runtime.
     ///
     /// ```should_panic
-    /// # use madsim_sim as madsim;
     /// let handle = madsim::Handle::current();
     /// ```
     pub fn current() -> Self {
@@ -265,6 +263,7 @@ impl Handle {
 }
 
 /// Builds a node with custom configurations.
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 pub struct NodeBuilder<'a> {
     handle: &'a Handle,
     name: Option<String>,
@@ -326,6 +325,7 @@ impl<'a> NodeBuilder<'a> {
 
 /// Handle to a node.
 #[derive(Clone)]
+#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 pub struct NodeHandle {
     task: task::TaskNodeHandle,
 }
@@ -343,11 +343,6 @@ impl NodeHandle {
         F::Output: Send + 'static,
     {
         self.task.spawn(future)
-    }
-
-    /// To match the API exposed by std
-    pub async fn terminate(&mut self) {
-        todo!()
     }
 }
 

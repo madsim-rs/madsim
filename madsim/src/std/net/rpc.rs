@@ -13,9 +13,9 @@
 //! # Examples
 //!
 //! ```
-//! # use madsim_std as madsim;
-//! use madsim::net::{Endpoint, SocketAddr, rpc::*};
+//! use madsim::net::{Endpoint, rpc::*};
 //! use std::sync::Arc;
+//! use std::net::SocketAddr;
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Req1(u32);

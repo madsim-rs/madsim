@@ -3,7 +3,6 @@
 //! # Examples
 //!
 //! ```
-//! # use madsim_std as madsim;
 //! use madsim::net::Endpoint;
 //! use std::net::SocketAddr;
 //!
@@ -36,9 +35,8 @@ pub use self::tcp::*;
 #[cfg(feature = "ucx")]
 pub use self::ucx::*;
 
-pub use std::net::SocketAddr;
-
 #[cfg(feature = "rpc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
 pub mod rpc;
 #[cfg(not(feature = "ucx"))]
 mod tcp;
@@ -49,6 +47,7 @@ mod ucx;
 mod tests {
     use super::*;
     use crate::time::*;
+    use std::net::SocketAddr;
 
     #[tokio::test]
     async fn send_recv() {

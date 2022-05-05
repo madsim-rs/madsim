@@ -13,9 +13,8 @@
 //! # Examples
 //!
 //! ```
-//! # use madsim_sim as madsim;
-//! use madsim::{Runtime, net::{Endpoint, SocketAddr, rpc::*}};
-//! use std::sync::Arc;
+//! use madsim::{Runtime, net::{Endpoint, rpc::*}};
+//! use std::{net::SocketAddr, sync::Arc};
 //!
 //! let runtime = Runtime::new();
 //! let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
