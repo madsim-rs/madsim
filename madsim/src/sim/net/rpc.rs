@@ -13,7 +13,7 @@
 //! # Examples
 //!
 //! ```
-//! use madsim::{Runtime, net::{Endpoint, rpc::*}};
+//! use madsim::{runtime::Runtime, net::{Endpoint, rpc::*}};
 //! use std::{net::SocketAddr, sync::Arc};
 //!
 //! let runtime = Runtime::new();

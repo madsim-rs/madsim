@@ -1,7 +1,7 @@
 //! Thread local runtime context
 use crate::{
+    runtime::Handle,
     task::{NodeId, TaskInfo},
-    Handle,
 };
 
 use std::{cell::RefCell, sync::Arc};

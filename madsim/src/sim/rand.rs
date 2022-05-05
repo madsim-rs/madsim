@@ -10,7 +10,7 @@
 //! # Example
 //!
 //! ```
-//! use madsim::{Runtime, rand::{self, Rng}};
+//! use madsim::{runtime::Runtime, rand::{self, Rng}};
 //!
 //! Runtime::new().block_on(async {
 //!     let mut rng = rand::rng();

@@ -325,7 +325,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{time, Handle, Runtime};
+    use crate::{
+        runtime::{Handle, Runtime},
+        time,
+    };
     use std::{sync::atomic::AtomicUsize, time::Duration};
 
     #[test]

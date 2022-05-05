@@ -261,7 +261,7 @@ impl Metadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Runtime;
+    use crate::runtime::Runtime;
 
     #[test]
     fn create_open_read_write() {

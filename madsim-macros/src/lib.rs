@@ -22,7 +22,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 #[allow(clippy::needless_doctest_main)]
 /// Marks async function to be executed by the selected runtime. This macro
 /// helps set up a `Runtime` without requiring the user to use
-/// [Runtime](../madsim/struct.Runtime.html) directly.
+/// [Runtime](../madsim/runtime/struct.Runtime.html) directly.
 ///
 /// # Example
 ///
@@ -37,7 +37,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// fn main() {
-///     madsim::Runtime::new().block_on(async {
+///     madsim::runtime::Runtime::new().block_on(async {
 ///         println!("Hello world");
 ///     });
 /// }
@@ -63,7 +63,7 @@ fn parse_main(
     let brace_token = input.block.brace_token;
     input.block = syn::parse2(quote! {
         {
-            let mut rt = madsim::Runtime::new();
+            let mut rt = ::madsim::runtime::Runtime::new();
             rt.block_on(async #body)
         }
     })
@@ -138,17 +138,17 @@ fn parse_test(
     let brace_token = input.block.brace_token;
     input.block = syn::parse2(quote! {
         {
-            use std::time::{Duration, SystemTime};
-            let seed: u64 = if let Ok(seed_str) = std::env::var("MADSIM_TEST_SEED") {
+            use ::std::time::{Duration, SystemTime};
+            let seed: u64 = if let Ok(seed_str) = ::std::env::var("MADSIM_TEST_SEED") {
                 seed_str.parse().expect("MADSIM_TEST_SEED should be an integer")
             } else {
                 SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
             };
             let config = if let Ok(config_path) = std::env::var("MADSIM_TEST_CONFIG") {
                 let content = std::fs::read_to_string(config_path).expect("failed to read config file");
-                content.parse::<madsim::Config>().expect("failed to parse config file")
+                content.parse::<::madsim::Config>().expect("failed to parse config file")
             } else {
-                madsim::Config::default()
+                ::madsim::Config::default()
             };
             let mut count: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_NUM") {
                 num_str.parse().expect("MADSIM_TEST_NUM should be an integer")
@@ -158,7 +158,7 @@ fn parse_test(
             let time_limit_s = std::env::var("MADSIM_TEST_TIME_LIMIT").ok().map(|num_str| {
                 num_str.parse::<f64>().expect("MADSIM_TEST_TIME_LIMIT should be an number")
             });
-            let check = std::env::var("MADSIM_TEST_CHECK_DETERMINISM").is_ok();
+            let check = ::std::env::var("MADSIM_TEST_CHECK_DETERMINISM").is_ok();
             if check {
                 count = count.max(2);
             }
@@ -168,7 +168,7 @@ fn parse_test(
                 let rand_log0 = rand_log.take();
                 let config_ = config.clone();
                 let ret = std::panic::catch_unwind(move || {
-                    let mut rt = madsim::Runtime::with_seed_and_config(seed, config_);
+                    let mut rt = ::madsim::runtime::Runtime::with_seed_and_config(seed, config_);
                     if check {
                         rt.enable_determinism_check(rand_log0);
                     }
@@ -181,7 +181,7 @@ fn parse_test(
                 if let Err(e) = ret {
                     println!("MADSIM_CONFIG_HASH={:016X}", config.hash());
                     println!("MADSIM_TEST_SEED={}", seed);
-                    std::panic::resume_unwind(e);
+                    ::std::panic::resume_unwind(e);
                 }
                 rand_log = ret.unwrap();
             }

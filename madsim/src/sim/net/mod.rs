@@ -3,7 +3,7 @@
 //! # Examples
 //!
 //! ```
-//! use madsim::{Runtime, net::Endpoint};
+//! use madsim::{runtime::Runtime, net::Endpoint};
 //! use std::sync::Arc;
 //! use std::net::SocketAddr;
 //!
@@ -167,7 +167,7 @@ impl Endpoint {
     ///
     /// # Example
     /// ```
-    /// use madsim::{Runtime, net::Endpoint};
+    /// use madsim::{runtime::Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
     ///     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
@@ -184,7 +184,7 @@ impl Endpoint {
     ///
     /// # Example
     /// ```no_run
-    /// use madsim::{Runtime, net::Endpoint};
+    /// use madsim::{runtime::Runtime, net::Endpoint};
     ///
     /// Runtime::new().block_on(async {
     ///     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
@@ -240,7 +240,7 @@ impl Drop for Endpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{plugin::simulator, time::*, Runtime};
+    use crate::{plugin::simulator, runtime::Runtime, time::*};
     use tokio::sync::Barrier;
 
     #[test]
