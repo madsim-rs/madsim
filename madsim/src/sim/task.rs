@@ -1,6 +1,10 @@
 //! Asynchronous tasks executor.
 
-use super::time::{TimeHandle, TimeRuntime};
+use super::{
+    rand::GlobalRng,
+    time::{TimeHandle, TimeRuntime},
+    utils::mpsc,
+};
 use async_task::Runnable;
 pub use async_task::Task;
 use std::{
@@ -11,7 +15,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc, Mutex,
+        Arc, Mutex,
     },
     task::{Context, Poll},
     time::Duration,
@@ -20,6 +24,7 @@ use std::{
 pub(crate) struct Executor {
     queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
     handle: TaskHandle,
+    rand: GlobalRng,
     time: TimeRuntime,
     time_limit: Option<Duration>,
 }
@@ -51,7 +56,7 @@ pub(crate) struct TaskInfo {
 }
 
 impl Executor {
-    pub fn new() -> Self {
+    pub fn new(rand: GlobalRng) -> Self {
         let (sender, queue) = mpsc::channel();
         Executor {
             queue,
@@ -60,6 +65,7 @@ impl Executor {
                 sender,
                 next_node_id: Arc::new(AtomicU64::new(1)),
             },
+            rand,
             time: TimeRuntime::new(),
             time_limit: None,
         }
@@ -118,7 +124,7 @@ impl Executor {
 
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
-        while let Ok((runnable, info)) = self.queue.try_recv() {
+        while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
             if info.killed.load(Ordering::SeqCst) {
                 // killed task: ignore
                 continue;

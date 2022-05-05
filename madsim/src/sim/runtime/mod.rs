@@ -48,7 +48,7 @@ impl Runtime {
         init_logger();
 
         let rand = rand::GlobalRng::new_with_seed(seed);
-        let task = task::Executor::new();
+        let task = task::Executor::new(rand.clone());
         let handle = Handle {
             rand: rand.clone(),
             time: task.time_handle().clone(),
