@@ -7,10 +7,10 @@ edition = "2021"
 
 [features]
 # dev tip: uncomment this to enable analyzer
-# default = ["sim"]
-sim = []
+default = ["sim"]
+sim = ["madsim/sim"]
 
 [dependencies]
-futures-core = "0.3"
+madsim = { path = "../madsim" }
+futures = "0.3"
 tonic = "0.7"
-tower-service = "0.3"

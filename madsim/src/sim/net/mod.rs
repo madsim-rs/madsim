@@ -202,7 +202,11 @@ impl Endpoint {
     }
 
     /// Sends a raw message.
-    async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
+    ///
+    /// NOTE: Applications should not use this function!
+    /// It is provided for use by other simulators.
+    #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+    pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         self.net
             .network
             .lock()
@@ -213,7 +217,11 @@ impl Endpoint {
     }
 
     /// Receives a raw message.
-    async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
+    ///
+    /// NOTE: Applications should not use this function!
+    /// It is provided for use by other simulators.
+    #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+    pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
         let recver = self
             .net
             .network
