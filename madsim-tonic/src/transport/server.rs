@@ -12,7 +12,7 @@ use std::{
 };
 use tonic::codegen::{http::uri::PathAndQuery, BoxFuture, Service};
 
-type BoxMessage = Box<dyn Any + Send + Sync>;
+pub(crate) type BoxMessage = Box<dyn Any + Send + Sync>;
 
 /// A default batteries included `transport` server.
 #[derive(Default)]
@@ -95,6 +95,7 @@ impl Router {
             let (rsp_tag, path, msg) = *msg
                 .downcast::<(u64, PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
+            log::trace!("request: {path} <- {from}");
             let svc = &mut self.services[0];
             poll_fn(|cx| svc.poll_ready(cx))
                 .await

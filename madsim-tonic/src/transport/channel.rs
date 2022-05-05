@@ -79,8 +79,8 @@ impl TryFrom<String> for Endpoint {
 /// A default batteries included `transport` channel.
 #[derive(Clone)]
 pub struct Channel {
-    ep: Arc<madsim::net::Endpoint>,
-    addr: SocketAddr,
+    pub(crate) ep: Arc<madsim::net::Endpoint>,
+    pub(crate) addr: SocketAddr,
 }
 
 impl fmt::Debug for Channel {

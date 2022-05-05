@@ -272,8 +272,8 @@ impl<'a> NodeBuilder<'a> {
     /// Names the node.
     ///
     /// The default name is node ID.
-    pub fn name(mut self, name: String) -> Self {
-        self.name = Some(name);
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
 

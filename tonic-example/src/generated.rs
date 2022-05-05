@@ -51,7 +51,7 @@ pub mod greeter_client {
             let codec = ();
             let path = http::uri::PathAndQuery::from_static("/helloworld.Greeter/SayHello");
             self.inner
-                .unary(tonic::Request::new(request), path, codec)
+                .unary(request.into_request(), path, codec)
                 .await
         }
         pub async fn lots_of_replies(

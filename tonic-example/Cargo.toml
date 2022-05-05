@@ -23,5 +23,8 @@ futures-core = "0.3"
 tonic = { path = "../madsim-tonic", package = "madsim-tonic" }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 
+[dev-dependencies]
+madsim = { path = "../madsim" }
+
 [build-dependencies]
 tonic-build = "0.7"
