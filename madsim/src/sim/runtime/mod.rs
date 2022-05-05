@@ -25,7 +25,7 @@ pub(crate) mod context;
 /// [network]: crate::net
 /// [file system]: crate::fs
 pub struct Runtime {
-    rand: rand::RandHandle,
+    rand: rand::GlobalRng,
     task: task::Executor,
     handle: Handle,
 }
@@ -47,7 +47,7 @@ impl Runtime {
         #[cfg(feature = "logger")]
         init_logger();
 
-        let rand = rand::RandHandle::new_with_seed(seed);
+        let rand = rand::GlobalRng::new_with_seed(seed);
         let task = task::Executor::new();
         let handle = Handle {
             rand: rand.clone(),
@@ -190,7 +190,7 @@ impl Runtime {
 /// Supervisor handle to the runtime.
 #[derive(Clone)]
 pub struct Handle {
-    pub(crate) rand: rand::RandHandle,
+    pub(crate) rand: rand::GlobalRng,
     pub(crate) time: time::TimeHandle,
     pub(crate) task: task::TaskHandle,
     pub(crate) sims: Arc<Mutex<HashMap<TypeId, Arc<dyn plugin::Simulator>>>>,

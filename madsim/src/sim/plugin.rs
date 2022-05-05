@@ -7,14 +7,14 @@ use std::{
 
 use downcast_rs::{impl_downcast, DowncastSync};
 
-use crate::{rand::RandHandle, task::NodeId, time::TimeHandle, Config};
+use crate::{rand::GlobalRng, task::NodeId, time::TimeHandle, Config};
 
 /// Simulator
 pub trait Simulator: Any + Send + Sync + DowncastSync {
     /// Create a new simulator.
     ///
     /// This will be called on the first access via [`simulator`].
-    fn new(rand: &RandHandle, time: &TimeHandle, config: &Config) -> Self
+    fn new(rand: &GlobalRng, time: &TimeHandle, config: &Config) -> Self
     where
         Self: Sized;
 

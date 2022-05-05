@@ -47,7 +47,7 @@ pub use self::network::{Config, Stat};
 use self::network::{Network, Payload};
 use crate::{
     plugin,
-    rand::{RandHandle, Rng},
+    rand::{GlobalRng, Rng},
     task::NodeId,
     time::{Duration, TimeHandle},
 };
@@ -61,12 +61,12 @@ pub mod rpc;
 #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 pub struct NetSim {
     network: Mutex<Network>,
-    rand: RandHandle,
+    rand: GlobalRng,
     time: TimeHandle,
 }
 
 impl plugin::Simulator for NetSim {
-    fn new(rand: &RandHandle, time: &TimeHandle, config: &crate::Config) -> Self {
+    fn new(rand: &GlobalRng, time: &TimeHandle, config: &crate::Config) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), time.clone(), config.net.clone())),
             rand: rand.clone(),

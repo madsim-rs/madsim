@@ -15,7 +15,7 @@ use std::{
 
 /// A simulated network.
 pub(crate) struct Network {
-    rand: RandHandle,
+    rand: GlobalRng,
     time: TimeHandle,
     config: Config,
     stat: Stat,
@@ -79,7 +79,7 @@ pub struct Stat {
 }
 
 impl Network {
-    pub fn new(rand: RandHandle, time: TimeHandle, config: Config) -> Self {
+    pub fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
         Self {
             rand,
             time,

@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     plugin::{node, simulator, Simulator},
-    rand::RandHandle,
+    rand::GlobalRng,
     task::NodeId,
     time::TimeHandle,
     Config,
@@ -24,7 +24,7 @@ pub struct FsSim {
 }
 
 impl Simulator for FsSim {
-    fn new(_rand: &RandHandle, _time: &TimeHandle, _config: &Config) -> Self {
+    fn new(_rand: &GlobalRng, _time: &TimeHandle, _config: &Config) -> Self {
         Default::default()
     }
 

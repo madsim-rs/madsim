@@ -31,10 +31,10 @@ pub use rand::prelude::{
 };
 use std::sync::{Arc, Mutex};
 
-/// Handle to a shared random state.
+/// Global deterministic random number generator.
 #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
 #[derive(Clone)]
-pub struct RandHandle {
+pub struct GlobalRng {
     inner: Arc<Mutex<Inner>>,
 }
 
@@ -44,7 +44,7 @@ struct Inner {
     check: Option<(Vec<u8>, usize)>,
 }
 
-impl RandHandle {
+impl GlobalRng {
     /// Create a new RNG using the given seed.
     pub(crate) fn new_with_seed(seed: u64) -> Self {
         let inner = Inner {
@@ -52,7 +52,7 @@ impl RandHandle {
             log: None,
             check: None,
         };
-        RandHandle {
+        GlobalRng {
             inner: Arc::new(Mutex::new(inner)),
         }
     }
@@ -104,11 +104,11 @@ impl RandHandle {
 }
 
 /// Retrieve the deterministic random number generator from the current madsim context.
-pub fn rng() -> RandHandle {
+pub fn rng() -> GlobalRng {
     crate::context::current(|h| h.rand.clone())
 }
 
-impl RngCore for RandHandle {
+impl RngCore for GlobalRng {
     fn next_u32(&mut self) -> u32 {
         self.with(|rng| rng.next_u32())
     }
