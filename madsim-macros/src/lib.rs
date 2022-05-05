@@ -26,7 +26,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// #[madsim::main]
 /// async fn main() {
 ///     println!("Hello world");
@@ -35,7 +35,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// Equivalent code not using `#[madsim::main]`
 ///
-/// ```ignore
+/// ```
 /// fn main() {
 ///     madsim::runtime::Runtime::new().block_on(async {
 ///         println!("Hello world");
@@ -80,7 +80,7 @@ fn parse_main(
 /// Marks async function to be executed by runtime, suitable to test environment.
 ///
 /// # Example
-/// ```no_run
+/// ```
 /// #[madsim::test]
 /// async fn my_test() {
 ///     assert!(true);

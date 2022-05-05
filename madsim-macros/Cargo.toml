@@ -20,4 +20,4 @@ quote = "1"
 syn = { version = "1", features = ["full"] }
 
 [dev-dependencies]
-madsim = { path = "../madsim", features = ["macros"] }
+madsim = { path = "../madsim", features = ["macros", "sim"] }
