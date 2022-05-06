@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::hello_world::greeter_client::GreeterClient;
-    use madsim::runtime::Handle;
+    use madsim::{runtime::Handle, time::sleep};
     use std::net::SocketAddr;
 
     use super::*;
@@ -96,6 +96,7 @@ mod tests {
 
         node2
             .spawn(async move {
+                sleep(Duration::from_secs(1)).await;
                 let mut client = GreeterClient::connect("http://10.0.0.1:50051")
                     .await
                     .unwrap();

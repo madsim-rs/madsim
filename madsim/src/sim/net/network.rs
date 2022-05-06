@@ -225,7 +225,13 @@ impl Network {
             trace!("packet loss");
             return;
         }
-        let ep = self.nodes[&dst_node].sockets[&dst.port()].clone();
+        let ep = match self.nodes[&dst_node].sockets.get(&dst.port()) {
+            Some(ep) => ep.clone(),
+            None => {
+                trace!("destination not found: {dst}");
+                return;
+            }
+        };
         let msg = Message {
             tag,
             data,

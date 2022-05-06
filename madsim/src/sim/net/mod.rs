@@ -145,6 +145,7 @@ impl NetSim {
 /// An endpoint.
 pub struct Endpoint {
     net: Arc<NetSim>,
+    node: NodeId,
     addr: SocketAddr,
 }
 
@@ -152,10 +153,11 @@ impl Endpoint {
     /// Creates a [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let net = plugin::simulator::<NetSim>();
+        let node = plugin::node();
         let addr = addr.to_socket_addrs()?.next().unwrap();
         net.rand_delay().await;
-        let addr = net.network.lock().unwrap().bind(plugin::node(), addr)?;
-        Ok(Endpoint { net, addr })
+        let addr = net.network.lock().unwrap().bind(node, addr)?;
+        Ok(Endpoint { net, node, addr })
     }
 
     /// Returns the local socket address.
@@ -241,7 +243,7 @@ impl Endpoint {
 impl Drop for Endpoint {
     fn drop(&mut self) {
         let mut network = self.net.network.lock().unwrap();
-        network.close(plugin::node(), self.addr);
+        network.close(self.node, self.addr);
     }
 }
 
