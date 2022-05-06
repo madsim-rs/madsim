@@ -7,7 +7,7 @@ edition = "2021"
 
 [features]
 # dev tip: uncomment this to enable analyzer
-default = ["sim"]
+# default = ["sim"]
 sim = ["madsim/sim"]
 
 [dependencies]

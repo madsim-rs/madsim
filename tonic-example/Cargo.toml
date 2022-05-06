@@ -2,7 +2,6 @@
 name = "tonic-example"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
@@ -14,17 +13,16 @@ name = "client"
 path = "src/client.rs"
 
 [features]
-default = ["sim"]
+# default = ["sim"]
 sim = ["tonic/sim"]
 
 [dependencies]
-prost = "0.10"
+async-stream = "0.3"
 futures-core = "0.3"
-tonic = { path = "../madsim-tonic", package = "madsim-tonic" }
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-
-[dev-dependencies]
 madsim = { path = "../madsim" }
+prost = "0.10"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+tonic = { path = "../madsim-tonic", package = "madsim-tonic" }
 
 [build-dependencies]
 tonic-build = "0.7"

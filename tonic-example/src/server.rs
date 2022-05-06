@@ -1,12 +1,18 @@
-use futures_core::Stream;
 use std::pin::Pin;
+use std::time::Duration;
+
+use async_stream::try_stream;
+use futures_core::Stream;
+use madsim::time::sleep;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 
 pub mod hello_world {
-    // tonic::include_proto!("helloworld");
+    #[cfg(not(feature = "sim"))]
+    tonic::include_proto!("helloworld");
+    #[cfg(feature = "sim")]
     include!("generated.rs");
 }
 
@@ -20,11 +26,9 @@ impl Greeter for MyGreeter {
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
         println!("Got a request: {:?}", request);
-
         let reply = HelloReply {
-            message: format!("Hello {}!", request.into_inner().name).into(),
+            message: format!("Hello {}!", request.into_inner().name),
         };
-
         Ok(Response::new(reply))
     }
 
@@ -34,14 +38,35 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<HelloRequest>,
     ) -> Result<Response<Self::LotsOfRepliesStream>, Status> {
-        todo!()
+        println!("Got a request: {:?}", request);
+        let stream = try_stream! {
+            let name = request.into_inner().name;
+            for i in 0..3 {
+                yield HelloReply {
+                    message: format!("{i}: Hello {name}!"),
+                };
+                sleep(Duration::from_secs(1)).await;
+            }
+        };
+        Ok(Response::new(Box::pin(stream)))
     }
 
     async fn lots_of_greetings(
         &self,
         request: Request<Streaming<HelloRequest>>,
     ) -> Result<Response<HelloReply>, Status> {
-        todo!()
+        println!("Got a request: {:?}", request);
+        let mut stream = request.into_inner();
+        let mut s = String::new();
+        while let Some(request) = stream.message().await? {
+            println!("-> {:?}", request);
+            s += " ";
+            s += &request.name;
+        }
+        let reply = HelloReply {
+            message: format!("Hello{s}!"),
+        };
+        Ok(Response::new(reply))
     }
 
     type BidiHelloStream = Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send>>;
@@ -50,7 +75,17 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<Streaming<HelloRequest>>,
     ) -> Result<Response<Self::BidiHelloStream>, Status> {
-        todo!()
+        println!("Got a request: {:?}", request);
+        let stream = try_stream! {
+            let mut stream = request.into_inner();
+            while let Some(request) = stream.message().await? {
+                println!("-> {:?}", request);
+                yield HelloReply {
+                    message: format!("Hello {}!", request.name),
+                };
+            }
+        };
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
