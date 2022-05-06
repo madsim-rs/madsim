@@ -1,6 +1,6 @@
 //! Generic client implementation.
 
-use futures::Stream;
+use futures::{pin_mut, Stream, StreamExt};
 use madsim::rand::{rng, Rng};
 use tonic::codegen::http::uri::PathAndQuery;
 
@@ -29,20 +29,19 @@ impl Grpc<crate::transport::Channel> {
         &mut self,
         request: Request<M1>,
         path: PathAndQuery,
-        codec: C,
+        _codec: C,
     ) -> Result<Response<M2>, Status>
     where
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        // generate a random tag for response
         let rsp_tag = rng().gen::<u64>();
-        let request = Box::new(request) as BoxMessage;
-        self.inner
-            .ep
-            .send_to_raw(self.inner.addr, 0, Box::new((rsp_tag, path, request)))
-            .await?;
-        let (rsp, from) = self.inner.ep.recv_from_raw(rsp_tag).await?;
-        assert_eq!(from, self.inner.addr);
+        // send request
+        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage));
+        self.inner.ep.send_raw(0, data).await?;
+        // receive response
+        let rsp = self.inner.ep.recv_raw(rsp_tag).await?;
         let rsp = *rsp
             .downcast::<Response<M2>>()
             .expect("message type mismatch");
@@ -54,9 +53,22 @@ impl Grpc<crate::transport::Channel> {
         &mut self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,
         path: PathAndQuery,
-        codec: C,
-    ) -> Result<Response<M2>, Status> {
-        todo!()
+        _codec: C,
+    ) -> Result<Response<M2>, Status>
+    where
+        M1: Send + Sync + 'static,
+        M2: Send + Sync + 'static,
+    {
+        // generate a random tag for request and responses
+        let tag = rng().gen::<u64>();
+        // send requests
+        self.send_request_stream(request, tag, path).await?;
+        // receive response
+        let rsp = self.inner.ep.recv_raw(tag).await?;
+        let rsp = *rsp
+            .downcast::<Response<M2>>()
+            .expect("message type mismatch");
+        Ok(rsp)
     }
 
     /// Send a server side streaming gRPC request.
@@ -64,9 +76,23 @@ impl Grpc<crate::transport::Channel> {
         &mut self,
         request: Request<M1>,
         path: PathAndQuery,
-        codec: C,
-    ) -> Result<Response<Streaming<M2>>, Status> {
-        todo!()
+        _codec: C,
+    ) -> Result<Response<Streaming<M2>>, Status>
+    where
+        M1: Send + Sync + 'static,
+        M2: Send + Sync + 'static,
+    {
+        // generate a random tag for responses
+        let rsp_tag = rng().gen::<u64>();
+        // send request
+        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage));
+        self.inner.ep.send_raw(0, data).await?;
+        // receive responses
+        Ok(Response::new(Streaming::new(
+            self.inner.ep.clone(),
+            rsp_tag,
+            None,
+        )))
     }
 
     /// Send a bi-directional streaming gRPC request.
@@ -74,8 +100,50 @@ impl Grpc<crate::transport::Channel> {
         &mut self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,
         path: PathAndQuery,
-        codec: C,
-    ) -> Result<Response<Streaming<M2>>, Status> {
-        todo!()
+        _codec: C,
+    ) -> Result<Response<Streaming<M2>>, Status>
+    where
+        M1: Send + Sync + 'static,
+        M2: Send + Sync + 'static,
+    {
+        // generate a random tag for requests and responses
+        let tag = rng().gen::<u64>();
+        // send requests in a background task
+        let this = self.clone();
+        let task = madsim::task::spawn(async move {
+            this.send_request_stream(request, tag, path).await.unwrap();
+        });
+        // receive responses
+        Ok(Response::new(Streaming::new(
+            self.inner.ep.clone(),
+            tag,
+            Some(task),
+        )))
+    }
+
+    async fn send_request_stream<M1>(
+        &self,
+        request: Request<impl Stream<Item = M1> + Send + 'static>,
+        mut tag: u64,
+        path: PathAndQuery,
+    ) -> Result<(), Status>
+    where
+        M1: Send + Sync + 'static,
+    {
+        // send stream start message
+        let data = Box::new((tag, path, Box::new(tag) as BoxMessage));
+        self.inner.ep.send_raw(0, data).await?;
+        // send requests with increasing tag
+        let stream = request.into_inner();
+        pin_mut!(stream);
+        while let Some(request) = stream.next().await {
+            let data = Box::new(Some(request));
+            self.inner.ep.send_raw(tag, data).await?;
+            tag += 1;
+        }
+        // send stream end message
+        let data = Box::new(None as Option<M1>);
+        self.inner.ep.send_raw(tag, data).await?;
+        Ok(())
     }
 }

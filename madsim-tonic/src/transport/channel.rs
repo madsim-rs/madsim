@@ -1,12 +1,7 @@
 //! Client implementation and builder.
 
 use super::Error;
-use std::{
-    fmt,
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::Duration,
-};
+use std::{fmt, net::IpAddr, sync::Arc, time::Duration};
 use tonic::{codegen::StdError, transport::Uri};
 
 /// Channel builder.
@@ -49,14 +44,11 @@ impl Endpoint {
         let host = self.uri.host().ok_or_else(Error::new_invalid_uri)?;
         let addr: IpAddr = host.parse().map_err(|_| Error::new_invalid_uri())?;
         let port = self.uri.port_u16().ok_or_else(Error::new_invalid_uri)?;
-        let ep = madsim::net::Endpoint::bind("0.0.0.0:0")
+        let ep = madsim::net::Endpoint::connect((addr, port))
             .await
             .map_err(Error::from_source)?;
         // NOTE: no actual connection here
-        Ok(Channel {
-            ep: Arc::new(ep),
-            addr: (addr, port).into(),
-        })
+        Ok(Channel { ep: Arc::new(ep) })
     }
 }
 
@@ -80,11 +72,10 @@ impl TryFrom<String> for Endpoint {
 #[derive(Clone)]
 pub struct Channel {
     pub(crate) ep: Arc<madsim::net::Endpoint>,
-    pub(crate) addr: SocketAddr,
 }
 
 impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Channel").field("addr", &self.addr).finish()
+        f.debug_struct("Channel").finish()
     }
 }

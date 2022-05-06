@@ -12,6 +12,7 @@ use std::{
 };
 use tonic::codegen::{http::uri::PathAndQuery, BoxFuture, Service};
 
+/// A type-erased message.
 pub(crate) type BoxMessage = Box<dyn Any + Send + Sync>;
 
 /// A default batteries included `transport` server.
@@ -88,6 +89,7 @@ impl Router {
         let ep = Arc::new(Endpoint::bind(addr).await.map_err(Error::from_source)?);
         let mut signal = Box::pin(signal).fuse();
         loop {
+            // receive a request
             let (msg, from) = select_biased! {
                 ret = ep.recv_from_raw(0).fuse() => ret.map_err(Error::from_source)?,
                 _ = &mut signal => return Ok(()),
@@ -96,6 +98,8 @@ impl Router {
                 .downcast::<(u64, PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
             log::trace!("request: {path} <- {from}");
+
+            // call the service in a new spawned task
             let svc = &mut self.services[0];
             poll_fn(|cx| svc.poll_ready(cx))
                 .await
@@ -104,6 +108,7 @@ impl Router {
             let ep = ep.clone();
             madsim::task::spawn(async move {
                 let rsp = rsp_future.await.unwrap();
+                // send the response
                 ep.send_to_raw(from, rsp_tag, rsp)
                     .await
                     .expect("failed to send response");
