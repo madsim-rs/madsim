@@ -147,6 +147,7 @@ pub struct Endpoint {
     net: Arc<NetSim>,
     node: NodeId,
     addr: SocketAddr,
+    peer: Option<SocketAddr>,
 }
 
 impl Endpoint {
@@ -157,12 +158,39 @@ impl Endpoint {
         let addr = addr.to_socket_addrs()?.next().unwrap();
         net.rand_delay().await;
         let addr = net.network.lock().unwrap().bind(node, addr)?;
-        Ok(Endpoint { net, node, addr })
+        Ok(Endpoint {
+            net,
+            node,
+            addr,
+            peer: None,
+        })
+    }
+
+    /// Connects this [`Endpoint`] to a remote address.
+    pub async fn connect(addr: impl ToSocketAddrs) -> io::Result<Self> {
+        let net = plugin::simulator::<NetSim>();
+        let node = plugin::node();
+        let peer = addr.to_socket_addrs()?.next().unwrap();
+        net.rand_delay().await;
+        let addr = SocketAddr::from(([0, 0, 0, 0], 0));
+        let addr = net.network.lock().unwrap().bind(node, addr)?;
+        Ok(Endpoint {
+            net,
+            node,
+            addr,
+            peer: Some(peer),
+        })
     }
 
     /// Returns the local socket address.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.addr)
+    }
+
+    /// Returns the socket address of the remote peer this socket was connected to.
+    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
+        self.peer
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "not connected"))
     }
 
     /// Sends data with tag on the socket to the given address.
@@ -176,9 +204,9 @@ impl Endpoint {
     ///     net.send_to("127.0.0.1:4242", 0, &[0; 10]).await.expect("couldn't send data");
     /// });
     /// ```
-    pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, data: &[u8]) -> io::Result<()> {
+    pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, buf: &[u8]) -> io::Result<()> {
         let dst = dst.to_socket_addrs()?.next().unwrap();
-        self.send_to_raw(dst, tag, Box::new(Vec::from(data))).await
+        self.send_to_raw(dst, tag, Box::new(Vec::from(buf))).await
     }
 
     /// Receives a single message with given tag on the socket.
@@ -201,6 +229,24 @@ impl Endpoint {
         let len = buf.len().min(data.len());
         buf[..len].copy_from_slice(&data[..len]);
         Ok((len, from))
+    }
+
+    /// Sends data on the socket to the remote address to which it is connected.
+    pub async fn send(&self, tag: u64, buf: &[u8]) -> io::Result<()> {
+        let peer = self.peer_addr()?;
+        self.send_to(peer, tag, buf).await
+    }
+
+    /// Receives a single datagram message on the socket from the remote address to which it is connected.
+    /// On success, returns the number of bytes read.
+    pub async fn recv(&self, tag: u64, buf: &mut [u8]) -> io::Result<usize> {
+        let peer = self.peer_addr()?;
+        let (len, from) = self.recv_from(tag, buf).await?;
+        assert_eq!(
+            from, peer,
+            "receive a message but not from the connected address"
+        );
+        Ok(len)
     }
 
     /// Sends a raw message.
@@ -237,6 +283,31 @@ impl Endpoint {
 
         trace!("recv: {} <- {}, tag={}", self.addr, msg.from, msg.tag);
         Ok((msg.data, msg.from))
+    }
+
+    /// Sends a raw message. to the connected remote address.
+    ///
+    /// NOTE: Applications should not use this function!
+    /// It is provided for use by other simulators.
+    #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+    pub async fn send_raw(&self, tag: u64, data: Payload) -> io::Result<()> {
+        let peer = self.peer_addr()?;
+        self.send_to_raw(peer, tag, data).await
+    }
+
+    /// Receives a raw message from the connected remote address.
+    ///
+    /// NOTE: Applications should not use this function!
+    /// It is provided for use by other simulators.
+    #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+    pub async fn recv_raw(&self, tag: u64) -> io::Result<Payload> {
+        let peer = self.peer_addr()?;
+        let (msg, from) = self.recv_from_raw(tag).await?;
+        assert_eq!(
+            from, peer,
+            "receive a message but not from the connected address"
+        );
+        Ok(msg)
     }
 }
 
@@ -429,5 +500,44 @@ mod tests {
         });
         runtime.block_on(f1);
         runtime.block_on(f2);
+    }
+
+    #[test]
+    fn connect_send_recv() {
+        let runtime = Runtime::new();
+        let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
+        let node1 = runtime.create_node().ip(addr1.ip()).build();
+        let node2 = runtime.create_node().ip(addr2.ip()).build();
+        let barrier = Arc::new(Barrier::new(2));
+
+        let barrier_ = barrier.clone();
+        node1
+            .spawn(async move {
+                let ep = Endpoint::bind(addr1).await.unwrap();
+                assert_eq!(ep.local_addr().unwrap(), addr1);
+                barrier_.wait().await;
+
+                let mut buf = vec![0; 0x10];
+                let (len, from) = ep.recv_from(1, &mut buf).await.unwrap();
+                assert_eq!(&buf[..len], b"ping");
+
+                ep.send_to(from, 1, b"pong").await.unwrap();
+            })
+            .detach();
+
+        let f = node2.spawn(async move {
+            barrier.wait().await;
+            let ep = Endpoint::connect(addr1).await.unwrap();
+            assert_eq!(ep.peer_addr().unwrap(), addr1);
+
+            ep.send(1, b"ping").await.unwrap();
+
+            let mut buf = vec![0; 0x10];
+            let len = ep.recv(1, &mut buf).await.unwrap();
+            assert_eq!(&buf[..len], b"pong");
+        });
+
+        runtime.block_on(f);
     }
 }
