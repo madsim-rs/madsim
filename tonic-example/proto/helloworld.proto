@@ -8,6 +8,10 @@ service Greeter {
     rpc BidiHello(stream HelloRequest) returns (stream HelloReply);
 }
 
+service AnotherGreeter {
+    rpc SayHello (HelloRequest) returns (HelloReply);
+}
+
 message HelloRequest {
     // Request message contains the name to be greeted
     string name = 1;

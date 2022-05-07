@@ -5,12 +5,16 @@ use futures::{future::poll_fn, select_biased, FutureExt};
 use madsim::net::Endpoint;
 use std::{
     any::Any,
+    collections::HashMap,
     convert::Infallible,
     future::{pending, Future},
     net::SocketAddr,
     sync::Arc,
 };
-use tonic::codegen::{http::uri::PathAndQuery, BoxFuture, Service};
+use tonic::{
+    codegen::{http::uri::PathAndQuery, BoxFuture, Service},
+    transport::NamedService,
+};
 
 /// A type-erased message.
 pub(crate) type BoxMessage = Box<dyn Any + Send + Sync>;
@@ -33,18 +37,21 @@ impl Server {
                 Response = BoxMessage,
                 Error = Infallible,
                 Future = BoxFuture<BoxMessage, Infallible>,
-            > + Send
+            > + NamedService
+            + Send
             + 'static,
     {
-        Router {
-            services: vec![Box::new(svc)],
-        }
+        let router = Router {
+            services: Default::default(),
+        };
+        router.add_service(svc)
     }
 }
 
 /// A stack based `Service` router.
 pub struct Router {
-    services: Vec<
+    services: HashMap<
+        &'static str,
         Box<
             dyn Service<
                     (PathAndQuery, BoxMessage),
@@ -66,10 +73,11 @@ impl Router {
                 Response = BoxMessage,
                 Error = Infallible,
                 Future = BoxFuture<BoxMessage, Infallible>,
-            > + Send
+            > + NamedService
+            + Send
             + 'static,
     {
-        self.services.push(Box::new(svc));
+        self.services.insert(S::NAME, Box::new(svc));
         self
     }
 
@@ -100,10 +108,10 @@ impl Router {
             log::trace!("request: {path} <- {from}");
 
             // call the service in a new spawned task
-            let svc = &mut self.services[0];
-            poll_fn(|cx| svc.poll_ready(cx))
-                .await
-                .map_err(Error::from_source)?;
+            // TODO: handle error
+            let svc_name = path.path().split('/').nth(1).unwrap();
+            let svc = &mut self.services.get_mut(svc_name).unwrap();
+            poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
             let rsp_future = svc.call((path, msg));
             let ep = ep.clone();
             madsim::task::spawn(async move {

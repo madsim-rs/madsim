@@ -17,7 +17,6 @@ pub mod hello_world {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = GreeterClient::connect("http://[::1]:50051").await?;
 
-    // unary
     println!("Testing unary ...");
     let request = tonic::Request::new(HelloRequest {
         name: "Tonic".into(),
@@ -26,7 +25,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("RESPONSE={:?}", response);
     println!();
 
-    // server streaming
     println!("Testing server streaming...");
     let request = tonic::Request::new(HelloRequest {
         name: "Tonic".into(),
@@ -38,7 +36,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    // client streaming
     println!("Testing client streaming...");
     let new_stream = || {
         stream! {
@@ -54,7 +51,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", response.into_inner());
     println!();
 
-    // bi-directional streaming
     println!("Testing bi-directional streaming...");
     let response = client.bidi_hello(new_stream()).await?;
     let mut stream = response.into_inner();

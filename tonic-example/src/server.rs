@@ -6,6 +6,7 @@ use futures_core::Stream;
 use madsim::time::sleep;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
+use hello_world::another_greeter_server::{AnotherGreeter, AnotherGreeterServer};
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 
@@ -18,6 +19,20 @@ pub mod hello_world {
 
 #[derive(Debug, Default)]
 pub struct MyGreeter {}
+
+#[tonic::async_trait]
+impl AnotherGreeter for MyGreeter {
+    async fn say_hello(
+        &self,
+        request: Request<HelloRequest>,
+    ) -> Result<Response<HelloReply>, Status> {
+        println!("Got a request: {:?}", request);
+        let reply = HelloReply {
+            message: format!("Hi {}!", request.into_inner().name),
+        };
+        Ok(Response::new(reply))
+    }
+}
 
 #[tonic::async_trait]
 impl Greeter for MyGreeter {
@@ -92,10 +107,10 @@ impl Greeter for MyGreeter {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse()?;
-    let greeter = MyGreeter::default();
 
     Server::builder()
-        .add_service(GreeterServer::new(greeter))
+        .add_service(GreeterServer::new(MyGreeter::default()))
+        .add_service(AnotherGreeterServer::new(MyGreeter::default()))
         .serve(addr)
         .await?;
 
@@ -104,6 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
+    use super::hello_world::another_greeter_client::AnotherGreeterClient;
     use super::hello_world::greeter_client::GreeterClient;
     use madsim::{runtime::Handle, time::sleep};
     use std::net::SocketAddr;
@@ -115,32 +131,47 @@ mod tests {
         let handle = Handle::current();
         let addr1 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:0".parse::<SocketAddr>().unwrap();
+        let addr3 = "10.0.0.3:0".parse::<SocketAddr>().unwrap();
         let node1 = handle.create_node().name("server").ip(addr1.ip()).build();
-        let node2 = handle.create_node().name("client").ip(addr2.ip()).build();
+        let node2 = handle.create_node().name("client1").ip(addr2.ip()).build();
+        let node3 = handle.create_node().name("client2").ip(addr3.ip()).build();
 
         node1
             .spawn(async move {
-                let greeter = MyGreeter::default();
                 Server::builder()
-                    .add_service(GreeterServer::new(greeter))
+                    .add_service(GreeterServer::new(MyGreeter::default()))
+                    .add_service(AnotherGreeterServer::new(MyGreeter::default()))
                     .serve(addr1)
                     .await
                     .unwrap();
             })
             .detach();
 
-        node2
-            .spawn(async move {
-                sleep(Duration::from_secs(1)).await;
-                let mut client = GreeterClient::connect("http://10.0.0.1:50051")
-                    .await
-                    .unwrap();
-                let request = tonic::Request::new(HelloRequest {
-                    name: "Tonic".into(),
-                });
-                let response = client.say_hello(request).await.unwrap();
-                assert_eq!(response.into_inner().message, "Hello Tonic!");
-            })
-            .await
+        let task2 = node2.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap();
+            let request = tonic::Request::new(HelloRequest {
+                name: "Tonic".into(),
+            });
+            let response = client.say_hello(request).await.unwrap();
+            assert_eq!(response.into_inner().message, "Hello Tonic!");
+        });
+
+        let task3 = node3.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            let mut client = AnotherGreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap();
+            let request = tonic::Request::new(HelloRequest {
+                name: "Tonic".into(),
+            });
+            let response = client.say_hello(request).await.unwrap();
+            assert_eq!(response.into_inner().message, "Hi Tonic!");
+        });
+
+        task2.await;
+        task3.await;
     }
 }

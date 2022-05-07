@@ -3,7 +3,7 @@
 pub use self::channel::{Channel, Endpoint};
 pub use self::error::Error;
 pub use self::server::Server;
-pub use tonic::transport::Uri;
+pub use tonic::transport::{NamedService, Uri};
 
 pub mod channel;
 mod error;

@@ -50,49 +50,37 @@ pub mod greeter_client {
             })?;
             let codec = ();
             let path = http::uri::PathAndQuery::from_static("/helloworld.Greeter/SayHello");
-            self.inner
-                .unary(request.into_request(), path, codec)
-                .await
+            self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn lots_of_replies(
             &mut self,
             request: impl tonic::IntoRequest<super::HelloRequest>,
-        ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::HelloReply>>,
-                tonic::Status,
-            > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e),
-                    )
-                })?;
+        ) -> Result<tonic::Response<tonic::codec::Streaming<super::HelloReply>>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e),
+                )
+            })?;
             let codec = ();
-            let path = http::uri::PathAndQuery::from_static(
-                "/helloworld.Greeter/LotsOfReplies",
-            );
-            self.inner.server_streaming(request.into_request(), path, codec).await
+            let path = http::uri::PathAndQuery::from_static("/helloworld.Greeter/LotsOfReplies");
+            self.inner
+                .server_streaming(request.into_request(), path, codec)
+                .await
         }
         pub async fn lots_of_greetings(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::HelloRequest>,
         ) -> Result<tonic::Response<super::HelloReply>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e),
+                )
+            })?;
             let codec = ();
-            let path = http::uri::PathAndQuery::from_static(
-                "/helloworld.Greeter/LotsOfGreetings",
-            );
+            let path = http::uri::PathAndQuery::from_static("/helloworld.Greeter/LotsOfGreetings");
             self.inner
                 .client_streaming(request.into_streaming_request(), path, codec)
                 .await
@@ -100,24 +88,19 @@ pub mod greeter_client {
         pub async fn bidi_hello(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::HelloRequest>,
-        ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::HelloReply>>,
-                tonic::Status,
-            > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e),
-                    )
-                })?;
+        ) -> Result<tonic::Response<tonic::codec::Streaming<super::HelloReply>>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e),
+                )
+            })?;
             let codec = ();
-            let path = http::uri::PathAndQuery::from_static(
-                "/helloworld.Greeter/BidiHello",
-            );
-            self.inner.streaming(request.into_streaming_request(), path, codec).await
+            let path = http::uri::PathAndQuery::from_static("/helloworld.Greeter/BidiHello");
+            self.inner
+                .streaming(request.into_streaming_request(), path, codec)
+                .await
         }
     }
 }
@@ -199,5 +182,113 @@ pub mod greeter_server {
             let inner = self.inner.clone();
             Self { inner }
         }
+    }
+    impl<T: Greeter> tonic::transport::NamedService for GreeterServer<T> {
+        const NAME: &'static str = "helloworld.Greeter";
+    }
+}
+
+/// Generated client implementations.
+pub mod another_greeter_client {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    #[derive(Debug, Clone)]
+    pub struct AnotherGreeterClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl AnotherGreeterClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+        pub fn new(inner: tonic::transport::Channel) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub async fn say_hello(
+            &mut self,
+            request: impl tonic::IntoRequest<super::HelloRequest>,
+        ) -> Result<tonic::Response<super::HelloReply>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e),
+                )
+            })?;
+            let codec = ();
+            let path = http::uri::PathAndQuery::from_static("/helloworld.AnotherGreeter/SayHello");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+}
+
+/// Generated server implementations.
+pub mod another_greeter_server {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::{http::uri::PathAndQuery, *};
+    type BoxMessage = Box<dyn std::any::Any + Send + Sync>;
+
+    ///Generated trait containing gRPC methods that should be implemented for use with AnotherGreeterServer.
+    #[async_trait]
+    pub trait AnotherGreeter: Send + Sync + 'static {
+        async fn say_hello(
+            &self,
+            request: tonic::Request<super::HelloRequest>,
+        ) -> Result<tonic::Response<super::HelloReply>, tonic::Status>;
+    }
+    #[derive(Debug)]
+    pub struct AnotherGreeterServer<T: AnotherGreeter> {
+        inner: Arc<T>,
+    }
+    impl<T: AnotherGreeter> AnotherGreeterServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self { inner }
+        }
+    }
+    impl<T> tonic::codegen::Service<(PathAndQuery, BoxMessage)> for AnotherGreeterServer<T>
+    where
+        T: AnotherGreeter,
+    {
+        type Response = BoxMessage;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, (path, req): (PathAndQuery, BoxMessage)) -> Self::Future {
+            match path.path() {
+                "/helloworld.AnotherGreeter/SayHello" => {
+                    let inner = self.inner.clone();
+                    Box::pin(async move {
+                        let request = *req
+                            .downcast::<tonic::Request<super::HelloRequest>>()
+                            .unwrap();
+                        let res = inner
+                            .say_hello(request)
+                            .await
+                            .expect("rpc handler returns error");
+                        Ok(Box::new(res) as BoxMessage)
+                    })
+                }
+                _ => Box::pin(async move { Ok(Box::new(()) as BoxMessage) }),
+            }
+        }
+    }
+    impl<T: AnotherGreeter> Clone for AnotherGreeterServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self { inner }
+        }
+    }
+    impl<T: AnotherGreeter> tonic::transport::NamedService for AnotherGreeterServer<T> {
+        const NAME: &'static str = "helloworld.AnotherGreeter";
     }
 }
