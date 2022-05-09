@@ -369,52 +369,22 @@ fn generate_client_streaming<T: Method>(
     proto_path: &str,
     compile_well_known_types: bool,
     method_ident: Ident,
-    server_trait: Ident,
+    _server_trait: Ident,
 ) -> TokenStream {
-    let service_ident = quote::format_ident!("{}Svc", method.identifier());
+    let (request, _) = method.request_response_name(proto_path, compile_well_known_types);
 
-    let (request, response) = method.request_response_name(proto_path, compile_well_known_types);
-    // let codec_name = syn::parse_str::<syn::Path>(method.codec_path()).unwrap();
-
-    return quote! {
-        todo!()
-    };
     quote! {
-        #[allow(non_camel_case_types)]
-        struct #service_ident<T: #server_trait >(pub Arc<T>);
-
-        impl<T: #server_trait> tonic::server::ClientStreamingService<#request> for #service_ident<T>
-        {
-            type Response = #response;
-            type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-
-            fn call(&mut self, request: tonic::Request<tonic::Streaming<#request>>) -> Self::Future {
-                let inner = self.0.clone();
-                let fut = async move {
-                    (*inner).#method_ident(request).await
-
-                };
-                Box::pin(fut)
-            }
-        }
-
-        let accept_compression_encodings = self.accept_compression_encodings;
-        let send_compression_encodings = self.send_compression_encodings;
         let inner = self.inner.clone();
-        let fut = async move {
-            let inner = inner.0;
-            let method = #service_ident(inner);
-            // let codec = #codec_name::default();
-            let codec = ();
-
-            let mut grpc = tonic::server::Grpc::new(codec)
-                .apply_compression_config(accept_compression_encodings, send_compression_encodings);
-
-            let res = grpc.client_streaming(method, req).await;
-            Ok(res)
-        };
-
-        Box::pin(fut)
+        Box::pin(async move {
+            let request = req
+                .map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap()))
+                .boxed();
+            let res = inner
+                .#method_ident(tonic::Request::new(tonic::Streaming::from_stream(request)))
+                .await
+                .expect("rpc handler returns error");
+            Ok(stream::once(async move { Ok(Box::new(res) as BoxMessage) }).boxed())
+        })
     }
 }
 
@@ -423,54 +393,21 @@ fn generate_streaming<T: Method>(
     proto_path: &str,
     compile_well_known_types: bool,
     method_ident: Ident,
-    server_trait: Ident,
+    _server_trait: Ident,
 ) -> TokenStream {
-    // let codec_name = syn::parse_str::<syn::Path>(method.codec_path()).unwrap();
+    let (request, _) = method.request_response_name(proto_path, compile_well_known_types);
 
-    let service_ident = quote::format_ident!("{}Svc", method.identifier());
-
-    let (request, response) = method.request_response_name(proto_path, compile_well_known_types);
-
-    let response_stream = quote::format_ident!("{}Stream", method.identifier());
-
-    return quote! {
-        todo!()
-    };
     quote! {
-        #[allow(non_camel_case_types)]
-        struct #service_ident<T: #server_trait>(pub Arc<T>);
-
-        impl<T: #server_trait> tonic::server::StreamingService<#request> for #service_ident<T>
-        {
-            type Response = #response;
-            type ResponseStream = T::#response_stream;
-            type Future = BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
-
-            fn call(&mut self, request: tonic::Request<tonic::Streaming<#request>>) -> Self::Future {
-                let inner = self.0.clone();
-                let fut = async move {
-                    (*inner).#method_ident(request).await
-                };
-                Box::pin(fut)
-            }
-        }
-
-        let accept_compression_encodings = self.accept_compression_encodings;
-        let send_compression_encodings = self.send_compression_encodings;
         let inner = self.inner.clone();
-        let fut = async move {
-            let inner = inner.0;
-            let method = #service_ident(inner);
-            // let codec = #codec_name::default();
-            let codec = ();
-
-            let mut grpc = tonic::server::Grpc::new(codec)
-                .apply_compression_config(accept_compression_encodings, send_compression_encodings);
-
-            let res = grpc.streaming(method, req).await;
-            Ok(res)
-        };
-
-        Box::pin(fut)
+        Box::pin(async move {
+            let request = req
+                .map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap()))
+                .boxed();
+            let res = inner
+                .#method_ident(tonic::Request::new(tonic::Streaming::from_stream(request)))
+                .await
+                .expect("rpc handler returns error");
+            Ok(res.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed())
+        })
     }
 }

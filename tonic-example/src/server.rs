@@ -12,7 +12,6 @@ use hello_world::{HelloReply, HelloRequest};
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
-    // include!("generated.rs");
 }
 
 #[derive(Debug, Default)]
@@ -119,6 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::hello_world::another_greeter_client::AnotherGreeterClient;
     use super::hello_world::greeter_client::GreeterClient;
+    use async_stream::stream;
     use madsim::{runtime::Handle, time::sleep};
     use std::net::SocketAddr;
 
@@ -128,13 +128,17 @@ mod tests {
     async fn test() {
         let handle = Handle::current();
         let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
-        let addr1 = "10.0.0.2:0".parse::<SocketAddr>().unwrap();
-        let addr2 = "10.0.0.3:0".parse::<SocketAddr>().unwrap();
-        let addr3 = "10.0.0.4:0".parse::<SocketAddr>().unwrap();
+        let ip1 = "10.0.0.2".parse().unwrap();
+        let ip2 = "10.0.0.3".parse().unwrap();
+        let ip3 = "10.0.0.4".parse().unwrap();
+        let ip4 = "10.0.0.5".parse().unwrap();
+        let ip5 = "10.0.0.6".parse().unwrap();
         let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
-        let node1 = handle.create_node().name("client1").ip(addr1.ip()).build();
-        let node2 = handle.create_node().name("client2").ip(addr2.ip()).build();
-        let node3 = handle.create_node().name("client3").ip(addr3.ip()).build();
+        let node1 = handle.create_node().name("client1").ip(ip1).build();
+        let node2 = handle.create_node().name("client2").ip(ip2).build();
+        let node3 = handle.create_node().name("client3").ip(ip3).build();
+        let node4 = handle.create_node().name("client4").ip(ip4).build();
+        let node5 = handle.create_node().name("client5").ip(ip5).build();
 
         node0
             .spawn(async move {
@@ -192,8 +196,47 @@ mod tests {
             assert_eq!(i, 3);
         });
 
+        let new_stream = || {
+            stream! {
+                for i in 0..3 {
+                    yield HelloRequest {
+                        name: format!("Tonic{i}"),
+                    };
+                    sleep(Duration::from_secs(1)).await;
+                }
+            }
+        };
+
+        // client stream
+        let task4 = node4.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap();
+            let response = client.lots_of_greetings(new_stream()).await.unwrap();
+            assert_eq!(response.into_inner().message, "Hello Tonic0 Tonic1 Tonic2!");
+        });
+
+        // bi-directional stream
+        let task5 = node5.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap();
+            let response = client.bidi_hello(new_stream()).await.unwrap();
+            let mut stream = response.into_inner();
+            let mut i = 0;
+            while let Some(reply) = stream.message().await.unwrap() {
+                assert_eq!(reply.message, format!("Hello Tonic{i}!"));
+                i += 1;
+            }
+            assert_eq!(i, 3);
+        });
+
         task1.await;
         task2.await;
         task3.await;
+        task4.await;
+        task5.await;
     }
 }

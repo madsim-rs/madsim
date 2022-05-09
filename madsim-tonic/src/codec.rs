@@ -1,19 +1,16 @@
 use crate::Status;
+use async_stream::try_stream;
+use futures::StreamExt;
 use madsim::task::Task;
-use std::{fmt, marker::PhantomData, sync::Arc};
+use std::{fmt, sync::Arc};
+use tonic::codegen::BoxStream;
 
 /// Streaming requests and responses.
 pub struct Streaming<T> {
-    ep: Arc<madsim::net::Endpoint>,
-    /// Tag of the next message to receive.
-    tag: u64,
-    _mark: PhantomData<T>,
-    /// For bi-directional streaming, we spawn a task to send requests.
-    /// This is used to cancel the task when the stream is dropped.
-    _request_sending_task: Option<Task<()>>,
+    stream: BoxStream<T>,
 }
 
-impl<T> Streaming<T> {
+impl<T: Send + 'static> Streaming<T> {
     /// Creates a new streaming.
     ///
     /// The elements will be received from the endpoint starting with the given tag.
@@ -24,27 +21,39 @@ impl<T> Streaming<T> {
         request_sending_task: Option<Task<()>>,
     ) -> Self {
         Streaming {
-            ep,
-            tag,
-            _mark: PhantomData,
-            _request_sending_task: request_sending_task,
+            stream: try_stream! {
+                // For bi-directional streaming, we spawn a task to send requests.
+                // This is used to cancel the task when the stream is dropped.
+                let _task = request_sending_task;
+                // receive messages
+                for tag in tag.. {
+                    let (msg, _) = ep.recv_from_raw(tag).await?;
+                    if msg.downcast_ref::<StreamEnd>().is_some() {
+                        return;
+                    }
+                    yield *msg.downcast::<T>().unwrap();
+                }
+            }
+            .boxed(),
         }
+    }
+
+    /// Creates a new streaming.
+    ///
+    /// This method is used by macros only. Not a public API.
+    #[doc(hidden)]
+    pub fn from_stream(stream: BoxStream<T>) -> Self {
+        Streaming { stream }
     }
 }
 
 /// A marker type that indicates the stream is end.
 pub(crate) struct StreamEnd;
 
-impl<T: 'static> Streaming<T> {
+impl<T> Streaming<T> {
     /// Fetch the next message from this stream.
     pub async fn message(&mut self) -> Result<Option<T>, Status> {
-        let (rsp, _) = self.ep.recv_from_raw(self.tag).await?;
-        if rsp.downcast_ref::<StreamEnd>().is_some() {
-            return Ok(None);
-        }
-        let rsp = *rsp.downcast::<T>().expect("message type mismatch");
-        self.tag += 1;
-        Ok(Some(rsp))
+        self.stream.next().await.transpose()
     }
 }
 
