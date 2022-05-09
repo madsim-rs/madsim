@@ -52,12 +52,17 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --release --no-fail-fast
+          args: --release --no-fail-fast -p madsim
       - name: Test sim
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --release --no-fail-fast --features=sim -p madsim
+          args: --release --no-fail-fast -p madsim --features=sim
+      - name: Test tonic
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --release --no-fail-fast -p tonic-example --features=tonic/sim
 
   bench:
     runs-on: ubuntu-latest
@@ -88,4 +93,4 @@ jobs:
           RUSTDOCFLAGS: "--cfg docsrs"
         with:
           command: doc
-          args: --no-deps -p madsim --features=sim
+          args: --no-deps --features=sim
