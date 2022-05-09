@@ -12,10 +12,6 @@ path = "src/server.rs"
 name = "client"
 path = "src/client.rs"
 
-[features]
-# default = ["sim"]
-sim = ["tonic/sim"]
-
 [dependencies]
 async-stream = "0.3"
 futures-core = "0.3"
@@ -25,4 +21,4 @@ tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 tonic = { path = "../madsim-tonic", package = "madsim-tonic" }
 
 [build-dependencies]
-tonic-build = "0.7"
+tonic-build = { path = "../madsim-tonic-build", package = "madsim-tonic-build" }

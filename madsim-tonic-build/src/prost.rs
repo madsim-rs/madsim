@@ -1,7 +1,6 @@
 use super::{client, server, Attributes};
 use proc_macro2::TokenStream;
-use prost_build::{Config, Method, Service};
-use quote::ToTokens;
+use prost_build::Config;
 use std::{
     ffi::OsString,
     io,
@@ -27,6 +26,7 @@ pub fn configure() -> Builder {
         emit_package: true,
         protoc_args: Vec::new(),
         include_file: None,
+        builder: tonic_build::configure(),
     }
 }
 
@@ -45,95 +45,6 @@ pub fn compile_protos(proto: impl AsRef<Path>) -> io::Result<()> {
     self::configure().compile(&[proto_path], &[proto_dir])?;
 
     Ok(())
-}
-
-const PROST_CODEC_PATH: &str = "tonic::codec::ProstCodec";
-
-/// Non-path Rust types allowed for request/response types.
-const NON_PATH_TYPE_ALLOWLIST: &[&str] = &["()"];
-
-impl crate::Service for Service {
-    type Method = Method;
-    type Comment = String;
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn package(&self) -> &str {
-        &self.package
-    }
-
-    fn identifier(&self) -> &str {
-        &self.proto_name
-    }
-
-    fn comment(&self) -> &[Self::Comment] {
-        &self.comments.leading[..]
-    }
-
-    fn methods(&self) -> &[Self::Method] {
-        &self.methods[..]
-    }
-}
-
-impl crate::Method for Method {
-    type Comment = String;
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn identifier(&self) -> &str {
-        &self.proto_name
-    }
-
-    fn codec_path(&self) -> &str {
-        PROST_CODEC_PATH
-    }
-
-    fn client_streaming(&self) -> bool {
-        self.client_streaming
-    }
-
-    fn server_streaming(&self) -> bool {
-        self.server_streaming
-    }
-
-    fn comment(&self) -> &[Self::Comment] {
-        &self.comments.leading[..]
-    }
-
-    fn request_response_name(
-        &self,
-        proto_path: &str,
-        compile_well_known_types: bool,
-    ) -> (TokenStream, TokenStream) {
-        let convert_type = |proto_type: &str, rust_type: &str| -> TokenStream {
-            if (is_google_type(proto_type) && !compile_well_known_types)
-                || rust_type.starts_with("::")
-                || NON_PATH_TYPE_ALLOWLIST.iter().any(|ty| *ty == rust_type)
-            {
-                rust_type.parse::<TokenStream>().unwrap()
-            } else if rust_type.starts_with("crate::") {
-                syn::parse_str::<syn::Path>(rust_type)
-                    .unwrap()
-                    .to_token_stream()
-            } else {
-                syn::parse_str::<syn::Path>(&format!("{}::{}", proto_path, rust_type))
-                    .unwrap()
-                    .to_token_stream()
-            }
-        };
-
-        let request = convert_type(&self.input_proto_type, &self.input_type);
-        let response = convert_type(&self.output_proto_type, &self.output_type);
-        (request, response)
-    }
-}
-
-fn is_google_type(ty: &str) -> bool {
-    ty.starts_with(".google.protobuf")
 }
 
 struct ServiceGenerator {
@@ -226,17 +137,22 @@ pub struct Builder {
     pub(crate) include_file: Option<PathBuf>,
 
     out_dir: Option<PathBuf>,
+
+    // The original builder.
+    builder: tonic_build::Builder,
 }
 
 impl Builder {
     /// Enable or disable gRPC client code generation.
     pub fn build_client(mut self, enable: bool) -> Self {
+        self.builder = self.builder.build_client(enable);
         self.build_client = enable;
         self
     }
 
     /// Enable or disable gRPC server code generation.
     pub fn build_server(mut self, enable: bool) -> Self {
+        self.builder = self.builder.build_server(enable);
         self.build_server = enable;
         self
     }
@@ -244,6 +160,7 @@ impl Builder {
     /// Generate a file containing the encoded `prost_types::FileDescriptorSet` for protocol buffers
     /// modules. This is required for implementing gRPC Server Reflection.
     pub fn file_descriptor_set_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.builder = self.builder.file_descriptor_set_path(path.as_ref());
         self.file_descriptor_set_path = Some(path.as_ref().to_path_buf());
         self
     }
@@ -252,6 +169,7 @@ impl Builder {
     ///
     /// Defaults to the `OUT_DIR` environment variable.
     pub fn out_dir(mut self, out_dir: impl AsRef<Path>) -> Self {
+        self.builder = self.builder.out_dir(out_dir.as_ref());
         self.out_dir = Some(out_dir.as_ref().to_path_buf());
         self
     }
@@ -262,6 +180,9 @@ impl Builder {
     /// Note that both the Protobuf path and the rust package paths should both be fully qualified.
     /// i.e. Protobuf paths should start with "." and rust paths should start with "::"
     pub fn extern_path(mut self, proto_path: impl AsRef<str>, rust_path: impl AsRef<str>) -> Self {
+        self.builder = self
+            .builder
+            .extern_path(proto_path.as_ref(), rust_path.as_ref());
         self.extern_path.push((
             proto_path.as_ref().to_string(),
             rust_path.as_ref().to_string(),
@@ -273,6 +194,9 @@ impl Builder {
     ///
     /// Passed directly to `prost_build::Config.field_attribute`.
     pub fn field_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
+        self.builder = self
+            .builder
+            .field_attribute(path.as_ref(), attribute.as_ref());
         self.field_attributes
             .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
         self
@@ -282,6 +206,9 @@ impl Builder {
     ///
     /// Passed directly to `prost_build::Config.type_attribute`.
     pub fn type_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
+        self.builder = self
+            .builder
+            .type_attribute(path.as_ref(), attribute.as_ref());
         self.type_attributes
             .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
         self
@@ -293,6 +220,9 @@ impl Builder {
         path: P,
         attribute: A,
     ) -> Self {
+        self.builder = self
+            .builder
+            .server_mod_attribute(path.as_ref(), attribute.as_ref());
         self.server_attributes
             .push_mod(path.as_ref().to_string(), attribute.as_ref().to_string());
         self
@@ -300,6 +230,9 @@ impl Builder {
 
     /// Add additional attribute to matched service servers. Matches on the service name.
     pub fn server_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
+        self.builder = self
+            .builder
+            .server_attribute(path.as_ref(), attribute.as_ref());
         self.server_attributes
             .push_struct(path.as_ref().to_string(), attribute.as_ref().to_string());
         self
@@ -311,6 +244,9 @@ impl Builder {
         path: P,
         attribute: A,
     ) -> Self {
+        self.builder = self
+            .builder
+            .client_mod_attribute(path.as_ref(), attribute.as_ref());
         self.client_attributes
             .push_mod(path.as_ref().to_string(), attribute.as_ref().to_string());
         self
@@ -318,6 +254,9 @@ impl Builder {
 
     /// Add additional attribute to matched service clients. Matches on the service name.
     pub fn client_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
+        self.builder = self
+            .builder
+            .client_attribute(path.as_ref(), attribute.as_ref());
         self.client_attributes
             .push_struct(path.as_ref().to_string(), attribute.as_ref().to_string());
         self
@@ -328,6 +267,7 @@ impl Builder {
     ///
     /// This defaults to `super` since tonic will generate code in a module.
     pub fn proto_path(mut self, proto_path: impl AsRef<str>) -> Self {
+        self.builder = self.builder.proto_path(proto_path.as_ref());
         self.proto_path = proto_path.as_ref().to_string();
         self
     }
@@ -336,6 +276,7 @@ impl Builder {
     ///
     /// Note: Enabling `--experimental_allow_proto3_optional` requires protobuf >= 3.12.
     pub fn protoc_arg<A: AsRef<str>>(mut self, arg: A) -> Self {
+        self.builder = self.builder.protoc_arg(arg.as_ref());
         self.protoc_args.push(arg.as_ref().into());
         self
     }
@@ -344,6 +285,7 @@ impl Builder {
     ///
     /// This effectively sets prost's exported package to an empty string.
     pub fn disable_package_emission(mut self) -> Self {
+        self.builder = self.builder.disable_package_emission();
         self.emit_package = false;
         self
     }
@@ -353,6 +295,9 @@ impl Builder {
     ///
     /// This defaults to `false`.
     pub fn compile_well_known_types(mut self, compile_well_known_types: bool) -> Self {
+        self.builder = self
+            .builder
+            .compile_well_known_types(compile_well_known_types);
         self.compile_well_known_types = compile_well_known_types;
         self
     }
@@ -364,6 +309,7 @@ impl Builder {
     /// for a shortcut where multiple related proto files have been compiled together resulting in
     /// a semi-complex set of includes.
     pub fn include_file(mut self, path: impl AsRef<Path>) -> Self {
+        self.builder = self.builder.include_file(path.as_ref());
         self.include_file = Some(path.as_ref().to_path_buf());
         self
     }
@@ -380,18 +326,23 @@ impl Builder {
     /// Compile the .proto files and execute code generation using a
     /// custom `prost_build::Config`.
     pub fn compile_with_config(
-        self,
+        mut self,
         mut config: Config,
         protos: &[impl AsRef<Path>],
         includes: &[impl AsRef<Path>],
     ) -> io::Result<()> {
+        let builder = std::mem::replace(&mut self.builder, tonic_build::configure());
+
         let out_dir = if let Some(out_dir) = self.out_dir.as_ref() {
             out_dir.clone()
         } else {
             PathBuf::from(std::env::var("OUT_DIR").unwrap())
         };
+        // generate the simulated version in an internal `sim` directory
+        let out_dir_sim = out_dir.join("sim");
+        std::fs::create_dir_all(&out_dir_sim)?;
 
-        config.out_dir(out_dir);
+        config.out_dir(out_dir_sim);
         if let Some(path) = self.file_descriptor_set_path.as_ref() {
             config.file_descriptor_set_path(path);
         }
@@ -418,6 +369,10 @@ impl Builder {
         config.service_generator(self.service_generator());
 
         config.compile_protos(protos, includes)?;
+
+        // generate origin
+        config.out_dir(out_dir);
+        builder.compile_with_config(config, protos, includes)?;
 
         Ok(())
     }

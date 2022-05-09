@@ -11,10 +11,7 @@ use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 
 pub mod hello_world {
-    #[cfg(not(feature = "sim"))]
     tonic::include_proto!("helloworld");
-    #[cfg(feature = "sim")]
-    include!("generated.rs");
 }
 
 #[derive(Debug, Default)]

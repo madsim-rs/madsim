@@ -7,10 +7,7 @@ use hello_world::greeter_client::GreeterClient;
 use hello_world::HelloRequest;
 
 pub mod hello_world {
-    #[cfg(not(feature = "sim"))]
     tonic::include_proto!("helloworld");
-    #[cfg(feature = "sim")]
-    include!("generated.rs");
 }
 
 #[tokio::main]

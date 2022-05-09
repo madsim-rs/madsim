@@ -13,7 +13,15 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+prettyplease = "0.1"
 proc-macro2 = "1"
-prost-build = "0.10"
+prost-build = { version = "0.10", optional = true }
 quote = "1"
 syn = "1"
+tonic-build = "0.7"
+
+[features]
+compression = []
+default = ["transport", "prost"]
+prost = ["prost-build"]
+transport = []
