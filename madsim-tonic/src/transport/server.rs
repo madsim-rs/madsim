@@ -1,10 +1,14 @@
 //! Server implementation and builder.
 
 use super::Error;
-use futures::{future::poll_fn, select_biased, FutureExt};
+use crate::{
+    codec::StreamEnd,
+    codegen::{BoxMessage, BoxMessageStream},
+};
+use async_stream::try_stream;
+use futures::{future::poll_fn, select_biased, FutureExt, StreamExt};
 use madsim::net::Endpoint;
 use std::{
-    any::Any,
     collections::HashMap,
     convert::Infallible,
     future::{pending, Future},
@@ -15,9 +19,6 @@ use tonic::{
     codegen::{http::uri::PathAndQuery, BoxFuture, Service},
     transport::NamedService,
 };
-
-/// A type-erased message.
-pub(crate) type BoxMessage = Box<dyn Any + Send + Sync>;
 
 /// A default batteries included `transport` server.
 #[derive(Default)]
@@ -33,10 +34,10 @@ impl Server {
     pub fn add_service<S>(&mut self, svc: S) -> Router
     where
         S: Service<
-                (PathAndQuery, BoxMessage),
-                Response = BoxMessage,
+                (PathAndQuery, BoxMessageStream),
+                Response = BoxMessageStream,
                 Error = Infallible,
-                Future = BoxFuture<BoxMessage, Infallible>,
+                Future = BoxFuture<BoxMessageStream, Infallible>,
             > + NamedService
             + Send
             + 'static,
@@ -54,10 +55,10 @@ pub struct Router {
         &'static str,
         Box<
             dyn Service<
-                    (PathAndQuery, BoxMessage),
-                    Response = BoxMessage,
+                    (PathAndQuery, BoxMessageStream),
+                    Response = BoxMessageStream,
                     Error = Infallible,
-                    Future = BoxFuture<BoxMessage, Infallible>,
+                    Future = BoxFuture<BoxMessageStream, Infallible>,
                 > + Send
                 + 'static,
         >,
@@ -69,10 +70,10 @@ impl Router {
     pub fn add_service<S>(mut self, svc: S) -> Self
     where
         S: Service<
-                (PathAndQuery, BoxMessage),
-                Response = BoxMessage,
+                (PathAndQuery, BoxMessageStream),
+                Response = BoxMessageStream,
                 Error = Infallible,
-                Future = BoxFuture<BoxMessage, Infallible>,
+                Future = BoxFuture<BoxMessageStream, Infallible>,
             > + NamedService
             + Send
             + 'static,
@@ -102,24 +103,50 @@ impl Router {
                 ret = ep.recv_from_raw(0).fuse() => ret.map_err(Error::from_source)?,
                 _ = &mut signal => return Ok(()),
             };
-            let (rsp_tag, path, msg) = *msg
-                .downcast::<(u64, PathAndQuery, BoxMessage)>()
+            let (mut tag, path, msg, client_stream, server_stream) = *msg
+                .downcast::<(u64, PathAndQuery, BoxMessage, bool, bool)>()
                 .expect("invalid type");
             log::trace!("request: {path} <- {from}");
+
+            let requests: BoxMessageStream = if !client_stream {
+                // single request
+                futures::stream::once(async move { Ok(msg) }).boxed()
+            } else {
+                // request stream
+                let ep = ep.clone();
+                try_stream! {
+                    for tag in tag.. {
+                        let (msg, _) = ep.recv_from_raw(tag).await?;
+                        if msg.downcast_ref::<StreamEnd>().is_some() {
+                            return;
+                        }
+                        yield msg;
+                    }
+                }
+                .boxed()
+            };
 
             // call the service in a new spawned task
             // TODO: handle error
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let rsp_future = svc.call((path, msg));
+            let rsp_future = svc.call((path, requests));
             let ep = ep.clone();
             madsim::task::spawn(async move {
-                let rsp = rsp_future.await.unwrap();
+                let mut stream = rsp_future.await.unwrap();
                 // send the response
-                ep.send_to_raw(from, rsp_tag, rsp)
-                    .await
-                    .expect("failed to send response");
+                while let Some(rsp) = stream.next().await {
+                    ep.send_to_raw(from, tag, rsp.unwrap())
+                        .await
+                        .expect("failed to send response");
+                    tag += 1;
+                }
+                if server_stream {
+                    ep.send_to_raw(from, tag, Box::new(StreamEnd))
+                        .await
+                        .expect("failed to send response");
+                }
             })
             .detach();
         }

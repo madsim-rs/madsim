@@ -4,7 +4,7 @@ use futures::{pin_mut, Stream, StreamExt};
 use madsim::rand::{rng, Rng};
 use tonic::codegen::http::uri::PathAndQuery;
 
-use crate::{transport::server::BoxMessage, Request, Response, Status, Streaming};
+use crate::{codec::StreamEnd, codegen::BoxMessage, Request, Response, Status, Streaming};
 
 #[derive(Debug, Clone)]
 pub struct Grpc<T> {
@@ -38,7 +38,7 @@ impl Grpc<crate::transport::Channel> {
         // generate a random tag for response
         let rsp_tag = rng().gen::<u64>();
         // send request
-        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage));
+        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage, false, false));
         self.inner.ep.send_raw(0, data).await?;
         // receive response
         let rsp = self.inner.ep.recv_raw(rsp_tag).await?;
@@ -62,7 +62,7 @@ impl Grpc<crate::transport::Channel> {
         // generate a random tag for request and responses
         let tag = rng().gen::<u64>();
         // send requests
-        self.send_request_stream(request, tag, path).await?;
+        self.send_request_stream(request, tag, path, false).await?;
         // receive response
         let rsp = self.inner.ep.recv_raw(tag).await?;
         let rsp = *rsp
@@ -85,7 +85,7 @@ impl Grpc<crate::transport::Channel> {
         // generate a random tag for responses
         let rsp_tag = rng().gen::<u64>();
         // send request
-        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage));
+        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage, false, true));
         self.inner.ep.send_raw(0, data).await?;
         // receive responses
         Ok(Response::new(Streaming::new(
@@ -111,7 +111,9 @@ impl Grpc<crate::transport::Channel> {
         // send requests in a background task
         let this = self.clone();
         let task = madsim::task::spawn(async move {
-            this.send_request_stream(request, tag, path).await.unwrap();
+            this.send_request_stream(request, tag, path, true)
+                .await
+                .unwrap();
         });
         // receive responses
         Ok(Response::new(Streaming::new(
@@ -126,23 +128,25 @@ impl Grpc<crate::transport::Channel> {
         request: Request<impl Stream<Item = M1> + Send + 'static>,
         mut tag: u64,
         path: PathAndQuery,
+        server_stream: bool,
     ) -> Result<(), Status>
     where
         M1: Send + Sync + 'static,
     {
+        // TODO: send `Request` metadata
         // send stream start message
-        let data = Box::new((tag, path, Box::new(tag) as BoxMessage));
+        let data = Box::new((tag, path, Box::new(()) as BoxMessage, true, server_stream));
         self.inner.ep.send_raw(0, data).await?;
         // send requests with increasing tag
         let stream = request.into_inner();
         pin_mut!(stream);
         while let Some(request) = stream.next().await {
-            let data = Box::new(Some(request));
+            let data = Box::new(request);
             self.inner.ep.send_raw(tag, data).await?;
             tag += 1;
         }
         // send stream end message
-        let data = Box::new(None as Option<M1>);
+        let data = Box::new(StreamEnd);
         self.inner.ep.send_raw(tag, data).await?;
         Ok(())
     }

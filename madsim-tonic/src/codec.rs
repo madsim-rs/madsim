@@ -32,13 +32,19 @@ impl<T> Streaming<T> {
     }
 }
 
+/// A marker type that indicates the stream is end.
+pub(crate) struct StreamEnd;
+
 impl<T: 'static> Streaming<T> {
     /// Fetch the next message from this stream.
     pub async fn message(&mut self) -> Result<Option<T>, Status> {
         let (rsp, _) = self.ep.recv_from_raw(self.tag).await?;
-        let rsp = *rsp.downcast::<Option<T>>().expect("message type mismatch");
+        if rsp.downcast_ref::<StreamEnd>().is_some() {
+            return Ok(None);
+        }
+        let rsp = *rsp.downcast::<T>().expect("message type mismatch");
         self.tag += 1;
-        Ok(rsp)
+        Ok(Some(rsp))
     }
 }
 

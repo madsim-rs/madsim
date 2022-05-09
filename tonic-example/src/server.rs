@@ -12,6 +12,7 @@ use hello_world::{HelloReply, HelloRequest};
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
+    // include!("generated.rs");
 }
 
 #[derive(Debug, Default)]
@@ -126,25 +127,28 @@ mod tests {
     #[madsim::test]
     async fn test() {
         let handle = Handle::current();
-        let addr1 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
-        let addr2 = "10.0.0.2:0".parse::<SocketAddr>().unwrap();
-        let addr3 = "10.0.0.3:0".parse::<SocketAddr>().unwrap();
-        let node1 = handle.create_node().name("server").ip(addr1.ip()).build();
-        let node2 = handle.create_node().name("client1").ip(addr2.ip()).build();
-        let node3 = handle.create_node().name("client2").ip(addr3.ip()).build();
+        let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+        let addr1 = "10.0.0.2:0".parse::<SocketAddr>().unwrap();
+        let addr2 = "10.0.0.3:0".parse::<SocketAddr>().unwrap();
+        let addr3 = "10.0.0.4:0".parse::<SocketAddr>().unwrap();
+        let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
+        let node1 = handle.create_node().name("client1").ip(addr1.ip()).build();
+        let node2 = handle.create_node().name("client2").ip(addr2.ip()).build();
+        let node3 = handle.create_node().name("client3").ip(addr3.ip()).build();
 
-        node1
+        node0
             .spawn(async move {
                 Server::builder()
                     .add_service(GreeterServer::new(MyGreeter::default()))
                     .add_service(AnotherGreeterServer::new(MyGreeter::default()))
-                    .serve(addr1)
+                    .serve(addr0)
                     .await
                     .unwrap();
             })
             .detach();
 
-        let task2 = node2.spawn(async move {
+        // unary
+        let task1 = node1.spawn(async move {
             sleep(Duration::from_secs(1)).await;
             let mut client = GreeterClient::connect("http://10.0.0.1:50051")
                 .await
@@ -156,7 +160,8 @@ mod tests {
             assert_eq!(response.into_inner().message, "Hello Tonic!");
         });
 
-        let task3 = node3.spawn(async move {
+        // another service
+        let task2 = node2.spawn(async move {
             sleep(Duration::from_secs(1)).await;
             let mut client = AnotherGreeterClient::connect("http://10.0.0.1:50051")
                 .await
@@ -168,6 +173,26 @@ mod tests {
             assert_eq!(response.into_inner().message, "Hi Tonic!");
         });
 
+        // server stream
+        let task3 = node3.spawn(async move {
+            sleep(Duration::from_secs(1)).await;
+            let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap();
+            let request = tonic::Request::new(HelloRequest {
+                name: "Tonic".into(),
+            });
+            let response = client.lots_of_replies(request).await.unwrap();
+            let mut stream = response.into_inner();
+            let mut i = 0;
+            while let Some(reply) = stream.message().await.unwrap() {
+                assert_eq!(reply.message, format!("{i}: Hello Tonic!"));
+                i += 1;
+            }
+            assert_eq!(i, 3);
+        });
+
+        task1.await;
         task2.await;
         task3.await;
     }
