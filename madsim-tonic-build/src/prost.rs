@@ -160,7 +160,6 @@ impl Builder {
     /// Generate a file containing the encoded `prost_types::FileDescriptorSet` for protocol buffers
     /// modules. This is required for implementing gRPC Server Reflection.
     pub fn file_descriptor_set_path(mut self, path: impl AsRef<Path>) -> Self {
-        self.builder = self.builder.file_descriptor_set_path(path.as_ref());
         self.file_descriptor_set_path = Some(path.as_ref().to_path_buf());
         self
     }
@@ -180,9 +179,6 @@ impl Builder {
     /// Note that both the Protobuf path and the rust package paths should both be fully qualified.
     /// i.e. Protobuf paths should start with "." and rust paths should start with "::"
     pub fn extern_path(mut self, proto_path: impl AsRef<str>, rust_path: impl AsRef<str>) -> Self {
-        self.builder = self
-            .builder
-            .extern_path(proto_path.as_ref(), rust_path.as_ref());
         self.extern_path.push((
             proto_path.as_ref().to_string(),
             rust_path.as_ref().to_string(),
@@ -194,9 +190,6 @@ impl Builder {
     ///
     /// Passed directly to `prost_build::Config.field_attribute`.
     pub fn field_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
-        self.builder = self
-            .builder
-            .field_attribute(path.as_ref(), attribute.as_ref());
         self.field_attributes
             .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
         self
@@ -206,9 +199,6 @@ impl Builder {
     ///
     /// Passed directly to `prost_build::Config.type_attribute`.
     pub fn type_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
-        self.builder = self
-            .builder
-            .type_attribute(path.as_ref(), attribute.as_ref());
         self.type_attributes
             .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
         self
@@ -276,7 +266,6 @@ impl Builder {
     ///
     /// Note: Enabling `--experimental_allow_proto3_optional` requires protobuf >= 3.12.
     pub fn protoc_arg<A: AsRef<str>>(mut self, arg: A) -> Self {
-        self.builder = self.builder.protoc_arg(arg.as_ref());
         self.protoc_args.push(arg.as_ref().into());
         self
     }
@@ -295,9 +284,6 @@ impl Builder {
     ///
     /// This defaults to `false`.
     pub fn compile_well_known_types(mut self, compile_well_known_types: bool) -> Self {
-        self.builder = self
-            .builder
-            .compile_well_known_types(compile_well_known_types);
         self.compile_well_known_types = compile_well_known_types;
         self
     }
@@ -309,7 +295,6 @@ impl Builder {
     /// for a shortcut where multiple related proto files have been compiled together resulting in
     /// a semi-complex set of includes.
     pub fn include_file(mut self, path: impl AsRef<Path>) -> Self {
-        self.builder = self.builder.include_file(path.as_ref());
         self.include_file = Some(path.as_ref().to_path_buf());
         self
     }

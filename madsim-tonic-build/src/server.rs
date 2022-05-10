@@ -75,6 +75,7 @@ pub fn generate<T: Service>(
                 unused_variables,
                 dead_code,
                 missing_docs,
+                unused_mut,
                 // will trigger if compression is disabled
                 clippy::let_unit_value,
             )]
@@ -337,7 +338,7 @@ fn generate_unary<T: Method>(
             let request = *req.next().await.unwrap().unwrap()
                 .downcast::<tonic::Request<#request>>()
                 .unwrap();
-            let res = inner.#method_ident(request).await.expect("rpc handler returns error");
+            let res = (*inner).#method_ident(request).await.expect("rpc handler returns error");
             Ok(stream::once(async move { Ok(Box::new(res) as BoxMessage) }).boxed())
         })
     }
@@ -358,7 +359,7 @@ fn generate_server_streaming<T: Method>(
             let request = *req.next().await.unwrap().unwrap()
                 .downcast::<tonic::Request<#request>>()
                 .unwrap();
-            let res = inner.#method_ident(request).await.expect("rpc handler returns error");
+            let res = (*inner).#method_ident(request).await.expect("rpc handler returns error");
             Ok(res.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed())
         })
     }
