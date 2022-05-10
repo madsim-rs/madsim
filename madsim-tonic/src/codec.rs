@@ -1,8 +1,13 @@
 use crate::Status;
 use async_stream::try_stream;
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use madsim::task::Task;
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use tonic::codegen::BoxStream;
 
 /// Streaming requests and responses.
@@ -60,5 +65,13 @@ impl<T> Streaming<T> {
 impl<T> fmt::Debug for Streaming<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Streaming").finish()
+    }
+}
+
+impl<T> Stream for Streaming<T> {
+    type Item = Result<T, Status>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.stream).poll_next(cx)
     }
 }
