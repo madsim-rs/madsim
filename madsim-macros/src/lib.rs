@@ -138,11 +138,10 @@ fn parse_test(
     let brace_token = input.block.brace_token;
     input.block = syn::parse2(quote! {
         {
-            use ::std::time::{Duration, SystemTime};
             let seed: u64 = if let Ok(seed_str) = ::std::env::var("MADSIM_TEST_SEED") {
                 seed_str.parse().expect("MADSIM_TEST_SEED should be an integer")
             } else {
-                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+                ::std::time::SystemTime::now().duration_since(::std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
             };
             let config = if let Ok(config_path) = std::env::var("MADSIM_TEST_CONFIG") {
                 let content = std::fs::read_to_string(config_path).expect("failed to read config file");
@@ -163,28 +162,36 @@ fn parse_test(
                 count = count.max(2);
             }
             let mut rand_log = None;
+            let mut return_value = None;
             for i in 0..count {
                 let seed = if check { seed } else { seed + i };
                 let rand_log0 = rand_log.take();
                 let config_ = config.clone();
-                let ret = std::panic::catch_unwind(move || {
+                let res = std::panic::catch_unwind(move || {
                     let mut rt = ::madsim::runtime::Runtime::with_seed_and_config(seed, config_);
                     if check {
                         rt.enable_determinism_check(rand_log0);
                     }
                     if let Some(limit) = time_limit_s {
-                        rt.set_time_limit(Duration::from_secs_f64(limit));
+                        rt.set_time_limit(::std::time::Duration::from_secs_f64(limit));
                     }
-                    rt.block_on(async #body);
-                    rt.take_rand_log()
+                    let ret = rt.block_on(async #body);
+                    let log = rt.take_rand_log();
+                    (ret, log)
                 });
-                if let Err(e) = ret {
-                    println!("MADSIM_CONFIG_HASH={:016X}", config.hash());
-                    println!("MADSIM_TEST_SEED={}", seed);
-                    ::std::panic::resume_unwind(e);
+                match res {
+                    Ok((ret, log)) => {
+                        return_value = Some(ret);
+                        rand_log = log;
+                    }
+                    Err(e) => {
+                        println!("MADSIM_CONFIG_HASH={:016X}", config.hash());
+                        println!("MADSIM_TEST_SEED={}", seed);
+                        ::std::panic::resume_unwind(e);
+                    }
                 }
-                rand_log = ret.unwrap();
             }
+            return_value.unwrap()
         }
     })
     .expect("Parsing failure");

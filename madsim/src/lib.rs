@@ -12,10 +12,6 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
 pub use madsim_macros::main;
 
-#[cfg(all(feature = "sim", feature = "macros"))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "sim", feature = "macros"))))]
-pub use madsim_macros::test;
-
 #[cfg(all(feature = "rpc", feature = "macros"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "rpc", feature = "macros"))))]
 pub use madsim_macros::{service, Request};

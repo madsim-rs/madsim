@@ -3,6 +3,10 @@
 pub use self::config::Config;
 pub(crate) use self::runtime::context;
 
+#[cfg(feature = "macros")]
+#[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
+pub use madsim_macros::test;
+
 pub mod collections;
 mod config;
 pub mod fs;
