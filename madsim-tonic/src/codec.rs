@@ -1,7 +1,7 @@
 use crate::Status;
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
-use madsim::task::Task;
+use madsim::task::JoinHandle;
 use std::{
     fmt,
     pin::Pin,
@@ -23,7 +23,7 @@ impl<T: Send + 'static> Streaming<T> {
     pub(crate) fn new(
         ep: Arc<madsim::net::Endpoint>,
         tag: u64,
-        request_sending_task: Option<Task<()>>,
+        request_sending_task: Option<JoinHandle<()>>,
     ) -> Self {
         Streaming {
             stream: try_stream! {

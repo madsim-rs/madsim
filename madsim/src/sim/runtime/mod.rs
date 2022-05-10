@@ -1,7 +1,7 @@
 //! The madsim runtime.
 
 use super::*;
-use crate::task::NodeId;
+use crate::task::{JoinHandle, NodeId};
 use std::{
     any::TypeId,
     collections::HashMap,
@@ -324,7 +324,7 @@ impl NodeHandle {
     }
 
     /// Spawn a future onto the runtime.
-    pub fn spawn<F>(&self, future: F) -> async_task::Task<F::Output>
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,

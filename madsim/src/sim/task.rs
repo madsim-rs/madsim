@@ -5,8 +5,7 @@ use super::{
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
-use async_task::Runnable;
-pub use async_task::Task;
+use async_task::{Runnable, Task};
 use std::{
     collections::HashMap,
     fmt,
@@ -268,7 +267,7 @@ impl TaskNodeHandle {
         self.info.node
     }
 
-    pub fn spawn<F>(&self, future: F) -> Task<F::Output>
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -276,7 +275,7 @@ impl TaskNodeHandle {
         self.spawn_local(future)
     }
 
-    pub fn spawn_local<F>(&self, future: F) -> Task<F::Output>
+    pub fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + 'static,
         F::Output: 'static,
@@ -291,15 +290,12 @@ impl TaskNodeHandle {
             })
         };
         runnable.schedule();
-        task
+        JoinHandle(Some(task))
     }
 }
 
-/// A spawned task.
-pub type JoinHandle<T> = Task<T>;
-
 /// Spawns a new asynchronous task, returning a [`Task`] for it.
-pub fn spawn<F>(future: F) -> Task<F::Output>
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
@@ -309,7 +305,7 @@ where
 }
 
 /// Spawns a `!Send` future on the local task set.
-pub fn spawn_local<F>(future: F) -> Task<F::Output>
+pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + 'static,
     F::Output: 'static,
@@ -319,13 +315,40 @@ where
 }
 
 /// Runs the provided closure on a thread where blocking is acceptable.
-pub fn spawn_blocking<F, R>(f: F) -> Task<R>
+pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
     let handle = TaskNodeHandle::current();
     handle.spawn(async move { f() })
+}
+
+/// A spawned task.
+#[must_use = "you must either `.await` or explicitly `.detach()` the task"]
+pub struct JoinHandle<T>(Option<Task<T>>);
+
+impl<T> JoinHandle<T> {
+    /// Detaches the task to let it keep running in the background.
+    pub fn detach(self) {
+        self.0.unwrap().detach();
+    }
+
+    /// Abort the task associated with the handle.
+    pub fn abort(&mut self) {
+        self.0.take();
+    }
+}
+
+impl<T> Future for JoinHandle<T> {
+    type Output = T;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(self.0.as_mut().unwrap()).poll(cx)
+    }
 }
 
 #[cfg(test)]

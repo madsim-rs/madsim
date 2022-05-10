@@ -3,59 +3,55 @@
 use std::future::Future;
 
 /// Spawns a new asynchronous task, returning a [`Task`] for it.
-pub fn spawn<F>(future: F) -> Task<F::Output>
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    Task(tokio::spawn(future))
+    JoinHandle(tokio::spawn(future))
 }
 
 /// Spawns a `!Send` future on the local task set.
-pub fn spawn_local<F>(future: F) -> Task<F::Output>
+pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + 'static,
     F::Output: 'static,
 {
-    Task(tokio::task::spawn_local(future))
+    JoinHandle(tokio::task::spawn_local(future))
 }
 
 /// Runs the provided closure on a thread where blocking is acceptable.
-pub fn spawn_blocking<F, R>(f: F) -> Task<R>
+pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    Task(tokio::task::spawn_blocking(f))
+    JoinHandle(tokio::task::spawn_blocking(f))
 }
 
 /// A spawned task.
-pub struct Task<T>(pub(crate) tokio::task::JoinHandle<T>);
+#[must_use = "you must either `.await` or explicitly `.detach()` the task"]
+pub struct JoinHandle<T>(tokio::task::JoinHandle<T>);
 
-/// A spawned task.
-pub type JoinHandle<T> = Task<T>;
-
-impl<T> Task<T> {
+impl<T> JoinHandle<T> {
     /// Detaches the task to let it keep running in the background.
     pub fn detach(self) {
         std::mem::forget(self);
     }
 
-    /// Cancels the task and waits for it to stop running.
-    pub async fn cancel(self) -> Option<T> {
-        // TODO: get output if ready
+    /// Abort the task associated with the handle.
+    pub fn abort(&mut self) {
         self.0.abort();
-        None
     }
 }
 
-impl<T> Drop for Task<T> {
+impl<T> Drop for JoinHandle<T> {
     fn drop(&mut self) {
         self.0.abort();
     }
 }
 
-impl<T> Future for Task<T> {
+impl<T> Future for JoinHandle<T> {
     type Output = T;
 
     fn poll(
