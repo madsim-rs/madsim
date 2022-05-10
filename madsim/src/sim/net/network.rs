@@ -207,12 +207,13 @@ impl Network {
         data: Payload,
     ) {
         trace!("send: {node} {src} -> {dst}, tag={tag}");
-        let dst_node = match self.addr_to_node.get(&dst.ip()) {
-            Some(x) => *x,
-            None => {
-                trace!("destination not found: {dst}");
-                return;
-            }
+        let dst_node = if dst.ip().is_loopback() {
+            node
+        } else if let Some(x) = self.addr_to_node.get(&dst.ip()) {
+            *x
+        } else {
+            trace!("destination not found: {dst}");
+            return;
         };
         if self.clogged_node.contains(&node)
             || self.clogged_node.contains(&dst_node)

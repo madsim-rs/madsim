@@ -39,7 +39,7 @@
 use log::*;
 use std::{
     io,
-    net::{IpAddr, SocketAddr, ToSocketAddrs},
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 
@@ -172,7 +172,11 @@ impl Endpoint {
         let node = plugin::node();
         let peer = addr.to_socket_addrs()?.next().unwrap();
         net.rand_delay().await;
-        let addr = SocketAddr::from(([0, 0, 0, 0], 0));
+        let addr = if peer.ip().is_loopback() {
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 0))
+        } else {
+            SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))
+        };
         let addr = net.network.lock().unwrap().bind(node, addr)?;
         Ok(Endpoint {
             net,
