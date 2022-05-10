@@ -313,8 +313,10 @@ impl Endpoint {
 
 impl Drop for Endpoint {
     fn drop(&mut self) {
-        let mut network = self.net.network.lock().unwrap();
-        network.close(self.node, self.addr);
+        // avoid panic on panicking
+        if let Ok(mut network) = self.net.network.lock() {
+            network.close(self.node, self.addr);
+        }
     }
 }
 
