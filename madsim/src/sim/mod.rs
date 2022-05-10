@@ -3,6 +3,7 @@
 pub use self::config::Config;
 pub(crate) use self::runtime::context;
 
+pub mod collections;
 mod config;
 pub mod fs;
 pub mod net;
