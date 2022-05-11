@@ -1,35 +1,45 @@
-//! Deterministic random number generator.
+//! Utilities for random number generation.
 //!
-//! This module re-exports the prelude traits of [`rand`] crate.
+//! This module re-exports the [`rand`] crate, except for the random number generators.
 //!
-//! User should call [`rng()`] to retrieve the deterministic random number
-//! generator from the current madsim context. **Do not** use [`random()`] or
-//! [`thread_rng()`] from the rand crate directly, because no determinism is
-//! guaranteed.
+//! User should call [`thread_rng()`] to retrieve the deterministic random number
+//! generator from the current madsim context. **Do not** use [`rand`] crate directly,
+//! because no determinism is guaranteed.
 //!
 //! # Example
 //!
 //! ```
-//! use madsim::{runtime::Runtime, rand::{self, Rng}};
+//! use madsim::{runtime::Runtime, rand::{thread_rng, Rng}};
 //!
 //! Runtime::new().block_on(async {
-//!     let mut rng = rand::rng();
+//!     let mut rng = thread_rng();
 //!     rng.gen_bool(0.5);
 //!     rng.gen_range(0..10);
 //! });
 //! ```
 //!
 //! [`rand`]: rand
-//! [`rng()`]: rng
-//! [`random()`]: rand::random
-//! [`thread_rng()`]: rand::thread_rng
 
-use rand::prelude::SmallRng;
-#[doc(no_inline)]
-pub use rand::prelude::{
-    CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom,
+use rand::{
+    distributions::Standard,
+    prelude::{Distribution, SmallRng},
 };
 use std::sync::{Arc, Mutex};
+
+// TODO: mock `rngs` module
+
+#[doc(no_inline)]
+pub use rand::{distributions, seq, CryptoRng, Error, Fill, Rng, RngCore, SeedableRng};
+
+/// Convenience re-export of common members
+pub mod prelude {
+    #[doc(no_inline)]
+    pub use super::{random, thread_rng};
+    #[doc(no_inline)]
+    pub use rand::prelude::{
+        CryptoRng, Distribution, IteratorRandom, Rng, RngCore, SeedableRng, SliceRandom,
+    };
+}
 
 /// Global deterministic random number generator.
 #[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
@@ -104,7 +114,7 @@ impl GlobalRng {
 }
 
 /// Retrieve the deterministic random number generator from the current madsim context.
-pub fn rng() -> GlobalRng {
+pub fn thread_rng() -> GlobalRng {
     crate::context::current(|h| h.rand.clone())
 }
 
@@ -124,6 +134,15 @@ impl RngCore for GlobalRng {
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
         self.with(|rng| rng.try_fill_bytes(dest))
     }
+}
+
+/// Generates a random value using the global random number generator.
+#[inline]
+pub fn random<T>() -> T
+where
+    Standard: Distribution<T>,
+{
+    thread_rng().gen()
 }
 
 /// Random log for determinism check.

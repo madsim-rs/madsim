@@ -1,7 +1,7 @@
 //! Generic client implementation.
 
 use futures::{pin_mut, Stream, StreamExt};
-use madsim::rand::{rng, Rng};
+use madsim::rand::{thread_rng, Rng};
 use tonic::codegen::http::uri::PathAndQuery;
 
 use crate::{codec::StreamEnd, codegen::BoxMessage, Request, Response, Status, Streaming};
@@ -36,7 +36,7 @@ impl Grpc<crate::transport::Channel> {
         M2: Send + Sync + 'static,
     {
         // generate a random tag for response
-        let rsp_tag = rng().gen::<u64>();
+        let rsp_tag = thread_rng().gen::<u64>();
         // send request
         let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage, false, false));
         self.inner.ep.send_raw(0, data).await?;
@@ -60,7 +60,7 @@ impl Grpc<crate::transport::Channel> {
         M2: Send + Sync + 'static,
     {
         // generate a random tag for request and responses
-        let tag = rng().gen::<u64>();
+        let tag = thread_rng().gen::<u64>();
         // send requests
         self.send_request_stream(request, tag, path, false).await?;
         // receive response
@@ -83,7 +83,7 @@ impl Grpc<crate::transport::Channel> {
         M2: Send + Sync + 'static,
     {
         // generate a random tag for responses
-        let rsp_tag = rng().gen::<u64>();
+        let rsp_tag = thread_rng().gen::<u64>();
         // send request
         let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage, false, true));
         self.inner.ep.send_raw(0, data).await?;
@@ -107,7 +107,7 @@ impl Grpc<crate::transport::Channel> {
         M2: Send + Sync + 'static,
     {
         // generate a random tag for requests and responses
-        let tag = rng().gen::<u64>();
+        let tag = thread_rng().gen::<u64>();
         // send requests in a background task
         let this = self.clone();
         let task = madsim::task::spawn(async move {

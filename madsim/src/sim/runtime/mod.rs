@@ -151,7 +151,7 @@ impl Runtime {
     ///
     /// let f = || async {
     ///     for _ in 0..10 {
-    ///         madsim::rand::rng().gen::<u64>();
+    ///         madsim::rand::thread_rng().gen::<u64>();
     ///         // introduce non-determinism
     ///         let rand_num = rand::thread_rng().gen_range(0..10);
     ///         sleep(Duration::from_nanos(rand_num)).await;
