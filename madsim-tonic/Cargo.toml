@@ -1,7 +1,15 @@
 [package]
 name = "madsim-tonic"
-version = "0.1.0"
+version = "0.2.0-alpha.1"
 edition = "2021"
+authors = ["Runji Wang <wangrunji0408@163.com>"]
+description = "The `tonic` simulator on madsim."
+homepage = "https://github.com/madsys-dev/madsim"
+repository = "https://github.com/madsys-dev/madsim"
+categories = ["network-programming", "asynchronous", "simulation"]
+keywords = ["rpc", "grpc", "async", "protobuf", "simulator"]
+readme = "README.md"
+license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,7 +20,7 @@ sim = ["madsim/sim"]
 
 [dependencies]
 async-stream = "0.3"
-madsim = { path = "../madsim" }
+madsim = { version = "0.2.0-alpha.1", path = "../madsim" }
 futures = "0.3"
 tonic = "0.7"
 log = "0.4"
