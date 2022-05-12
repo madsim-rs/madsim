@@ -17,7 +17,7 @@ default = ["macros", "logger", "rpc"]
 sim = ["naive-timer", "async-task", "ahash", "toml", "downcast-rs"]
 ucx = ["async-ucx", "lazy_static"]
 rpc = ["bincode"]
-macros = ["madsim-macros"]
+macros = ["madsim-macros", "tokio/macros"]
 logger = ["env_logger"]
 
 [dependencies]
