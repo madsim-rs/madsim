@@ -73,6 +73,7 @@ impl Inner {
         peer: Option<SocketAddr>,
         stream: TcpStream,
     ) -> (SocketAddr, mpsc::Sender<SendMsg>) {
+        stream.set_nodelay(true).expect("failed to set nodelay");
         let (reader, writer) = stream.into_split();
         let mut writer = tokio::io::BufWriter::new(writer);
         let mut reader = FramedRead::new(reader, LengthDelimitedCodec::new());
