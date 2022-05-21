@@ -26,6 +26,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
+          args: -- -D warnings
+      - name: Clippy sim
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --features=sim -- -D warnings
 
   build:
     runs-on: ubuntu-latest
@@ -39,6 +45,11 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+      - name: Build sim
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --features=sim
 
   test:
     runs-on: ubuntu-latest

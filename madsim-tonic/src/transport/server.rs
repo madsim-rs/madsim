@@ -30,6 +30,7 @@ pub struct Server<L = Identity> {
     builder: ServiceBuilder<L>,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for Server {
     fn default() -> Self {
         Self {
@@ -81,6 +82,7 @@ pub struct Router<L = Identity> {
     #[allow(dead_code)]
     server: Server<L>,
 
+    #[allow(clippy::type_complexity)]
     services: HashMap<
         &'static str,
         Box<

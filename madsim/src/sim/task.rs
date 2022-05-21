@@ -301,7 +301,7 @@ impl TaskNodeHandle {
     }
 }
 
-/// Spawns a new asynchronous task, returning a [`Task`] for it.
+/// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,

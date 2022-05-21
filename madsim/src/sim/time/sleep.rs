@@ -14,6 +14,8 @@ pub fn sleep_until(deadline: Instant) -> Sleep {
 }
 
 /// Future returned by [`sleep`] and [`sleep_until`].
+///
+/// [`sleep`]: sleep()
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Sleep {
     pub(super) handle: TimeHandle,

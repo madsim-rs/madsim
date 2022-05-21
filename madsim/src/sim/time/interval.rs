@@ -62,7 +62,7 @@ fn internal_interval_at(start: Instant, period: Duration) -> Interval {
 pub enum MissedTickBehavior {
     /// Ticks as fast as possible until caught up.
     Burst,
-    /// Tick at multiples of `period` from when [`tick`] was called, rather than from `start`.
+    /// Tick at multiples of `period` from when `tick` was called, rather than from `start`.
     Delay,
     /// Skips missed ticks and tick on the next multiple of `period` from `start`.
     Skip,
