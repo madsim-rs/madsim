@@ -290,7 +290,12 @@ impl TaskNodeHandle {
             })
         };
         runnable.schedule();
-        JoinHandle(Some(task.fallible()))
+
+        static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(0);
+        JoinHandle {
+            id: NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst),
+            task: Mutex::new(Some(task.fallible())),
+        }
     }
 }
 
@@ -325,19 +330,22 @@ where
 }
 
 /// An owned permission to join on a task (await its termination).
-pub struct JoinHandle<T>(Option<FallibleTask<T>>);
+#[derive(Debug)]
+pub struct JoinHandle<T> {
+    id: u64,
+    task: Mutex<Option<FallibleTask<T>>>,
+}
 
 impl<T> JoinHandle<T> {
     /// Abort the task associated with the handle.
-    pub fn abort(&mut self) {
-        // FIXME: should be `&self` as tokio does
-        self.0.take();
+    pub fn abort(&self) {
+        self.task.lock().unwrap().take();
     }
 
     /// Cancel the task when this handle is dropped.
     #[doc(hidden)]
-    pub fn cancel_on_drop(mut self) -> FallibleTask<T> {
-        self.0.take().unwrap()
+    pub fn cancel_on_drop(self) -> FallibleTask<T> {
+        self.task.lock().unwrap().take().unwrap()
     }
 }
 
@@ -345,18 +353,23 @@ impl<T> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(
-        mut self: std::pin::Pin<&mut Self>,
+        self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        std::pin::Pin::new(self.0.as_mut().unwrap())
+        std::pin::Pin::new(self.task.lock().unwrap().as_mut().unwrap())
             .poll(cx)
-            .map(|res| res.ok_or(JoinError))
+            .map(|res| {
+                res.ok_or(JoinError {
+                    id: self.id,
+                    is_panic: true, // TODO: decide cancelled or panic
+                })
+            })
     }
 }
 
 impl<T> Drop for JoinHandle<T> {
     fn drop(&mut self) {
-        if let Some(task) = self.0.take() {
+        if let Some(task) = self.task.lock().unwrap().take() {
             task.detach();
         }
     }
@@ -364,11 +377,29 @@ impl<T> Drop for JoinHandle<T> {
 
 /// Task failed to execute to completion.
 #[derive(Debug)]
-pub struct JoinError;
+pub struct JoinError {
+    id: u64,
+    is_panic: bool,
+}
+
+impl JoinError {
+    /// Returns true if the error was caused by the task being cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        !self.is_panic
+    }
+
+    /// Returns true if the error was caused by the task panicking.
+    pub fn is_panic(&self) -> bool {
+        self.is_panic
+    }
+}
 
 impl fmt::Display for JoinError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "join error")
+        match self.is_panic {
+            false => write!(f, "task {} was cancelled", self.id),
+            true => write!(f, "task {} panicked", self.id),
+        }
     }
 }
 
