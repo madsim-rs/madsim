@@ -2,18 +2,23 @@
 //!
 //!
 
-pub use self::instant::Instant;
-use futures::{future::poll_fn, select_biased, FutureExt};
+use futures::{select_biased, FutureExt};
 use naive_timer::Timer;
 #[doc(no_inline)]
 pub use std::time::Duration;
 use std::{
     future::Future,
     sync::{Arc, Mutex},
-    task::Poll,
 };
 
+pub mod error;
 mod instant;
+mod interval;
+mod sleep;
+
+pub use self::instant::Instant;
+pub use self::interval::{interval, interval_at, Interval, MissedTickBehavior};
+pub use self::sleep::{sleep, sleep_until, Sleep};
 
 pub(crate) struct TimeRuntime {
     handle: TimeHandle,
@@ -87,21 +92,16 @@ impl TimeHandle {
     }
 
     /// Waits until `duration` has elapsed.
-    pub fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send {
+    pub fn sleep(&self, duration: Duration) -> Sleep {
         self.sleep_until(self.clock.now() + duration)
     }
 
     /// Waits until `deadline` is reached.
-    pub fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()> + Send {
-        let handle = self.clone();
-        poll_fn(move |cx| {
-            if handle.clock.now() >= deadline {
-                return Poll::Ready(());
-            }
-            let waker = cx.waker().clone();
-            handle.add_timer(deadline, || waker.wake());
-            Poll::Pending
-        })
+    pub fn sleep_until(&self, deadline: Instant) -> Sleep {
+        Sleep {
+            handle: self.clone(),
+            deadline,
+        }
     }
 
     /// Require a `Future` to complete before the specified duration has elapsed.
@@ -128,41 +128,6 @@ impl TimeHandle {
         let mut timer = self.timer.lock().unwrap();
         timer.add(deadline - self.clock.base(), |_| callback());
     }
-}
-
-/// Time error types.
-pub mod error {
-    use std::fmt;
-
-    /// Error returned by `timeout`.
-    #[derive(Debug, PartialEq)]
-    pub struct Elapsed;
-
-    impl fmt::Display for Elapsed {
-        fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-            "deadline has elapsed".fmt(fmt)
-        }
-    }
-
-    impl std::error::Error for Elapsed {}
-
-    impl From<Elapsed> for std::io::Error {
-        fn from(_err: Elapsed) -> std::io::Error {
-            std::io::ErrorKind::TimedOut.into()
-        }
-    }
-}
-
-/// Waits until `duration` has elapsed.
-pub fn sleep(duration: Duration) -> impl Future<Output = ()> + Send {
-    let handle = TimeHandle::current();
-    handle.sleep(duration)
-}
-
-/// Waits until `deadline` is reached.
-pub fn sleep_until(deadline: Instant) -> impl Future<Output = ()> + Send {
-    let handle = TimeHandle::current();
-    handle.sleep_until(deadline)
 }
 
 /// Require a `Future` to complete before the specified duration has elapsed.
