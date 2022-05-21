@@ -5,7 +5,7 @@ use super::{
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
-use async_task::{Runnable, Task};
+use async_task::{FallibleTask, Runnable};
 use std::{
     collections::HashMap,
     fmt,
@@ -290,7 +290,7 @@ impl TaskNodeHandle {
             })
         };
         runnable.schedule();
-        JoinHandle(Some(task))
+        JoinHandle(Some(task.fallible()))
     }
 }
 
@@ -324,30 +324,51 @@ where
     handle.spawn(async move { f() })
 }
 
-/// A spawned task.
-#[must_use = "you must either `.await` or explicitly `.detach()` the task"]
-pub struct JoinHandle<T>(Option<Task<T>>);
+/// An owned permission to join on a task (await its termination).
+pub struct JoinHandle<T>(Option<FallibleTask<T>>);
 
 impl<T> JoinHandle<T> {
-    /// Detaches the task to let it keep running in the background.
-    pub fn detach(self) {
-        self.0.unwrap().detach();
-    }
-
     /// Abort the task associated with the handle.
     pub fn abort(&mut self) {
+        // FIXME: should be `&self` as tokio does
         self.0.take();
+    }
+
+    /// Cancel the task when this handle is dropped.
+    #[doc(hidden)]
+    pub fn cancel_on_drop(mut self) -> FallibleTask<T> {
+        self.0.take().unwrap()
     }
 }
 
 impl<T> Future for JoinHandle<T> {
-    type Output = T;
+    type Output = Result<T, JoinError>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        std::pin::Pin::new(self.0.as_mut().unwrap()).poll(cx)
+        std::pin::Pin::new(self.0.as_mut().unwrap())
+            .poll(cx)
+            .map(|res| res.ok_or(JoinError))
+    }
+}
+
+impl<T> Drop for JoinHandle<T> {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.detach();
+        }
+    }
+}
+
+/// Task failed to execute to completion.
+#[derive(Debug)]
+pub struct JoinError;
+
+impl fmt::Display for JoinError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "join error")
     }
 }
 
@@ -364,8 +385,8 @@ mod tests {
     fn spawn_in_block_on() {
         let runtime = Runtime::new();
         runtime.block_on(async {
-            spawn(async { 1 }).await;
-            spawn_local(async { 2 }).await;
+            spawn(async { 1 }).await.unwrap();
+            spawn_local(async { 2 }).await.unwrap();
         });
     }
 
@@ -379,24 +400,20 @@ mod tests {
         let flag2 = Arc::new(AtomicUsize::new(0));
 
         let flag1_ = flag1.clone();
-        node1
-            .spawn(async move {
-                loop {
-                    time::sleep(Duration::from_secs(2)).await;
-                    flag1_.fetch_add(2, Ordering::SeqCst);
-                }
-            })
-            .detach();
+        node1.spawn(async move {
+            loop {
+                time::sleep(Duration::from_secs(2)).await;
+                flag1_.fetch_add(2, Ordering::SeqCst);
+            }
+        });
 
         let flag2_ = flag2.clone();
-        node2
-            .spawn(async move {
-                loop {
-                    time::sleep(Duration::from_secs(2)).await;
-                    flag2_.fetch_add(2, Ordering::SeqCst);
-                }
-            })
-            .detach();
+        node2.spawn(async move {
+            loop {
+                time::sleep(Duration::from_secs(2)).await;
+                flag2_.fetch_add(2, Ordering::SeqCst);
+            }
+        });
 
         runtime.block_on(async move {
             let t0 = time::Instant::now();
@@ -463,8 +480,7 @@ mod tests {
                 time::sleep(Duration::from_secs(2)).await;
                 flag_.fetch_add(2, Ordering::SeqCst);
             }
-        })
-        .detach();
+        });
 
         runtime.block_on(async move {
             let t0 = time::Instant::now();

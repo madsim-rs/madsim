@@ -293,6 +293,6 @@ mod tests {
             let read_len = file.read_at(&mut buf, 0).await.unwrap();
             assert_eq!(read_len, 0);
         });
-        runtime.block_on(f);
+        runtime.block_on(f).unwrap();
     }
 }

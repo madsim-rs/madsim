@@ -285,7 +285,7 @@ impl<'a> NodeBuilder<'a> {
         F: Future + 'static,
     {
         self.init = Some(Arc::new(move |handle| {
-            handle.spawn_local(future()).detach();
+            handle.spawn_local(future());
         }));
         self
     }

@@ -159,10 +159,8 @@ impl Endpoint {
                     net.send_to_raw(from, rsp_tag, Box::new((rsp, Bytes::from(data))))
                         .await
                         .unwrap();
-                })
-                .detach();
+                });
             }
-        })
-        .detach();
+        });
     }
 }

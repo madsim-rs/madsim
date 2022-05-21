@@ -177,8 +177,7 @@ impl<L> Router<L> {
                         .await
                         .expect("failed to send response");
                 }
-            })
-            .detach();
+            });
         }
     }
 }

@@ -29,7 +29,7 @@ impl<T: Send + 'static> Streaming<T> {
             stream: try_stream! {
                 // For bi-directional streaming, we spawn a task to send requests.
                 // This is used to cancel the task when the stream is dropped.
-                let _task = request_sending_task;
+                let _task = request_sending_task.map(|t| t.cancel_on_drop());
                 // receive messages
                 for tag in tag.. {
                     let (msg, _) = ep.recv_from_raw(tag).await?;

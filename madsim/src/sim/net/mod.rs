@@ -20,8 +20,7 @@
 //!     barrier_.wait().await;  // make sure addr2 has bound
 //!
 //!     net.send_to(addr2, 1, &[1]).await.unwrap();
-//! })
-//! .detach();
+//! });
 //!
 //! let f = node2.spawn(async move {
 //!     let net = Endpoint::bind(addr2).await.unwrap();
@@ -340,17 +339,15 @@ mod tests {
         let barrier = Arc::new(Barrier::new(2));
 
         let barrier_ = barrier.clone();
-        node1
-            .spawn(async move {
-                let net = Endpoint::bind(addr1).await.unwrap();
-                barrier_.wait().await;
+        node1.spawn(async move {
+            let net = Endpoint::bind(addr1).await.unwrap();
+            barrier_.wait().await;
 
-                net.send_to(addr2, 1, &[1]).await.unwrap();
+            net.send_to(addr2, 1, &[1]).await.unwrap();
 
-                sleep(Duration::from_secs(1)).await;
-                net.send_to(addr2, 2, &[2]).await.unwrap();
-            })
-            .detach();
+            sleep(Duration::from_secs(1)).await;
+            net.send_to(addr2, 2, &[2]).await.unwrap();
+        });
 
         let f = node2.spawn(async move {
             let net = Endpoint::bind(addr2).await.unwrap();
@@ -368,7 +365,7 @@ mod tests {
             assert_eq!(buf[0], 1);
         });
 
-        runtime.block_on(f);
+        runtime.block_on(f).unwrap();
     }
 
     #[test]
@@ -381,14 +378,12 @@ mod tests {
         let barrier = Arc::new(Barrier::new(2));
 
         let barrier_ = barrier.clone();
-        node1
-            .spawn(async move {
-                let net = Endpoint::bind(addr1).await.unwrap();
-                barrier_.wait().await;
+        node1.spawn(async move {
+            let net = Endpoint::bind(addr1).await.unwrap();
+            barrier_.wait().await;
 
-                net.send_to(addr2, 1, &[1]).await.unwrap();
-            })
-            .detach();
+            net.send_to(addr2, 1, &[1]).await.unwrap();
+        });
 
         let f = node2.spawn(async move {
             let net = Endpoint::bind(addr2).await.unwrap();
@@ -406,7 +401,7 @@ mod tests {
             assert_eq!(from, addr1);
         });
 
-        runtime.block_on(f);
+        runtime.block_on(f).unwrap();
     }
 
     #[test]
@@ -427,7 +422,7 @@ mod tests {
         runtime.block_on(async move {
             sleep(Duration::from_secs(1)).await;
             simulator::<NetSim>().reset_node(node1.id());
-            f.await;
+            f.await.unwrap();
         });
     }
 
@@ -470,7 +465,7 @@ mod tests {
             let _ = Endpoint::bind("10.0.0.1:100").await.unwrap();
             let _ = Endpoint::bind("10.0.0.1:100").await.unwrap();
         });
-        runtime.block_on(f);
+        runtime.block_on(f).unwrap();
     }
 
     #[test]
@@ -504,8 +499,8 @@ mod tests {
             ep.send_to("10.0.0.1:1", 1, &[1]).await.unwrap();
             ep.send_to("10.0.0.1:2", 1, &[1]).await.unwrap();
         });
-        runtime.block_on(f1);
-        runtime.block_on(f2);
+        runtime.block_on(f1).unwrap();
+        runtime.block_on(f2).unwrap();
     }
 
     #[test]
@@ -518,19 +513,17 @@ mod tests {
         let barrier = Arc::new(Barrier::new(2));
 
         let barrier_ = barrier.clone();
-        node1
-            .spawn(async move {
-                let ep = Endpoint::bind(addr1).await.unwrap();
-                assert_eq!(ep.local_addr().unwrap(), addr1);
-                barrier_.wait().await;
+        node1.spawn(async move {
+            let ep = Endpoint::bind(addr1).await.unwrap();
+            assert_eq!(ep.local_addr().unwrap(), addr1);
+            barrier_.wait().await;
 
-                let mut buf = vec![0; 0x10];
-                let (len, from) = ep.recv_from(1, &mut buf).await.unwrap();
-                assert_eq!(&buf[..len], b"ping");
+            let mut buf = vec![0; 0x10];
+            let (len, from) = ep.recv_from(1, &mut buf).await.unwrap();
+            assert_eq!(&buf[..len], b"ping");
 
-                ep.send_to(from, 1, b"pong").await.unwrap();
-            })
-            .detach();
+            ep.send_to(from, 1, b"pong").await.unwrap();
+        });
 
         let f = node2.spawn(async move {
             barrier.wait().await;
@@ -544,6 +537,6 @@ mod tests {
             assert_eq!(&buf[..len], b"pong");
         });
 
-        runtime.block_on(f);
+        runtime.block_on(f).unwrap();
     }
 }

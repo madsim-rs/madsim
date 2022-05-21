@@ -140,16 +140,14 @@ mod tests {
         let node4 = handle.create_node().name("client4").ip(ip4).build();
         let node5 = handle.create_node().name("client5").ip(ip5).build();
 
-        node0
-            .spawn(async move {
-                Server::builder()
-                    .add_service(GreeterServer::new(MyGreeter::default()))
-                    .add_service(AnotherGreeterServer::new(MyGreeter::default()))
-                    .serve(addr0)
-                    .await
-                    .unwrap();
-            })
-            .detach();
+        node0.spawn(async move {
+            Server::builder()
+                .add_service(GreeterServer::new(MyGreeter::default()))
+                .add_service(AnotherGreeterServer::new(MyGreeter::default()))
+                .serve(addr0)
+                .await
+                .unwrap();
+        });
 
         // unary
         let task1 = node1.spawn(async move {
@@ -233,10 +231,10 @@ mod tests {
             assert_eq!(i, 3);
         });
 
-        task1.await;
-        task2.await;
-        task3.await;
-        task4.await;
-        task5.await;
+        task1.await.unwrap();
+        task2.await.unwrap();
+        task3.await.unwrap();
+        task4.await.unwrap();
+        task5.await.unwrap();
     }
 }

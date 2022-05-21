@@ -176,10 +176,8 @@ impl Endpoint {
                         IoSlice::new(&data),
                     ];
                     net.send_to_vectored(from, rsp_tag, &mut iov).await.unwrap();
-                })
-                .detach();
+                });
             }
-        })
-        .detach();
+        });
     }
 }
