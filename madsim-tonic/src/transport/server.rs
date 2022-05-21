@@ -19,19 +19,35 @@ use tonic::{
     codegen::{http::uri::PathAndQuery, BoxFuture, Service},
     transport::NamedService,
 };
+use tower::{
+    layer::util::{Identity, Stack},
+    ServiceBuilder,
+};
 
 /// A default batteries included `transport` server.
-#[derive(Default)]
-pub struct Server {}
+#[derive(Clone, Debug)]
+pub struct Server<L = Identity> {
+    builder: ServiceBuilder<L>,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self {
+            builder: Default::default(),
+        }
+    }
+}
 
 impl Server {
     /// Create a new server builder that can configure a [`Server`].
     pub fn builder() -> Self {
         Self::default()
     }
+}
 
+impl<L> Server<L> {
     /// Create a router with the `S` typed service as the first service.
-    pub fn add_service<S>(&mut self, svc: S) -> Router
+    pub fn add_service<S>(&mut self, svc: S) -> Router<L>
     where
         S: Service<
                 (PathAndQuery, BoxMessageStream),
@@ -41,16 +57,30 @@ impl Server {
             > + NamedService
             + Send
             + 'static,
+        L: Clone,
     {
         let router = Router {
+            server: self.clone(),
             services: Default::default(),
         };
         router.add_service(svc)
     }
+
+    /// Set the Tower Layer all services will be wrapped in.
+    pub fn layer<NewLayer>(self, new_layer: NewLayer) -> Server<Stack<NewLayer, L>> {
+        log::warn!("layer is unimplemented and ignored");
+        Server {
+            builder: self.builder.layer(new_layer),
+        }
+    }
 }
 
 /// A stack based `Service` router.
-pub struct Router {
+pub struct Router<L = Identity> {
+    // TODO: support layers
+    #[allow(dead_code)]
+    server: Server<L>,
+
     services: HashMap<
         &'static str,
         Box<
@@ -65,7 +95,7 @@ pub struct Router {
     >,
 }
 
-impl Router {
+impl<L> Router<L> {
     /// Add a new service to this router.
     pub fn add_service<S>(mut self, svc: S) -> Self
     where
