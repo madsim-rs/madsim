@@ -5,4 +5,16 @@
 
 The `tonic` simulator on madsim.
 
-> If it looks like the tonic, acts like the tonic, and is used like the tonic, then it probably is the tonic.
+> If it looks like tonic, acts like tonic, and is used like tonic, then it probably is tonic.
+
+## Usage
+
+Replace all `tonic` and `tonic-build` entries in your Cargo.toml:
+
+```toml
+[dependencies]
+tonic = { version = "0.2.0-alpha.2", package = "madsim-tonic" }
+
+[dev-dependencies]
+tonic-build = { version = "0.2.0-alpha.1", package = "madsim-tonic-build" }
+```

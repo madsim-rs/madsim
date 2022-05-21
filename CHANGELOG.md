@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.2] - 2022-05-22
+
+### Added
+
+- Add a new crate `madsim-tokio` for tokio simulation.
+- madsim/sim: Add `time::interval` and `task::yield_now`.
+- madsim/sim: Complete methods for `Sleep`, `Elapsed`, `JoinError` and `JoinHandle`.
+- madsim-tonic: Add `Server::layer` but don't implement it.
+
+### Changed
+
+- madsim: Switch `JoinHandle` to tokio style which won't cancel task on drop.
+- madsim-macros: Improve error message on panic in simulation.
+
+### Fixed
+
+- madsim: Fix TCP performance issue by setting NODELAY.
+
+## [0.2.0-alpha.1] - 2022-05-12
+
+TODO
+
 ### Added
 
 - A real world backend.

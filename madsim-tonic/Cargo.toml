@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."
@@ -20,7 +20,7 @@ sim = ["madsim/sim"]
 
 [dependencies]
 async-stream = "0.3"
-madsim = { version = "0.2.0-alpha.1", path = "../madsim" }
+madsim = { version = "0.2.0-alpha.2", path = "../madsim" }
 futures = "0.3"
 tonic = "0.7"
 tower = "0.4"

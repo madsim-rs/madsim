@@ -1,6 +1,6 @@
 [package]
 name = "madsim"
-version = "0.2.0-alpha.1"
+version = "0.2.0-alpha.2"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
@@ -31,7 +31,7 @@ env_logger = { version = "0.9", optional = true }
 futures = "0.3"
 lazy_static = { version = "1.4", optional = true }
 log = "0.4"
-madsim-macros = { version = "0.2.0-alpha.1", path = "../madsim-macros", optional = true }
+madsim-macros = { version = "0.2.0-alpha.2", path = "../madsim-macros", optional = true }
 naive-timer = { version = "0.2", optional = true }
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
