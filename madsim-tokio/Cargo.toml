@@ -1,0 +1,41 @@
+[package]
+name = "madsim-tokio"
+version = "0.2.0-alpha.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+sim = ["madsim/sim"]
+
+# tokio features
+full = ["tokio/full"]
+fs = ["tokio/fs"]
+io-util = ["tokio/io-util"]
+io-std = ["tokio/io-std"]
+macros = ["tokio/macros"]
+net = ["tokio/net"]
+process = ["tokio/process"]
+rt = ["tokio/rt"]
+rt-multi-thread = ["tokio/rt-multi-thread"]
+signal = ["tokio/signal"]
+sync = ["tokio/sync"]
+test-util = ["tokio/test-util"]
+time = ["tokio/time"]
+stats = ["tokio/stats"]
+
+# tokio optional dependencies
+bytes = []
+once_cell = []
+memchr = []
+mio = []
+socket2 = []
+num_cpus = []
+parking_lot = []
+libc = []
+signal-hook-registry = []
+tokio-macros = []
+
+[dependencies]
+madsim = { version = "0.2.0-alpha.1", path = "../madsim" }
+tokio = "1.18.2"

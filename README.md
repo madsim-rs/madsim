@@ -33,10 +33,11 @@ Add the following lines to your Cargo.toml:
 madsim = "0.2.0-alpha.1"
 ```
 
-If your project depends on tonic, replace all `tonic` and `tonic-build` entries too:
+If your project depends on tokio or tonic, replace all `tokio`, `tonic` and `tonic-build` entries too:
 
 ```toml
 [dependencies]
+tokio = { version = "0.2.0-alpha.1", package = "madsim-tokio" }
 tonic = { version = "0.2.0-alpha.1", package = "madsim-tonic" }
 
 [dev-dependencies]
@@ -48,10 +49,6 @@ Next, redirect the following APIs to madsim:
 ```rust
 use std::collections    -> use madsim::collections
 use rand                -> use madsim::rand
-use tokio::time         -> use madsim::time
-use tokio::task         -> use madsim::task
-use tokio::fs           -> use madsim::fs
-use tokio::test         -> use madsim::test
 ```
 
 When built normally, these APIs are identical to the original ones.
@@ -60,6 +57,8 @@ To test your code on the simulator, enable the `sim` feature of madsim:
 
 ```sh
 cargo test --features=madsim/sim
+# or the `sim` feature of tokio if you use it
+cargo test --features=tokio/sim
 # or the `sim` feature of tonic if you use it
 cargo test --features=tonic/sim
 ```

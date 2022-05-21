@@ -2,6 +2,7 @@
 members = [
     "madsim",
     "madsim-macros",
+    "madsim-tokio",
     "madsim-tonic",
     "madsim-tonic-build",
     "tonic-example",
