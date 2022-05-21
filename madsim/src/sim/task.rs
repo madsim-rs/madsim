@@ -20,6 +20,8 @@ use std::{
     time::Duration,
 };
 
+pub use tokio::task::yield_now;
+
 pub(crate) struct Executor {
     queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
     handle: TaskHandle,

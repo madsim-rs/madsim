@@ -9,8 +9,6 @@ mod sim {
     // TODO: simulate `task_local`
 
     // simulated API
-    #[cfg(feature = "fs")]
-    pub use madsim::fs;
     #[cfg(feature = "rt")]
     pub use madsim::task::spawn;
     #[cfg(feature = "time")]
@@ -20,6 +18,9 @@ mod sim {
     pub use madsim::{net, task};
 
     // not simulated API
+    // TODO: simulate `fs`
+    #[cfg(feature = "fs")]
+    pub use tokio::fs;
     #[cfg(feature = "process")]
     pub use tokio::process;
     #[cfg(feature = "signal")]
