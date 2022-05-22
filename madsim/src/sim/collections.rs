@@ -1,6 +1,10 @@
 //! Collection types.
 
 use crate::rand::{thread_rng, Rng};
+use serde::{
+    de::{Deserialize, Deserializer},
+    ser::{Serialize, Serializer},
+};
 use std::borrow::Borrow;
 use std::fmt::{self, Debug};
 use std::hash::{BuildHasher, Hash};
@@ -173,6 +177,16 @@ where
     }
 }
 
+impl<T, const N: usize> From<[T; N]> for HashSet<T>
+where
+    T: Eq + Hash,
+{
+    #[inline]
+    fn from(arr: [T; N]) -> Self {
+        Self::from_iter(arr)
+    }
+}
+
 impl<T, S> FromIterator<T> for HashSet<T, S>
 where
     T: Eq + Hash,
@@ -227,6 +241,25 @@ impl<T> Default for HashSet<T, RandomState> {
     #[inline]
     fn default() -> HashSet<T, RandomState> {
         HashSet(std::collections::HashSet::default())
+    }
+}
+
+impl<T> Serialize for HashSet<T>
+where
+    T: Serialize + Eq + Hash,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.deref().serialize(serializer)
+    }
+}
+
+impl<'de, T> Deserialize<'de> for HashSet<T>
+where
+    T: Deserialize<'de> + Eq + Hash,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let hash_set = std::collections::HashSet::deserialize(deserializer);
+        hash_set.map(|hash_set| Self(hash_set))
     }
 }
 
@@ -301,6 +334,16 @@ where
     }
 }
 
+impl<K, V, const N: usize> From<[(K, V); N]> for HashMap<K, V>
+where
+    K: Eq + Hash,
+{
+    #[inline]
+    fn from(arr: [(K, V); N]) -> Self {
+        Self::from_iter(arr)
+    }
+}
+
 impl<K, V, S> FromIterator<(K, V)> for HashMap<K, V, S>
 where
     K: Eq + Hash,
@@ -363,6 +406,27 @@ impl<K, V> Default for HashMap<K, V, RandomState> {
     #[inline]
     fn default() -> HashMap<K, V, RandomState> {
         HashMap::new()
+    }
+}
+
+impl<K, V> Serialize for HashMap<K, V>
+where
+    K: Serialize + Eq + Hash,
+    V: Serialize,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.deref().serialize(serializer)
+    }
+}
+
+impl<'de, K, V> Deserialize<'de> for HashMap<K, V>
+where
+    K: Deserialize<'de> + Eq + Hash,
+    V: Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let hash_map = std::collections::HashMap::deserialize(deserializer);
+        hash_map.map(|hash_map| Self(hash_map))
     }
 }
 
