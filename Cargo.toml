@@ -5,5 +5,6 @@ members = [
     "madsim-tokio",
     "madsim-tonic",
     "madsim-tonic-build",
+    "madsim-norandom",
     "tonic-example",
 ]
