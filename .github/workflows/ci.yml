@@ -29,9 +29,11 @@ jobs:
           args: -- -D warnings
       - name: Clippy sim
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: "--cfg madsim"
         with:
           command: clippy
-          args: --features=sim -- -D warnings
+          args: -- -D warnings
 
   build:
     runs-on: ubuntu-latest
@@ -41,15 +43,16 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-      - name: Build
+      - name: Build std
         uses: actions-rs/cargo@v1
         with:
           command: build
       - name: Build sim
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: "--cfg madsim"
         with:
           command: build
-          args: --features=sim
 
   test:
     runs-on: ubuntu-latest
@@ -63,17 +66,15 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --release --no-fail-fast -p madsim
+          args: --release --no-fail-fast
       - name: Test sim
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: "--cfg madsim"
+          RUSTDOCFLAGS: "--cfg madsim"
         with:
           command: test
-          args: --release --no-fail-fast -p madsim --features=sim
-      - name: Test tonic
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release --no-fail-fast -p tonic-example --features=tonic/sim
+          args: --release --no-fail-fast
 
   bench:
     runs-on: ubuntu-latest
@@ -101,7 +102,8 @@ jobs:
       - name: Doc
         uses: actions-rs/cargo@v1
         env:
-          RUSTDOCFLAGS: "--cfg docsrs"
+          RUSTFLAGS: "--cfg madsim"
+          RUSTDOCFLAGS: "--cfg madsim --cfg docsrs"
         with:
           command: doc
-          args: --no-deps --features=sim
+          args: --no-deps

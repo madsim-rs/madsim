@@ -1,8 +1,8 @@
-#[cfg(feature = "sim")]
+#[cfg(madsim)]
 #[path = "sim.rs"]
 mod sim;
 
-#[cfg(feature = "sim")]
+#[cfg(madsim)]
 pub use sim::*;
-#[cfg(not(feature = "sim"))]
+#[cfg(not(madsim))]
 pub use tonic::*;

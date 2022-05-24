@@ -1,9 +1,9 @@
-#[cfg(not(feature = "sim"))]
+#[cfg(not(madsim))]
 pub use tokio::*;
 
-#[cfg(feature = "sim")]
+#[cfg(madsim)]
 pub use self::sim::*;
-
+#[cfg(madsim)]
 mod sim {
     // no mod `runtime`
     // TODO: simulate `task_local`

@@ -31,7 +31,7 @@ pub(crate) struct Executor {
 }
 
 /// A unique identifier for a node.
-#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+#[cfg_attr(docsrs, doc(cfg(madsim)))]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct NodeId(u64);
 

@@ -42,7 +42,7 @@ pub mod prelude {
 }
 
 /// Global deterministic random number generator.
-#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+#[cfg_attr(docsrs, doc(cfg(madsim)))]
 #[derive(Clone)]
 pub struct GlobalRng {
     inner: Arc<Mutex<Inner>>,
@@ -146,6 +146,6 @@ where
 }
 
 /// Random log for determinism check.
-#[cfg_attr(docsrs, doc(cfg(feature = "sim")))]
+#[cfg_attr(docsrs, doc(cfg(madsim)))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct Log(Vec<u8>);
