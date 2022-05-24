@@ -18,6 +18,3 @@ darling = "0.14"
 proc-macro2 = "1"
 quote = "1"
 syn = "1"
-
-[dev-dependencies]
-madsim = { path = "../madsim", features = ["macros"] }
