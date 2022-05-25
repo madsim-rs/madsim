@@ -112,7 +112,6 @@ impl Endpoint {
         Ok(rsp)
     }
 
-    #[cfg(not(feature = "erpc"))]
     /// Call function on a remote node.
     pub async fn call_with_data<R: Request>(
         &self,
@@ -150,7 +149,6 @@ impl Endpoint {
         self.add_rpc_handler_with_data(move |req, _data| f(req).map(|rsp| (rsp, vec![])))
     }
 
-    #[cfg(not(feature = "erpc"))]
     /// Add a RPC handler that send and receive data.
     pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
     where

@@ -1,66 +1,67 @@
-use super::rpc::{Bytes, Request};
+use super::rpc::Bytes;
 use crate::task;
 use bytes::{BufMut, BytesMut};
-use erased_serde::Serialize;
-use futures::Future;
-use log::warn;
 use mad_rpc::{
     transport::{self, Transport},
     ud::VerbsTransport,
 };
 use std::{
-    collections::HashMap,
-    io::{self, Write},
+    collections::{HashMap, VecDeque},
+    io::{self, IoSlice, Write},
     net::SocketAddr,
-    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream, ToSocketAddrs},
-    sync::{mpsc, oneshot, Mutex as AsyncMutex},
+    net::{lookup_host, TcpListener, TcpStream, ToSocketAddrs},
+    sync::{oneshot, Mutex as AsyncMutex},
 };
 
-// The origin implementation in mad_rpc is not suitable for porting to madsim directly.
-// We need modify some details of the rpc by ourselves.
-// The main logic is copy from [`mad_rpc::rpc`]
+// The origin rpc implementation in mad_rpc is not suitable for porting to madsim directly.
+// The main logic is inspired by [`mad_rpc::rpc`] and [`madsim::net::tcp`]
 
 #[derive(Clone)]
 pub struct Endpoint {
-    /// the addr of local address
-    addr: SocketAddr,
     inner: Arc<Inner>,
 }
 
 struct Inner {
+    /// the addr of local address
+    addr: SocketAddr,
     transport: Mutex<VerbsTransport<Endpoint>>,
-    /// the requester waiting to recv rpc response
-    waiters: Mutex<HashMap<u64, oneshot::Sender<RecvMsg>>>,
     /// mappings from SocketAddr to EndpointID in erpc
     mappings: AsyncMutex<HashMap<SocketAddr, u32>>,
-    req_buf: RwLock<HashMap<u64, mpsc::UnboundedSender<RecvMsg>>>,
-    req_id: AtomicU64,
     tasks: Mutex<Vec<task::JoinHandle<()>>>,
+    msg_buf: Mutex<MsgBuffer>,
 }
 
-#[derive(Default, Debug)]
-pub struct RpcHeader {
-    rpc_id: u64,   // RPC id
-    req_id: u64,   // request or response id
-    is_req: bool,  // request or response
-    arg_len: u32,  // request arguments len
-    data_len: u64, // data len
+#[derive(Default)]
+struct MsgBuffer {
+    registered: HashMap<u64, VecDeque<oneshot::Sender<RecvMsg>>>,
+    msgs: HashMap<u64, VecDeque<RecvMsg>>,
 }
 
+#[derive(Debug)]
+struct MsgHeader {
+    tag: u64,
+    data_len: u32,
+    //todo: need a better solution to send the socket addr
+    from: SocketAddr,
+}
+
+#[derive(Debug)]
 pub struct SendMsg<'a> {
-    header: RpcHeader,                       // RPC header
-    arg: Option<&'a (dyn Serialize + Sync)>, // RPC arguments
-    data: &'a [u8],                          // RPC data
+    // Option here is used for detecting whether unpack msg has started
+    header: Option<MsgHeader>,
+    bufs: &'a mut [IoSlice<'a>],
 }
 
 #[derive(Debug)]
 pub struct RecvMsg {
+    #[allow(dead_code)]
     ep_id: u32,
-    header: RpcHeader,
+    header: MsgHeader,
+    // Option here is used for detecting whether unpack msg has started
     data: Option<BytesMut>,
 }
 
@@ -68,24 +69,65 @@ fn mad_rpc_err_to_io_err(err: mad_rpc::Error) -> io::Error {
     io::Error::new(io::ErrorKind::Other, format!("{err:?}"))
 }
 
+// from std 1.60.0 `IoSlice::advance_slices`
+fn advance_slices(bufs: &mut &mut [IoSlice<'_>], n: usize) {
+    // Number of buffers to remove.
+    let mut remove = 0;
+    // Total length of all the to be removed buffers.
+    let mut accumulated_len = 0;
+    for buf in bufs.iter() {
+        if accumulated_len + buf.len() > n {
+            break;
+        } else {
+            accumulated_len += buf.len();
+            remove += 1;
+        }
+    }
+
+    *bufs = &mut std::mem::take(bufs)[remove..];
+    if !bufs.is_empty() {
+        // bufs[0].advance(n - accumulated_len)
+        bufs[0] = IoSlice::new(unsafe { std::mem::transmute(&bufs[0][n - accumulated_len..]) });
+    }
+}
+
+impl MsgHeader {
+    fn new(tag: u64, data_len: u32, from: SocketAddr) -> Self {
+        MsgHeader {
+            tag,
+            data_len,
+            from,
+        }
+    }
+
+    // format: [tag:u64 , data_len:u32, from_len:u32, from_bytes:]
+    fn serialize(&self, mut buf: &mut [u8]) -> usize {
+        let mut len = 0;
+        len += buf.write(&self.tag.to_be_bytes()).unwrap();
+        len += buf.write(&self.data_len.to_be_bytes()).unwrap();
+        let from_bytes = bincode::serialize(&self.from).unwrap();
+        let from_len = from_bytes.len() as u32;
+        len += buf.write(&from_len.to_be_bytes()).unwrap();
+        len += buf.write(&from_bytes).unwrap();
+        assert_eq!(len, 16 + from_bytes.len());
+        len
+    }
+
+    fn deserialize(data: &[u8]) -> (Self, usize) {
+        let tag = u64::from_be_bytes(data[..8].try_into().unwrap());
+        let data_len = u32::from_be_bytes(data[8..12].try_into().unwrap());
+        let from_len = u32::from_be_bytes(data[12..16].try_into().unwrap()) as usize;
+        let from = bincode::deserialize(&data[16..16 + from_len]).unwrap();
+        (MsgHeader::new(tag, data_len, from), 16 + from_len)
+    }
+}
+
 impl<'a> SendMsg<'a> {
-    fn new(
-        req: bool,
-        rpc_id: u64,
-        req_id: u64,
-        arg: &'a (dyn Serialize + Sync),
-        data: Option<&'a [u8]>,
-    ) -> Self {
+    fn new(tag: u64, data: &'a mut [IoSlice<'a>], from: SocketAddr) -> Self {
+        let data_len = data.iter().fold(0, |acc, item| acc + item.len());
         Self {
-            header: RpcHeader {
-                is_req: req,
-                rpc_id,
-                req_id,
-                arg_len: 0,
-                data_len: 0,
-            },
-            arg: Some(arg),
-            data: data.unwrap_or_default(),
+            header: Some(MsgHeader::new(tag, data_len as _, from)),
+            bufs: data,
         }
     }
 }
@@ -94,99 +136,31 @@ impl RecvMsg {
     pub fn new(ep_id: u32) -> Self {
         RecvMsg {
             ep_id,
-            header: Default::default(),
+            header: MsgHeader::new(0, 0, "127.0.0.1:0".parse().unwrap()),
             data: None,
         }
     }
 
     #[inline]
-    fn take(mut self) -> (Bytes, Bytes) {
-        let buf = self.data.take().unwrap().freeze();
-        let arg = buf.slice(0..self.header.arg_len as usize);
-        let data = buf.slice(self.header.arg_len as usize..);
-        assert_eq!(data.len(), self.header.data_len as usize);
-
-        (arg, data)
-    }
-}
-
-impl RpcHeader {
-    #[inline]
-    fn serialize(&self, mut buf: &mut [u8]) {
-        let mut len = 0;
-        len += buf.write(&self.rpc_id.to_be_bytes()).unwrap();
-        len += buf.write(&self.req_id.to_be_bytes()).unwrap();
-        len += buf.write(&(self.is_req as u32).to_be_bytes()).unwrap();
-        len += buf.write(&self.arg_len.to_be_bytes()).unwrap();
-        len += buf.write(&self.data_len.to_be_bytes()).unwrap();
-
-        debug_assert_eq!(len, 32);
-    }
-
-    #[inline]
-    fn deserialize(buf: &[u8]) -> Self {
-        let rpc_id = u64::from_be_bytes(buf[0..8].try_into().unwrap());
-        let req_id = u64::from_be_bytes(buf[8..16].try_into().unwrap());
-        let is_req = u32::from_be_bytes(buf[16..20].try_into().unwrap()) != 0;
-        let arg_len = u32::from_be_bytes(buf[20..24].try_into().unwrap());
-        let data_len = u64::from_be_bytes(buf[24..32].try_into().unwrap());
-
-        Self {
-            rpc_id,
-            req_id,
-            is_req,
-            arg_len,
-            data_len,
-        }
+    fn take(mut self) -> Bytes {
+        self.data.take().unwrap().freeze()
     }
 }
 
 impl<'a> transport::SendMsg for SendMsg<'a> {
     #[inline]
     fn pack(&mut self, mut buf: &mut [u8]) -> (usize, bool) {
-        struct SliceWriter<'a> {
-            slice: &'a mut [u8],
-            len: usize,
-        }
+        let header_len = if let Some(header) = self.header.take() {
+            let size = header.serialize(&mut buf[..12]);
+            buf = &mut buf[size..];
+            size
+        } else {
+            0
+        };
+        let n = buf.write_vectored(self.bufs).unwrap();
+        advance_slices(&mut self.bufs, n);
 
-        impl<'a> SliceWriter<'a> {
-            pub fn new(buf: &'a mut [u8]) -> Self {
-                SliceWriter { slice: buf, len: 0 }
-            }
-
-            pub fn len(&'a self) -> usize {
-                self.len
-            }
-        }
-
-        impl Write for SliceWriter<'_> {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                let len = self.slice.write(buf)?;
-                self.len += len;
-                Ok(len)
-            }
-
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let mut header_len = 0;
-        if let Some(arg) = self.arg.take() {
-            let mut writer = SliceWriter::new(&mut buf[32..]);
-            bincode::serialize_into(&mut writer, arg).unwrap();
-            self.header.arg_len = writer.len() as u32;
-            self.header.data_len = self.data.len() as u64;
-            self.header.serialize(&mut buf[0..32]);
-            header_len = self.header.arg_len as usize + 32;
-            buf = &mut buf[header_len..];
-        }
-
-        let data_len = std::cmp::min(buf.len(), self.data.len());
-        buf[0..data_len].copy_from_slice(&self.data[0..data_len]);
-        self.data = &self.data[data_len..];
-
-        (header_len + data_len, !self.data.is_empty())
+        (n + header_len, !self.bufs.is_empty())
     }
 }
 
@@ -194,17 +168,40 @@ impl transport::RecvMsg for RecvMsg {
     #[inline]
     fn unpack(&mut self, mut pkt: &[u8]) -> bool {
         if self.data.is_none() {
-            self.header = RpcHeader::deserialize(pkt);
-            pkt = &pkt[32..];
-            let cap = self.header.arg_len as usize + self.header.data_len as usize;
-            let bytes = BytesMut::with_capacity(cap);
-            self.data = Some(bytes);
+            let (header, len) = MsgHeader::deserialize(pkt);
+            self.header = header;
+            self.data = Some(BytesMut::with_capacity(self.header.data_len as _));
+            pkt = &pkt[len..];
         }
-
         let buf = unsafe { self.data.as_mut().unwrap_unchecked() };
         buf.put(pkt);
 
         false
+    }
+}
+
+impl MsgBuffer {
+    fn push(&mut self, msg: RecvMsg) {
+        let tag = msg.header.tag;
+        if let Some(queue) = self.registered.get_mut(&tag) {
+            if let Some(sender) = queue.pop_front() {
+                sender.send(msg).unwrap();
+                return;
+            }
+        }
+        self.msgs.entry(tag).or_default().push_back(msg);
+    }
+
+    fn pop(&mut self, tag: u64) -> oneshot::Receiver<RecvMsg> {
+        let (tx, rx) = oneshot::channel();
+        if let Some(queue) = self.msgs.get_mut(&tag) {
+            if let Some(msg) = queue.pop_front() {
+                tx.send(msg).unwrap();
+                return rx;
+            }
+        }
+        self.registered.entry(tag).or_default().push_back(tx);
+        rx
     }
 }
 
@@ -223,23 +220,19 @@ impl transport::Context for Endpoint {
     }
 
     fn msg_end(&mut self, msg: Self::RecvMsg) {
-        if msg.header.is_req {
-            self.inner.on_request(msg)
-        } else {
-            self.inner.on_response(msg)
-        }
+        self.inner.msg_buf.lock().unwrap().push(msg);
     }
 }
 
 impl Inner {
-    fn new(dev: &str) -> io::Result<Self> {
+    /// Create a RpcInner bind to `addr` and `dev`
+    fn new(addr: SocketAddr, dev: &str) -> io::Result<Self> {
         Ok(Self {
+            addr,
             transport: VerbsTransport::new_verbs(dev).map_err(mad_rpc_err_to_io_err)?,
-            waiters: Mutex::new(HashMap::new()),
-            req_id: AtomicU64::new(0),
-            req_buf: RwLock::new(HashMap::new()),
             mappings: AsyncMutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
+            msg_buf: Mutex::new(Default::default()),
         })
     }
 
@@ -247,58 +240,30 @@ impl Inner {
         self.transport.addr()
     }
 
-    async fn send_req<'a, R: Request>(
+    async fn send_to_vectored<'a>(
         &self,
-        ep_id: u32,
-        req_id: u64,
-        arg: &R,
-        data: Option<&[u8]>,
+        dst: impl ToSocketAddrs,
+        tag: u64,
+        bufs: &'a mut [IoSlice<'a>],
     ) -> io::Result<()> {
-        let rpc_id = R::ID;
-        let msg = SendMsg::new(true, rpc_id, req_id, arg, data);
+        let dst = lookup_host(dst).await?.next().unwrap();
+        let dst_ep_id = self.get_ep_id_or_connect(dst).await?;
+        let msg = SendMsg::new(tag, bufs, self.addr);
+        //Safety: bufs must live until send msg return
         self.transport
-            .send(ep_id, unsafe { std::mem::transmute(msg) })
+            .send(dst_ep_id, unsafe { std::mem::transmute(msg) })
             .await
             .map_err(mad_rpc_err_to_io_err)?;
         Ok(())
     }
 
-    async fn send_resp<Resp>(
-        &self,
-        ep_id: u32,
-        rpc_id: u64,
-        req_id: u64,
-        arg: &Resp,
-        data: Option<&[u8]>,
-    ) -> io::Result<()>
-    where
-        Resp: Serialize + Sync,
-    {
-        let msg = SendMsg::new(false, rpc_id, req_id, arg, data);
-        self.transport
-            .send(ep_id, unsafe { std::mem::transmute(msg) })
-            .await
-            .map_err(mad_rpc_err_to_io_err)?;
-        Ok(())
-    }
-
-    fn on_request(&self, msg: RecvMsg) {
-        let rpc_id = msg.header.rpc_id;
-        self.req_buf
-            .read()
-            .unwrap()
-            .get(&rpc_id)
-            .expect("RPC handler not found")
-            .send(msg)
-            .unwrap();
-    }
-
-    fn on_response(&self, msg: RecvMsg) {
-        if let Some(value) = self.waiters.lock().unwrap().remove(&msg.header.req_id) {
-            value.send(msg).unwrap();
-        } else {
-            warn!("request {} get response, but no waiter.", msg.header.req_id);
-        }
+    /// Receives a raw message.
+    async fn recv_from_raw(&self, tag: u64) -> io::Result<(Bytes, SocketAddr)> {
+        let recver = self.msg_buf.lock().unwrap().pop(tag);
+        let msg = recver.await.unwrap();
+        let from = msg.header.from;
+        let data = msg.take();
+        Ok((data, from))
     }
 
     /// Get the Endpoint Id of the remote rdma peer.
@@ -326,13 +291,13 @@ impl Inner {
 }
 
 impl Endpoint {
+    /// Creates a [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs, dev: &str) -> io::Result<Self> {
         // This tcp listener is used for helping to establish rdma connection
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-        let inner = Arc::new(Inner::new(dev)?);
+        let inner = Arc::new(Inner::new(addr, dev)?);
         let ep = Endpoint {
-            addr,
             inner: inner.clone(),
         };
         let url = inner.url();
@@ -369,83 +334,61 @@ impl Endpoint {
 
     /// Returns the local socket address.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.addr)
-    }
-}
-
-impl Endpoint {
-    /// Add a RPC handler that send and receive data.
-    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
-    where
-        AsyncFn: FnMut(R, Bytes) -> Fut + Send + 'static,
-        Fut: Future<Output = (R::Response, Vec<u8>)> + Send + 'static,
-    {
-        let rpc_id = R::ID;
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let old_tx = self.inner.req_buf.write().unwrap().insert(rpc_id, tx);
-        assert!(
-            old_tx.is_none(),
-            "RPC ID of {} has multiple handlers",
-            rpc_id
-        );
-        // only use weak pointer to prevent polling task nerver stop
-        let inner_weak = Arc::downgrade(&self.inner);
-        let rpc_handle_task = task::spawn(async move {
-            while let Some(msg) = rx.recv().await {
-                assert!(msg.header.is_req && msg.header.rpc_id == rpc_id);
-
-                let ep_id = msg.ep_id;
-                let rpc_id = msg.header.rpc_id;
-                let req_id = msg.header.req_id;
-                let (arg, data) = msg.take();
-                let arg = bincode::deserialize(&arg).unwrap();
-                let resp_fut = f(arg, data);
-                if let Some(inner) = inner_weak.upgrade() {
-                    task::spawn(async move {
-                        let (resp, resp_data) = resp_fut.await;
-                        inner
-                            .send_resp(ep_id, rpc_id, req_id, &resp, Some(resp_data.as_ref()))
-                            .await
-                            .unwrap();
-                    });
-                }
-            }
-        });
-        self.inner.tasks.lock().unwrap().push(rpc_handle_task);
+        Ok(self.inner.addr)
     }
 
-    pub async fn call_with_data<R: Request>(
+    /// Sends data with tag on the socket to the given address.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use madsim_std::{Runtime, net::Endpoint};
+    ///
+    /// Runtime::new().block_on(async {
+    ///     let net = Endpoint::current();
+    ///     net.send_to("127.0.0.1:4242", 0, &[0; 10]).await.expect("couldn't send data");
+    /// });
+    /// ```
+    pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, data: &[u8]) -> io::Result<()> {
+        self.send_to_vectored(dst, tag, &mut [IoSlice::new(data)])
+            .await
+    }
+
+    /// Like [`send_to`], except that it writes from a slice of buffers.
+    ///
+    /// [`send_to`]: Endpoint::send_to
+    pub async fn send_to_vectored<'a>(
         &self,
-        dst: SocketAddr,
-        request: R,
-        data: &[u8],
-    ) -> io::Result<(R::Response, Bytes)> {
-        struct WaiterGuard<'a>(&'a Inner, u64);
-        impl<'a> Drop for WaiterGuard<'a> {
-            fn drop(&mut self) {
-                self.0.waiters.lock().unwrap().remove(&self.1);
-            }
-        }
+        dst: impl ToSocketAddrs,
+        tag: u64,
+        bufs: &'a mut [IoSlice<'a>],
+    ) -> io::Result<()> {
+        self.inner.send_to_vectored(dst, tag, bufs).await
+    }
 
-        let ep_id = self.inner.get_ep_id_or_connect(dst).await?;
-        // increase req_id
-        let req_id = self
-            .inner
-            .req_id
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        let (tx, rx) = oneshot::channel();
-        let guard = WaiterGuard(&self.inner, req_id);
-        // register requester for waiting response
-        let old_waiter = self.inner.waiters.lock().unwrap().insert(req_id, tx);
-        assert!(old_waiter.is_none());
-        self.inner
-            .send_req(ep_id, req_id, &request, Some(data))
-            .await?;
-        let msg = rx.await.unwrap();
-        std::mem::forget(guard);
+    /// Receives a single message with given tag on the socket.
+    /// On success, returns the number of bytes read and the origin.
+    ///
+    /// # Example
+    /// ```ignore
+    /// # use madsim_std as madsim;
+    /// use madsim::{Runtime, net::Endpoint};
+    ///
+    /// Runtime::new().block_on(async {
+    ///     let net = Endpoint::bind("127.0.0.1:0").await.unwrap();
+    ///     let mut buf = [0; 10];
+    ///     let (len, src) = net.recv_from(0, &mut buf).await.expect("couldn't receive data");
+    /// });
+    /// ```
+    pub async fn recv_from(&self, tag: u64, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        let (data, from) = self.recv_from_raw(tag).await?;
+        let len = buf.len().min(data.len());
+        buf[..len].copy_from_slice(&data[..len]);
+        Ok((len, from))
+    }
 
-        let (resp, data) = msg.take();
-        Ok((bincode::deserialize(&resp).unwrap(), data))
+    /// Receives a raw message.
+    pub(crate) async fn recv_from_raw(&self, tag: u64) -> io::Result<(Bytes, SocketAddr)> {
+        self.inner.recv_from_raw(tag).await
     }
 }
 
