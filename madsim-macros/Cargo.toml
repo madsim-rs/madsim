@@ -1,6 +1,6 @@
 [package]
 name = "madsim-macros"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Madsim's proc-macro."
