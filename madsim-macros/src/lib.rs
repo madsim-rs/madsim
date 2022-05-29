@@ -185,8 +185,8 @@ fn parse_test(
                         rand_log = log;
                     }
                     Err(e) => {
-                        println!("note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error", seed);
-                        println!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", config.hash());
+                        eprintln!("note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error", seed);
+                        eprintln!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", config.hash());
                         ::std::panic::resume_unwind(e);
                     }
                 }
