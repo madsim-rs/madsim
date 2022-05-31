@@ -22,11 +22,11 @@ use tokio::{
 
 #[derive(Clone)]
 pub struct Endpoint {
-    inner: Arc<Inner>,
+    inner: Option<Arc<Inner>>,
+    init_lock: Arc<AsyncMutex<Option<SocketAddr>>>,
 }
 
 struct Inner {
-    /// the addr of local address
     addr: SocketAddr,
     transport: Mutex<VerbsTransport<Endpoint>>,
     /// mappings from SocketAddr to EndpointID in erpc
@@ -220,7 +220,7 @@ impl transport::Context for Endpoint {
     }
 
     fn msg_end(&mut self, msg: Self::RecvMsg) {
-        self.inner.msg_buf.lock().unwrap().push(msg);
+        self.inner().msg_buf.lock().unwrap().push(msg);
     }
 }
 
@@ -292,30 +292,41 @@ impl Inner {
 
 impl Endpoint {
     /// Creates a [`Endpoint`] from the given address.
-    pub async fn bind(addr: impl ToSocketAddrs, dev: &str) -> io::Result<Self> {
+    pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
         // This tcp listener is used for helping to establish rdma connection
-        let listener = TcpListener::bind(addr).await?;
-        let addr = listener.local_addr()?;
-        let inner = Arc::new(Inner::new(addr, dev)?);
+        let addr = lookup_host(addr).await?.next().unwrap();
         let ep = Endpoint {
-            inner: inner.clone(),
+            inner: None,
+            init_lock: Arc::new(AsyncMutex::new(Some(addr))),
         };
-        let url = inner.url();
-        let ep_clone = ep.clone();
+        Ok(ep)
+    }
+
+    pub async fn init(mut self, dev: &str) -> io::Result<Self> {
+        let listener = {
+            let mut guard = self.init_lock.lock().await;
+            let addr = guard.take().expect("Duplicate Initialization");
+            let listener = TcpListener::bind(addr).await?;
+            let addr = listener.local_addr()?;
+            self.inner = Some(Arc::new(Inner::new(addr, dev)?));
+            listener
+        };
+        let ep_clone = self.clone();
         //polling
         // todo spwan blocking ?
         let polling_task = task::spawn(async move {
             loop {
                 // `ep_clone` accounts for 1 strong count
                 // so if strong count of ep is > 1, means Endpoint still in use
-                if Arc::strong_count(&ep_clone.inner) > 1 {
-                    ep_clone.inner.transport.progress(&mut ep_clone.clone());
+                if Arc::strong_count(&ep_clone.inner()) > 1 {
+                    ep_clone.inner().transport.progress(&mut ep_clone.clone());
                     task::yield_now().await;
                 } else {
                     break;
                 }
             }
         });
+        let url = self.inner().url();
         // Connection Helper
         let connect_task = task::spawn(async move {
             loop {
@@ -324,17 +335,17 @@ impl Endpoint {
                 stream.write_all(url.as_bytes()).await.unwrap();
             }
         });
-        ep.inner
+        self.inner()
             .tasks
             .lock()
             .unwrap()
             .extend([polling_task, connect_task]);
-        Ok(ep)
+        Ok(self)
     }
 
     /// Returns the local socket address.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.inner.addr)
+        Ok(self.inner().addr)
     }
 
     /// Sends data with tag on the socket to the given address.
@@ -362,7 +373,7 @@ impl Endpoint {
         tag: u64,
         bufs: &'a mut [IoSlice<'a>],
     ) -> io::Result<()> {
-        self.inner.send_to_vectored(dst, tag, bufs).await
+        self.inner().send_to_vectored(dst, tag, bufs).await
     }
 
     /// Receives a single message with given tag on the socket.
@@ -388,7 +399,15 @@ impl Endpoint {
 
     /// Receives a raw message.
     pub(crate) async fn recv_from_raw(&self, tag: u64) -> io::Result<(Bytes, SocketAddr)> {
-        self.inner.recv_from_raw(tag).await
+        self.inner().recv_from_raw(tag).await
+    }
+
+    #[inline]
+    fn inner(&self) -> Arc<Inner> {
+        self.inner
+            .as_ref()
+            .expect("Endpoint has not been init")
+            .clone()
     }
 }
 
