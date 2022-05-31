@@ -151,7 +151,7 @@ impl<'a> transport::SendMsg for SendMsg<'a> {
     #[inline]
     fn pack(&mut self, mut buf: &mut [u8]) -> (usize, bool) {
         let header_len = if let Some(header) = self.header.take() {
-            let size = header.serialize(&mut buf[..12]);
+            let size = header.serialize(&mut buf);
             buf = &mut buf[size..];
             size
         } else {
@@ -181,12 +181,14 @@ impl transport::RecvMsg for RecvMsg {
 }
 
 impl MsgBuffer {
-    fn push(&mut self, msg: RecvMsg) {
+    fn push(&mut self, mut msg: RecvMsg) {
         let tag = msg.header.tag;
         if let Some(queue) = self.registered.get_mut(&tag) {
-            if let Some(sender) = queue.pop_front() {
-                sender.send(msg).unwrap();
-                return;
+            while let Some(sender) = queue.pop_front() {
+                msg = match sender.send(msg) {
+                    Ok(_) => return,
+                    Err(m) => m,
+                }
             }
         }
         self.msgs.entry(tag).or_default().push_back(msg);
@@ -398,7 +400,7 @@ impl Endpoint {
     }
 
     /// Receives a raw message.
-    pub(crate) async fn recv_from_raw(&self, tag: u64) -> io::Result<(Bytes, SocketAddr)> {
+    pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Bytes, SocketAddr)> {
         self.inner().recv_from_raw(tag).await
     }
 
