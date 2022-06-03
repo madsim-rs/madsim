@@ -304,6 +304,8 @@ impl Endpoint {
         Ok(ep)
     }
 
+    /// Init the [`Endpoint`] with the given device.
+    /// - `dev`: need to match the device name under `/dev/infiniband/` (e.g. uverbs0)
     pub async fn init(mut self, dev: &str) -> io::Result<Self> {
         let listener = {
             let mut guard = self.init_lock.lock().await;
