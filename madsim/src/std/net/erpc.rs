@@ -113,11 +113,11 @@ impl MsgHeader {
         len
     }
 
-    fn deserialize(data: &[u8]) -> (Self, usize) {
-        let tag = u64::from_be_bytes(data[..8].try_into().unwrap());
-        let data_len = u32::from_be_bytes(data[8..12].try_into().unwrap());
-        let from_len = u32::from_be_bytes(data[12..16].try_into().unwrap()) as usize;
-        let from = bincode::deserialize(&data[16..16 + from_len]).unwrap();
+    fn deserialize(mut data: &[u8]) -> (Self, usize) {
+        let tag = data.get_u64();
+        let data_len = data.get_u32();
+        let from_len = data.get_u32() as usize;
+        let from = bincode::deserialize(&data[..from_len]).unwrap();
         (MsgHeader::new(tag, data_len, from), 16 + from_len)
     }
 }
