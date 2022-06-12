@@ -68,7 +68,6 @@ impl Server {
     }
 }
 
-#[cfg(feature = "erpc")]
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     use std::time::Duration;
