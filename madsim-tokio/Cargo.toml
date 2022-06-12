@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tokio"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tokio` simulator on madsim."
@@ -14,8 +14,6 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-sim = ["madsim/sim"]
-
 # tokio features
 full = ["tokio/full"]
 fs = ["tokio/fs"]
@@ -44,6 +42,8 @@ libc = []
 signal-hook-registry = []
 tokio-macros = []
 
+[target.'cfg(madsim)'.dependencies]
+madsim = { version = "=0.2.0-alpha.3", path = "../madsim" }
+
 [dependencies]
-madsim = { version = "0.2.0-alpha.2", path = "../madsim" }
 tokio = "1.18.2"

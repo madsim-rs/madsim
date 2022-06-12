@@ -1,3 +1,10 @@
+/// Obtain a series of random bytes.
+///
+/// # Safety
+///
+/// Input must be a valid buffer.
+///
+/// Ref: <https://man7.org/linux/man-pages/man2/getrandom.2.html>
 #[no_mangle]
 pub unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32) -> isize {
     let seed = *SEED;
@@ -10,6 +17,13 @@ pub unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: 
     0
 }
 
+/// Fill a buffer with random bytes.
+///
+/// # Safety
+///
+/// Input must be a valid buffer.
+///
+/// Ref: <https://man7.org/linux/man-pages/man3/getentropy.3.html>
 #[no_mangle]
 pub unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
     if buflen > 256 {

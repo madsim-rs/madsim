@@ -4,4 +4,4 @@ pub mod time;
 
 pub use rand;
 pub use std::collections;
-pub use tokio::{task, test};
+pub use tokio::{main, task, test};

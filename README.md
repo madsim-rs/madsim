@@ -30,18 +30,18 @@ Add the following lines to your Cargo.toml:
 
 ```toml
 [dependencies]
-madsim = "0.2.0-alpha.2"
+madsim = "=0.2.0-alpha.3"
 ```
 
 If your project depends on tokio or tonic, replace all `tokio`, `tonic` and `tonic-build` entries too:
 
 ```toml
 [dependencies]
-tokio = { version = "0.2.0-alpha.2", package = "madsim-tokio" }
-tonic = { version = "0.2.0-alpha.2", package = "madsim-tonic" }
+tokio = { version = "=0.2.0-alpha.3", package = "madsim-tokio" }
+tonic = { version = "=0.2.0-alpha.3", package = "madsim-tonic" }
 
 [dev-dependencies]
-tonic-build = { version = "0.2.0-alpha.1", package = "madsim-tonic-build" }
+tonic-build = { version = "=0.2.0-alpha.1", package = "madsim-tonic-build" }
 ```
 
 Next, redirect the following APIs to madsim:
@@ -53,14 +53,10 @@ use rand                -> use madsim::rand
 
 When built normally, these APIs are identical to the original ones.
 
-To test your code on the simulator, enable the `sim` feature of madsim:
+To test your code on the simulator, enable the config `madsim`:
 
 ```sh
-cargo test --features=madsim/sim
-# or the `sim` feature of tokio if you use it
-cargo test --features=tokio/sim
-# or the `sim` feature of tonic if you use it
-cargo test --features=tonic/sim
+RUSTFLAGS="--cfg madsim" cargo test
 ```
 
 Now you have gotten rid of tokio/tonic and you are in the simulation world!

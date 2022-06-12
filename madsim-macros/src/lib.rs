@@ -26,7 +26,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// #[madsim::main]
 /// async fn main() {
 ///     println!("Hello world");
@@ -35,7 +35,7 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// Equivalent code not using `#[madsim::main]`
 ///
-/// ```
+/// ```ignore
 /// fn main() {
 ///     madsim::runtime::Runtime::new().block_on(async {
 ///         println!("Hello world");
@@ -80,7 +80,7 @@ fn parse_main(
 /// Marks async function to be executed by runtime, suitable to test environment.
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// #[madsim::test]
 /// async fn my_test() {
 ///     assert!(true);
@@ -185,8 +185,8 @@ fn parse_test(
                         rand_log = log;
                     }
                     Err(e) => {
-                        println!("note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error", seed);
-                        println!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", config.hash());
+                        eprintln!("note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error", seed);
+                        eprintln!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", config.hash());
                         ::std::panic::resume_unwind(e);
                     }
                 }

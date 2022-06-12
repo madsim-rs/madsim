@@ -115,6 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(test)]
+#[cfg(madsim)]
 mod tests {
     use super::hello_world::another_greeter_client::AnotherGreeterClient;
     use super::hello_world::greeter_client::GreeterClient;

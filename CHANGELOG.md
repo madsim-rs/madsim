@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.3] - 2022-05-25
+
+### Added
+
+- madsim: Add serde API to `HashMap`.
+- madsim-norandom: A preview library for intercepting libc `getrandom`.
+
+### Changed
+
+- **Breaking:** Change the way to enable simulation: `#[cfg(feature = "sim")]` -> `#[cfg(madsim)]`.
+
+### Fixed
+
+- Lock version on madsim dependencies to prevent API broken.
+
 ## [0.2.0-alpha.2] - 2022-05-22
 
 ### Added
@@ -17,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- madsim: Switch `JoinHandle` to tokio style which won't cancel task on drop.
+- **Breaking:** madsim: Switch `JoinHandle` to tokio style which won't cancel task on drop.
 - madsim-macros: Improve error message on panic in simulation.
 
 ### Fixed
