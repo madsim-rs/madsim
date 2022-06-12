@@ -30,17 +30,17 @@
 //! });
 //! ```
 
-#[cfg(all(not(feature = "ucx"), not(feature="erpc")))]
+#[cfg(feature = "erpc")]
+pub use self::erpc::*;
+#[cfg(all(not(feature = "ucx"), not(feature = "erpc")))]
 pub use self::tcp::*;
 #[cfg(feature = "ucx")]
 pub use self::ucx::*;
-#[cfg(feature = "erpc")]
-pub use self::erpc::*;
 
 #[cfg(feature = "rpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
 pub mod rpc;
-#[cfg(all(not(feature = "ucx"), not(feature="erpc")))]
+#[cfg(all(not(feature = "ucx"), not(feature = "erpc")))]
 mod tcp;
 #[cfg(feature = "ucx")]
 mod ucx;
