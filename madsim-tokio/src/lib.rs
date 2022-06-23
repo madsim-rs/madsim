@@ -9,13 +9,20 @@ mod sim {
     // TODO: simulate `task_local`
 
     // simulated API
+    pub use madsim::net;
     #[cfg(feature = "rt")]
     pub use madsim::task::spawn;
     #[cfg(feature = "time")]
     pub use madsim::time;
     #[cfg(all(feature = "rt", feature = "macros"))]
     pub use madsim::{main, test};
-    pub use madsim::{net, task};
+
+    pub mod task {
+        #[cfg(tokio_unstable)]
+        pub use madsim::task::yield_now as consume_budget;
+
+        pub use madsim::task::*;
+    }
 
     // not simulated API
     // TODO: simulate `fs`

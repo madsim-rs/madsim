@@ -29,6 +29,7 @@ sync = ["tokio/sync"]
 test-util = ["tokio/test-util"]
 time = ["tokio/time"]
 stats = ["tokio/stats"]
+tracing = ["tokio/tracing"]
 
 # tokio optional dependencies
 bytes = []
@@ -46,4 +47,4 @@ tokio-macros = []
 madsim = { version = "=0.2.0-alpha.3", path = "../madsim" }
 
 [dependencies]
-tokio = "1.18.2"
+tokio = "1.19.2"

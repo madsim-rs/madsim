@@ -8,6 +8,7 @@ use tonic::{
 };
 
 /// Channel builder.
+#[derive(Debug, Clone)]
 pub struct Endpoint {
     uri: Uri,
     timeout: Option<Duration>,
