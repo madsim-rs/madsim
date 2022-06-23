@@ -5,10 +5,10 @@ use bytes::{Buf, Bytes};
 use futures::StreamExt;
 use log::*;
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     io::{self, IoSlice},
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 use tokio::{
     io::AsyncWriteExt,
@@ -17,7 +17,7 @@ use tokio::{
 };
 use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
 
-/// Local node network handle to the runtime.
+/// An endpoint.
 pub struct Endpoint {
     addr: SocketAddr,
     inner: Arc<Inner>,
@@ -25,7 +25,7 @@ pub struct Endpoint {
 
 #[derive(Default)]
 struct Inner {
-    sender: tokio::sync::Mutex<Sender>,
+    sender: RwLock<Sender>,
     mailbox: Mutex<Mailbox>,
     tasks: Mutex<Vec<task::JoinHandle<()>>>,
 }
@@ -39,7 +39,7 @@ struct SendMsg {
 }
 
 impl Endpoint {
-    /// Creates a [`Endpoint`] from the given address.
+    /// Creates an [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
@@ -54,8 +54,7 @@ impl Endpoint {
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
                 if let Some(inner) = inner.upgrade() {
-                    let (peer, sender) = inner.setup_connection(addr, None, stream).await;
-                    inner.sender.lock().await.insert(peer, sender);
+                    inner.setup_connection(addr, None, stream).await;
                 } else {
                     return;
                 }
@@ -70,21 +69,20 @@ impl Inner {
     async fn setup_connection(
         self: &Arc<Self>,
         addr: SocketAddr,
-        peer: Option<SocketAddr>,
+        peer: Option<(SocketAddr, mpsc::Receiver<SendMsg>)>,
         stream: TcpStream,
-    ) -> (SocketAddr, mpsc::Sender<SendMsg>) {
+    ) {
         stream.set_nodelay(true).expect("failed to set nodelay");
         let (reader, writer) = stream.into_split();
         let mut writer = tokio::io::BufWriter::new(writer);
         let mut reader = FramedRead::new(reader, LengthDelimitedCodec::new());
-        let (sender, mut recver) = mpsc::channel(10);
-        let peer = if let Some(peer) = peer {
+        let (peer, mut send_rx) = if let Some((peer, send_rx)) = peer {
             // send local address
             let addr_str = addr.to_string();
             writer.write_u32(addr_str.len() as _).await.unwrap();
             writer.write_all(addr_str.as_bytes()).await.unwrap();
             writer.flush().await.unwrap();
-            peer
+            (peer, send_rx)
         } else {
             // receive real peer address
             let data = reader
@@ -92,37 +90,25 @@ impl Inner {
                 .await
                 .expect("connection closed")
                 .expect("failed to read peer address");
-            std::str::from_utf8(&data)
+            let peer = std::str::from_utf8(&data)
                 .expect("invalid utf8")
                 .parse::<SocketAddr>()
-                .expect("failed to parse peer address")
-        };
-        trace!("setup connection: {} -> {}", addr, peer);
-
-        let inner = Arc::downgrade(self);
-        let recver_task = task::spawn(async move {
-            debug!("try recv: {} <- {}", addr, peer);
-            while let Some(frame) = reader.next().await {
-                let mut frame = frame.unwrap().freeze();
-                let tag = frame.get_u64();
-                if let Some(inner) = inner.upgrade() {
-                    inner.mailbox.lock().unwrap().deliver(RecvMsg {
-                        tag,
-                        data: frame,
-                        from: peer,
-                    });
-                } else {
-                    return;
-                }
+                .expect("failed to parse peer address");
+            // register sender
+            let (send_tx, send_rx) = mpsc::channel(10);
+            if self.sender.write().unwrap().insert(peer, send_tx).is_some() {
+                warn!("duplicate connection: {addr} -> {peer}");
             }
-        });
+            (peer, send_rx)
+        };
+        trace!("setup connection: {addr} -> {peer}");
 
         let sender_task = task::spawn(async move {
             while let Some(SendMsg {
                 tag,
                 mut bufs,
                 done,
-            }) = recver.recv().await
+            }) = send_rx.recv().await
             {
                 let len = 8 + bufs.iter().map(|s| s.len()).sum::<usize>();
                 writer.write_u32(len as _).await.unwrap();
@@ -135,26 +121,65 @@ impl Inner {
                 done.send(()).unwrap();
             }
         });
-        self.tasks
-            .lock()
-            .unwrap()
-            .extend([sender_task, recver_task]);
-        (peer, sender)
+
+        let inner = Arc::downgrade(self);
+        let _recver_task = task::spawn(async move {
+            while let Some(frame) = reader.next().await {
+                let mut frame = match frame {
+                    Ok(frame) => frame.freeze(),
+                    Err(_) => break,
+                };
+                let tag = frame.get_u64();
+                debug!("recv: {addr} <- {peer}, tag={tag}, len={}", frame.len());
+                if let Some(inner) = inner.upgrade() {
+                    inner.mailbox.lock().unwrap().deliver(RecvMsg {
+                        tag,
+                        data: frame,
+                        from: peer,
+                    });
+                } else {
+                    break;
+                }
+            }
+            // NOTE: now the tcp connection is closed by remote.
+            //       We need to abort the sender task to close the connection cleanly.
+            sender_task.abort();
+            debug!("close connection: {addr} -> {peer}");
+            if let Some(inner) = inner.upgrade() {
+                inner.sender.write().unwrap().remove(&peer);
+            }
+        });
+
+        // self.tasks
+        //     .lock()
+        //     .unwrap()
+        //     .extend([sender_task, recver_task]);
     }
 }
 
 impl Endpoint {
+    /// Get a sender to the remote endpoint `addr`. Setup connection if it doesn't exist.
     async fn get_or_connect(&self, addr: SocketAddr) -> mpsc::Sender<SendMsg> {
-        let mut senders = self.inner.sender.lock().await;
-        if let std::collections::hash_map::Entry::Vacant(e) = senders.entry(addr) {
-            let stream = TcpStream::connect(addr).await.unwrap();
-            let (_, sender) = self
-                .inner
-                .setup_connection(self.addr, Some(addr), stream)
-                .await;
-            e.insert(sender);
+        // return sender if it exists
+        if let Some(sender) = self.inner.sender.read().unwrap().get(&addr) {
+            return sender.clone();
         }
-        senders[&addr].clone()
+        // create a new channel and register sender
+        let (sender, recver) = match self.inner.sender.write().unwrap().entry(addr) {
+            Entry::Occupied(e) => return e.get().clone(),
+            Entry::Vacant(e) => {
+                let (tx, rx) = mpsc::channel(10);
+                e.insert(tx.clone());
+                (tx, rx)
+            }
+        };
+        // connect to the remote endpoint
+        // trace!("{} try sending to {} but has not connected, start to connect actively", self.addr, addr);
+        let stream = TcpStream::connect(addr).await.unwrap();
+        self.inner
+            .setup_connection(self.addr, Some((addr, recver)), stream)
+            .await;
+        sender
     }
 
     /// Returns the local socket address.
