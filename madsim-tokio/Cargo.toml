@@ -14,8 +14,23 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+# enable everything
+full = [
+  "fs",
+  "io-util",
+  "io-std",
+  "macros",
+  "net",
+  "parking_lot",
+  "process",
+  "rt",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+]
+
 # tokio features
-full = ["tokio/full"]
 fs = ["tokio/fs"]
 io-util = ["tokio/io-util"]
 io-std = ["tokio/io-std"]

@@ -10,6 +10,7 @@ use std::{
     collections::HashMap,
     fmt,
     future::Future,
+    io,
     ops::Deref,
     pin::Pin,
     sync::{
@@ -293,9 +294,8 @@ impl TaskNodeHandle {
         };
         runnable.schedule();
 
-        static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(0);
         JoinHandle {
-            id: NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst),
+            id: Id::new(),
             task: Mutex::new(Some(task.fallible())),
         }
     }
@@ -331,10 +331,27 @@ where
     handle.spawn(async move { f() })
 }
 
+/// An opaque ID that uniquely identifies a task relative to all other currently running tasks.
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+pub struct Id(u64);
+
+impl Id {
+    fn new() -> Self {
+        static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(0);
+        Id(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// An owned permission to join on a task (await its termination).
 #[derive(Debug)]
 pub struct JoinHandle<T> {
-    id: u64,
+    id: Id,
     task: Mutex<Option<FallibleTask<T>>>,
 }
 
@@ -380,11 +397,16 @@ impl<T> Drop for JoinHandle<T> {
 /// Task failed to execute to completion.
 #[derive(Debug)]
 pub struct JoinError {
-    id: u64,
+    id: Id,
     is_panic: bool,
 }
 
 impl JoinError {
+    /// Returns a task ID that identifies the task which errored relative to other currently spawned tasks.
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
     /// Returns true if the error was caused by the task being cancelled.
     pub fn is_cancelled(&self) -> bool {
         !self.is_panic
@@ -402,6 +424,20 @@ impl fmt::Display for JoinError {
             false => write!(f, "task {} was cancelled", self.id),
             true => write!(f, "task {} panicked", self.id),
         }
+    }
+}
+
+impl std::error::Error for JoinError {}
+
+impl From<JoinError> for io::Error {
+    fn from(src: JoinError) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::Other,
+            match src.is_panic {
+                false => "task was cancelled",
+                true => "task panicked",
+            },
+        )
     }
 }
 
