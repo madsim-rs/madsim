@@ -56,6 +56,9 @@ mod network;
 #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
 pub mod rpc;
 
+pub mod tcp;
+pub use tcp::{TcpListener, TcpStream};
+
 /// Network simulator.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct NetSim {

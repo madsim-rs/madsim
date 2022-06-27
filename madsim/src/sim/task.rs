@@ -18,6 +18,7 @@ use std::{
     },
     task::{Context, Poll},
     time::Duration,
+    io,
 };
 
 pub use tokio::task::yield_now;
@@ -404,6 +405,20 @@ impl fmt::Display for JoinError {
         }
     }
 }
+
+impl From<JoinError> for io::Error {
+    fn from(src: JoinError) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::Other,
+            if src.is_cancelled() {
+                "task was cancelled"
+            } else {
+                "task panicked"
+            }
+        )
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
