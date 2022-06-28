@@ -9,7 +9,6 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use log::debug;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// a simulated TcpStream for std::net::TcpStream

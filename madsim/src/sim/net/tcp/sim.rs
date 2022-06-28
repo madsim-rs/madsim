@@ -1,4 +1,6 @@
 use std::time::Duration;
+use log::trace;
+
 use crate::{rand::{GlobalRng, Rng}, time::TimeHandle, plugin, task::NodeId};
 use super::network::TcpNetwork;
 
@@ -6,7 +8,7 @@ use super::network::TcpNetwork;
 /// a simulated Tcp
 /// just a wrapper for the inner TcpNetwork
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
-pub(crate) struct TcpSim {
+pub struct TcpSim {
     rand: GlobalRng,
     time: TimeHandle,
     pub(crate) network: TcpNetwork,
@@ -41,7 +43,17 @@ impl TcpSim {
     ///
     /// All connections will be closed.
     pub fn reset_node(&self, id: NodeId) {
-        unimplemented!()
+        trace!("reset node {}", id);
+        let mut inner = self.network.inner.lock().unwrap();
+        let mut drop_ids = vec![];
+        for (conn_id, conn) in &inner.conn {
+            if conn.src == id || conn.dst == id {
+                drop_ids.push(*conn_id)
+            }
+        }
+        for id in drop_ids {
+            inner.conn.remove(&id);
+        }
     }
 
     /// Connect a node to the network.

@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque}, 
-    net::{SocketAddr}, 
+    net::SocketAddr, 
     sync::{atomic::{AtomicU64, Ordering}, Mutex, Arc}, task::{Waker, Context}, time::Duration, 
 };
 
@@ -16,15 +16,15 @@ use super::{Payload, Config};
 /// an inner simulated implementation of Tcp
 /// which contains all the tcp network nodes in the simulation system.
 pub(crate) struct TcpNetwork {
-    inner: Arc<Mutex<Inner>>
+    pub(crate) inner: Arc<Mutex<Inner>>
 }
 
-struct Inner {
+pub(crate) struct Inner {
     rand: GlobalRng,
     time: TimeHandle,
     config: Config,
     accept: HashMap<SocketAddr, (NodeId, mpsc::Sender<(ConnId, ConnId)>)>,
-    conn: HashMap<ConnId, Connection>,
+    pub(crate) conn: HashMap<ConnId, Connection>,
     clogged_node: HashSet<NodeId>,
     clogged_link: HashSet<(NodeId, NodeId)>,
     conn_cnt: AtomicU64
@@ -33,7 +33,7 @@ struct Inner {
 
 
 impl TcpNetwork {
-    pub(crate) fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
+    pub fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 rand,
@@ -53,27 +53,27 @@ impl TcpNetwork {
         f(&mut inner.config);
     }
 
-    pub(crate) fn clog_node(&self, id: NodeId) {
+    pub fn clog_node(&self, id: NodeId) {
         debug!("tcp clog: {id}");
         self.inner.lock().unwrap().clogged_node.insert(id);
     }
 
-    pub(crate) fn unclog_node(&self, id: NodeId) {
+    pub fn unclog_node(&self, id: NodeId) {
         debug!("tcp unclog: {id}");
         self.inner.lock().unwrap().clogged_node.remove(&id);
     }
 
-    pub(crate) fn clog_link(&self, src: NodeId, dst: NodeId) {
+    pub fn clog_link(&self, src: NodeId, dst: NodeId) {
         debug!("clog: {src} -> {dst}");
         self.inner.lock().unwrap().clogged_link.insert((src, dst));
     }
 
-    pub(crate) fn unclog_link(&self, src: NodeId, dst: NodeId) {
+    pub fn unclog_link(&self, src: NodeId, dst: NodeId) {
         debug!("tcp unclog: {src} -> {dst}");
         self.inner.lock().unwrap().clogged_link.remove(&(src, dst));
     }
 
-    pub(crate) fn listen(&self, id: NodeId, addr: SocketAddr) -> Result<mpsc::Receiver<(ConnId, ConnId)>, String> {
+    pub fn listen(&self, id: NodeId, addr: SocketAddr) -> Result<mpsc::Receiver<(ConnId, ConnId)>, String> {
         let (tx, rx) = mpsc::channel(0);
         match self.inner.lock().unwrap().accept.insert(addr, (id, tx)) {
             Some(_) => Err("addr is in used".to_string()),
@@ -187,11 +187,11 @@ impl TcpNetwork {
 
 #[derive(Debug)]
 pub(crate) struct Connection {
-    data: VecDeque<Payload>,
-    wakers: VecDeque<Waker>,
-    is_block: bool,
-    src: NodeId,
-    dst: NodeId,
+    pub(crate) data: VecDeque<Payload>,
+    pub(crate) wakers: VecDeque<Waker>,
+    pub(crate) is_block: bool,
+    pub(crate) src: NodeId,
+    pub(crate) dst: NodeId,
 }
 
 impl Connection {

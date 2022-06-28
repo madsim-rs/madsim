@@ -4,12 +4,11 @@ use std::{io, net::SocketAddr};
 use futures::{channel::mpsc, StreamExt};
 use log::debug;
 
-use crate::{task::NodeId, plugin};
+use crate::plugin;
 use super::{TcpStream, ToSocketAddrs, to_socket_addrs, sim::TcpSim};
 
 /// a simulated TCP socket server, listen for connections
 pub struct TcpListener {
-    id: NodeId,
     receiver: mpsc::Receiver<(u64, u64)>
 }
 
@@ -28,7 +27,7 @@ impl TcpListener {
             match sim.network.listen(id, addr) {
                 Ok(receiver) => {
                     debug!("tcp bind to {}", addr);
-                    return Ok(TcpListener { id, receiver });
+                    return Ok(TcpListener { receiver });
                 }
                 Err(e) => {
                     last_err = Some(io::Error::new(

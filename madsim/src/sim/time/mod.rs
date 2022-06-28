@@ -3,7 +3,6 @@
 //!
 
 use futures::{select_biased, FutureExt};
-use log::{trace, debug};
 use naive_timer::Timer;
 #[doc(no_inline)]
 pub use std::time::Duration;
