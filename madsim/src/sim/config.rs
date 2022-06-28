@@ -62,7 +62,7 @@ mod tests {
         send_latency = { start = { secs = 0, nanos = 1000000 }, end = { secs = 0, nanos = 10000000 } }
         
         [tcp]
-        pascket_loss_rate = 0.1
+        packet_loss_rate = 0.1
         send_latency = { start = { secs = 0, nanos = 1000000 }, end = { secs = 0, nanos = 10000000 } }
         "#
         .parse()
