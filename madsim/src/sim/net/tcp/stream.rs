@@ -5,13 +5,14 @@ use super::{
 };
 use crate::plugin;
 use std::{
-    fmt, io::{self, Write},
+    io::{self, Write},
     pin::Pin,
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// a simulated TcpStream for std::net::TcpStream
+#[derive(Debug)]
 pub struct TcpStream {
     pub(crate) send_conn: ConnId,
     pub(crate) recv_conn: ConnId,
@@ -109,21 +110,21 @@ impl AsyncWrite for TcpStream {
     }
 
     fn is_write_vectored(&self) -> bool {
-        unimplemented!()
+        false
     }
 
     #[inline]
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        unimplemented!()
+        Poll::Ready(Ok(()))
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        unimplemented!();
-    }
-}
-
-impl fmt::Debug for TcpStream {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!();
+        let sim = plugin::simulator::<TcpSim>();
+        let mut inner = sim.network.inner.lock().unwrap();
+        
+        match inner.conn.remove(&self.send_conn) {
+            Some(_) => Poll::Ready(Ok(())),
+            None => Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "connection already shutdown".to_string())))
+        }
     }
 }

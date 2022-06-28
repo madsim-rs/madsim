@@ -5,7 +5,7 @@ use std::{
 };
 
 use futures::{channel::mpsc, SinkExt};
-use log::{debug, trace};
+use log::trace;
 use rand::Rng;
 
 use crate::{task::NodeId, rand::GlobalRng, time::TimeHandle};
@@ -54,22 +54,22 @@ impl TcpNetwork {
     }
 
     pub fn clog_node(&self, id: NodeId) {
-        debug!("tcp clog: {id}");
+        trace!("tcp clog: {id}");
         self.inner.lock().unwrap().clogged_node.insert(id);
     }
 
     pub fn unclog_node(&self, id: NodeId) {
-        debug!("tcp unclog: {id}");
+        trace!("tcp unclog: {id}");
         self.inner.lock().unwrap().clogged_node.remove(&id);
     }
 
     pub fn clog_link(&self, src: NodeId, dst: NodeId) {
-        debug!("clog: {src} -> {dst}");
+        trace!("clog: {src} -> {dst}");
         self.inner.lock().unwrap().clogged_link.insert((src, dst));
     }
 
     pub fn unclog_link(&self, src: NodeId, dst: NodeId) {
-        debug!("tcp unclog: {src} -> {dst}");
+        trace!("tcp unclog: {src} -> {dst}");
         self.inner.lock().unwrap().clogged_link.remove(&(src, dst));
     }
 
@@ -97,7 +97,7 @@ impl TcpNetwork {
             inner.conn.insert(send_conn, Connection::new(src, dst));
             inner.conn.insert(recv_conn, Connection::new(dst, src));
 
-            debug!("tcp connect to conn({}, {})", send_conn, recv_conn);
+            trace!("tcp connect to conn({}, {})", send_conn, recv_conn);
             (send_conn, recv_conn, tx)
         };
         
@@ -106,7 +106,7 @@ impl TcpNetwork {
         // if move this send call site into above block, the mutex will cross await
         tx.send((recv_conn, send_conn)).await.map_err(|e| e.to_string())?;
 
-        debug!("tcp connect conn({}, {})", send_conn, recv_conn);
+        trace!("tcp connect conn({}, {})", send_conn, recv_conn);
         Ok((send_conn, recv_conn))
     }
 

@@ -2,7 +2,7 @@ use std::{io, net::SocketAddr};
 
 
 use futures::{channel::mpsc, StreamExt};
-use log::debug;
+use log::trace;
 
 use crate::plugin;
 use super::{TcpStream, ToSocketAddrs, to_socket_addrs, sim::TcpSim};
@@ -26,7 +26,7 @@ impl TcpListener {
             sim.rand_delay().await;
             match sim.network.listen(id, addr) {
                 Ok(receiver) => {
-                    debug!("tcp bind to {}", addr);
+                    trace!("tcp bind to {}", addr);
                     return Ok(TcpListener { receiver });
                 }
                 Err(e) => {
@@ -55,7 +55,7 @@ impl TcpListener {
                     send_conn, recv_conn
                 };
                 // fix ip selection
-                debug!("tcp accepted conn({}, {})", send_conn, recv_conn);
+                trace!("tcp accepted conn({}, {})", send_conn, recv_conn);
                 Ok((tcp_stream, "0.0.0.0:0".parse().unwrap()))
             }
             None => Err(io::Error::new(io::ErrorKind::ConnectionReset, "connection reset".to_string()))
