@@ -1,10 +1,11 @@
 use std::time::Duration;
-use crate::{rand::{GlobalRng, Rng}, time::TimeHandle, plugin, task::NodeId, Config};
+use crate::{rand::{GlobalRng, Rng}, time::TimeHandle, plugin, task::NodeId};
 use super::network::TcpNetwork;
 
 
 /// a simulated Tcp
 /// just a wrapper for the inner TcpNetwork
+#[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub(crate) struct TcpSim {
     rand: GlobalRng,
     time: TimeHandle,
@@ -15,7 +16,7 @@ impl plugin::Simulator for TcpSim {
     fn new(
         rand: &crate::rand::GlobalRng,
         time: &crate::time::TimeHandle,
-        _config: &crate::Config,
+        config: &crate::Config,
     ) -> Self
     where
         Self: Sized,
@@ -23,7 +24,7 @@ impl plugin::Simulator for TcpSim {
         Self {
             rand: rand.clone(),
             time: time.clone(),
-            network: TcpNetwork::new()
+            network: TcpNetwork::new(rand.clone(), time.clone(), config.tcp.clone())
         }
     }
 
@@ -32,8 +33,8 @@ impl plugin::Simulator for TcpSim {
 impl TcpSim {
 
     /// Update network configurations.
-    pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
-        unimplemented!()
+    pub fn update_config(&self, f: impl FnOnce(&mut super::Config)) {
+        self.network.update_config(f);
     }
 
     /// Reset a node.

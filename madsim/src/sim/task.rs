@@ -101,10 +101,10 @@ impl Executor {
                 sender.send((runnable, info.clone())).unwrap();
             })
         };
+
+        let waker = runnable.waker();
         runnable.schedule();
 
-        // empty context to poll the result
-        let waker = futures::task::noop_waker();
         let mut cx = Context::from_waker(&waker);
 
         loop {

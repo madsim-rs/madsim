@@ -1,25 +1,28 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque}, 
     net::{SocketAddr}, 
-    sync::{atomic::{AtomicU64, Ordering}, Mutex}, task::{Waker, Context}, 
+    sync::{atomic::{AtomicU64, Ordering}, Mutex, Arc}, task::{Waker, Context}, time::Duration, 
 };
 
 use futures::{channel::mpsc, SinkExt};
-use log::debug;
+use log::{debug, trace};
+use rand::Rng;
 
-use crate::{task::NodeId};
+use crate::{task::NodeId, rand::GlobalRng, time::TimeHandle};
 
-use super::Payload;
+use super::{Payload, Config};
 
 
 /// an inner simulated implementation of Tcp
 /// which contains all the tcp network nodes in the simulation system.
 pub(crate) struct TcpNetwork {
-    inner: Mutex<Inner>
+    inner: Arc<Mutex<Inner>>
 }
 
-#[derive(Default)]
 struct Inner {
+    rand: GlobalRng,
+    time: TimeHandle,
+    config: Config,
     accept: HashMap<SocketAddr, (NodeId, mpsc::Sender<(ConnId, ConnId)>)>,
     conn: HashMap<ConnId, Connection>,
     clogged_node: HashSet<NodeId>,
@@ -30,10 +33,24 @@ struct Inner {
 
 
 impl TcpNetwork {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
         Self {
-            inner: Mutex::new(Inner::default())
+            inner: Arc::new(Mutex::new(Inner {
+                rand,
+                time,
+                config,
+                accept: HashMap::default(),
+                conn: HashMap::default(),
+                clogged_node: HashSet::default(),
+                clogged_link: HashSet::default(),
+                conn_cnt: 0.into()
+            }))
         }
+    }
+
+    pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
+        let mut inner = self.inner.lock().unwrap();
+        f(&mut inner.config);
     }
 
     pub(crate) fn clog_node(&self, id: NodeId) {
@@ -74,12 +91,13 @@ impl TcpNetwork {
                 return Err("addr not be listened".to_string());
             };
 
-            // let (send_conn, recv_conn, dst) = match  {
             let send_conn = inner.conn_cnt.fetch_add(1, Ordering::SeqCst);
             let recv_conn = inner.conn_cnt.fetch_add(1, Ordering::SeqCst);
         
             inner.conn.insert(send_conn, Connection::new(src, dst));
             inner.conn.insert(recv_conn, Connection::new(dst, src));
+
+            debug!("tcp connect to conn({}, {})", send_conn, recv_conn);
             (send_conn, recv_conn, tx)
         };
         
@@ -93,27 +111,63 @@ impl TcpNetwork {
     }
 
     pub fn send(&self, id: &ConnId, msg: Payload) -> Result<usize, String> {
-        match self.inner.lock().unwrap().conn.get_mut(id) {
-            Some(conn) => {
-                let msg = msg.downcast::<Vec<u8>>().unwrap();
-                let n = msg.len();
-                debug!("tcp send to {}, msg: {:?}", id, msg);
-                conn.data.push_back(msg);
-                if let Some(waker) = conn.wakers.pop_front() {
-                    waker.wake();
-                }
-                Ok(n)
+        
+        let (mut rand, time, config) = {
+            let mut inner = self.inner.lock().unwrap();
+
+            let (src, dst) = if let Some(conn) = inner.conn.get_mut(id) {
+                    conn.is_block = true;
+                    (conn.src, conn.dst)
+            } else {
+                return Err("conn closed".to_string());
+            };
+    
+            if inner.clogged_node.contains(&src)
+                || inner.clogged_node.contains(&dst)
+                || inner.clogged_link.contains(&(src, dst))
+            {
+                trace!("clogged");
+                return Err("clogged".to_string());
             }
-            None => Err("conn closed".to_string())
+
+            (inner.rand.clone(), inner.time.clone(), inner.config.clone())
+        };
+
+        let mut latency = Duration::default();
+        let mut cnt = 1;
+        // simulated timout resend
+        while rand.gen_bool(config.packet_loss_rate) {
+            cnt += 1;
         }
+
+        latency += rand.gen_range(config.send_latency.clone()) * cnt;
+
+        let msg = msg.downcast::<Vec<u8>>().unwrap();
+        let n = msg.len();
+        trace!("delay: {latency:?}");
+        
+        let inner_ = self.inner.clone();
+        let id_ = *id;
+        
+        time.add_timer(time.now() + latency, move || {
+            let mut inner = inner_.lock().unwrap();
+            let conn = inner.conn.get_mut(&id_).unwrap();
+            conn.data.push_back(msg);
+            conn.is_block = false;
+            while let Some(waker) = conn.wakers.pop_front() {
+                waker.wake();
+            }
+        });
+        
+        Ok(n)
     }
 
 
     pub fn recv(&self, id: &ConnId, cx: Option<&mut Context<'_>>) -> Result<Option<Payload>, String> {
         match self.inner.lock().unwrap().conn.get_mut(id) {
             Some(conn) => {
-                if conn.data.is_empty() {
-                    debug!("wait for tcp msg");
+                if conn.is_block || conn.data.is_empty() {
+                    trace!("wait for tcp msg at {:?}", conn);
                     match cx {
                         Some(cx) => conn.wakers.push_back(cx.waker().clone()),
                         None => ()
@@ -121,7 +175,7 @@ impl TcpNetwork {
                     Ok(None)
                 } else {
                     let msg = conn.data.pop_front();
-                    println!("tcp get msg: {:?}", msg);
+                    trace!("tcp get msg: {:?}", msg);
                     Ok(msg)
                 }
             }
@@ -131,22 +185,25 @@ impl TcpNetwork {
 
 }
 
+#[derive(Debug)]
 pub(crate) struct Connection {
     data: VecDeque<Payload>,
     wakers: VecDeque<Waker>,
+    is_block: bool,
     src: NodeId,
     dst: NodeId,
 }
 
 impl Connection {
     pub(crate) fn new(src: NodeId, dst: NodeId) -> Self {
-        Self { data: VecDeque::default(), wakers: VecDeque::default(), src, dst }
+        Self { 
+            data: VecDeque::default(), 
+            wakers: VecDeque::default(), 
+            is_block: false,
+            src, 
+            dst 
+        }
     } 
 }
 
 pub type ConnId = u64;
-
-#[cfg(test)]
-mod tests {
-    
-}

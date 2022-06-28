@@ -3,6 +3,7 @@
 //!
 
 use futures::{select_biased, FutureExt};
+use log::{trace, debug};
 use naive_timer::Timer;
 #[doc(no_inline)]
 pub use std::time::Duration;
@@ -47,7 +48,6 @@ impl TimeRuntime {
             //       t0 + (t1 - t0) < t1 !!
             // we should add eps to make sure 'now >= deadline' and avoid deadlock
             time += Duration::from_nanos(50);
-
             timer.expire(time);
             self.handle.clock.set_elapsed(time);
             true

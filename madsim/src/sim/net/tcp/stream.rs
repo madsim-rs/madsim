@@ -23,27 +23,34 @@ impl TcpStream {
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<TcpStream> {
         let sim = plugin::simulator::<TcpSim>();
         let current_node = plugin::node();
-        let addr = to_socket_addrs(addr).await?.next().unwrap();
+        let addrs = to_socket_addrs(addr).await?;
+        let mut last_err = None;
 
-        // a relay before resolve an address
-        sim.rand_delay().await;
-        let (send_conn, recv_conn) = sim
-            .network
-            .connect(current_node, &addr)
-            .await
-            .map_err(|e|
-                io::Error::new(
-                    io::ErrorKind::AddrNotAvailable,
-                    format!("there is no remote listened for {}", e),
-                    
-                )
-            )?;
-        debug!("tcp connect to conn({}, {})", send_conn, recv_conn);
-        Ok(TcpStream {
-            send_conn,
-            recv_conn,
-        })
-    }
+        for addr in addrs {
+            // a relay before resolve an address
+            sim.rand_delay().await;
+            match sim.network.connect(current_node, &addr).await {
+                Ok((send_conn, recv_conn)) => {
+                    return Ok(TcpStream {
+                        send_conn,
+                        recv_conn,
+                    })
+                }
+                Err(e) => {
+                    last_err = Some(io::Error::new(
+                            io::ErrorKind::AddrNotAvailable,
+                            format!("there is no remote listened for {}", e),        
+                        ));
+                }
+            }
+                
+        }
+
+        Err(last_err.unwrap_or_else(|| io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "no available addr to bind".to_string()
+        )))
+}
 }
 
 impl AsyncRead for TcpStream {
@@ -70,7 +77,7 @@ impl AsyncRead for TcpStream {
 
             }
             Ok(None) => {
-                Poll::Ready(Ok(()))
+                Poll::Pending
             }
             Err(e) => {
                 Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e)))
@@ -87,6 +94,7 @@ impl AsyncWrite for TcpStream {
     ) -> Poll<io::Result<usize>> {
         // self.poll_write_priv(cx, buf)
         let sim = plugin::simulator::<TcpSim>();
+        
         match sim.network.send(&self.send_conn, Box::new(Vec::from(buf))) {
             Ok(n) => Poll::Ready(Ok(n)),
             Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e)))

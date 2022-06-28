@@ -20,19 +20,30 @@ impl TcpListener {
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
         let sim = plugin::simulator::<TcpSim>();
         let id = plugin::node();
-        let addr = to_socket_addrs(addr).await?.next().unwrap();
-        sim.rand_delay().await;
-        let receiver = sim
-            .network
-            .listen(id, addr)
-            .map_err(|e| 
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    e
-                )
-            )?;
-        debug!("tcp bind to {}", addr);
-        Ok(TcpListener { id, receiver })
+        let addrs = to_socket_addrs(addr).await?;
+        let mut last_err = None;
+
+        for addr in addrs {
+            sim.rand_delay().await;
+            match sim.network.listen(id, addr) {
+                Ok(receiver) => {
+                    debug!("tcp bind to {}", addr);
+                    return Ok(TcpListener { id, receiver });
+                }
+                Err(e) => {
+                    last_err = Some(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            e
+                    ));
+                }
+
+            }
+        }
+        
+        Err(last_err.unwrap_or_else(|| io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "no available addr to bind".to_string()
+        )))
     }
 
     /// simulated for tokio::net::TcpListener::accept
@@ -46,7 +57,7 @@ impl TcpListener {
                 };
                 // fix ip selection
                 debug!("tcp accepted conn({}, {})", send_conn, recv_conn);
-                Ok((tcp_stream, "10.0.0.1:1".parse().unwrap()))
+                Ok((tcp_stream, "0.0.0.0:0".parse().unwrap()))
             }
             None => Err(io::Error::new(io::ErrorKind::ConnectionReset, "connection reset".to_string()))
         }
