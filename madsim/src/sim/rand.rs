@@ -24,6 +24,7 @@ use rand::{
     distributions::Standard,
     prelude::{Distribution, SmallRng},
 };
+
 use std::sync::{Arc, Mutex};
 
 // TODO: mock `rngs` module

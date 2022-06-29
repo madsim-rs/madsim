@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::net;
+use crate::net::{self, tcp};
 use ahash::AHasher;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,10 @@ pub struct Config {
     /// Network configurations.
     #[serde(default)]
     pub net: net::Config,
+
+    /// Tcp Configurations
+    #[serde(default)]
+    pub tcp: tcp::Config,
 }
 
 impl Config {
@@ -55,6 +59,10 @@ mod tests {
         [net]
         packet_loss_rate = 0.1
         send_latency = { start = { secs = 0, nanos = 1000000 }, end = { secs = 0, nanos = 10000000 } }
+        
+        [tcp]
+        packet_loss_rate = 0.1
+        send_latency = { start = { secs = 0, nanos = 1000000 }, end = { secs = 0, nanos = 10000000 } }
         "#
         .parse()
         .unwrap();
@@ -65,6 +73,10 @@ mod tests {
                     packet_loss_rate: 0.1,
                     send_latency: Duration::from_millis(1)..Duration::from_millis(10)
                 },
+                tcp: tcp::Config {
+                    packet_loss_rate: 0.1,
+                    send_latency: Duration::from_millis(1)..Duration::from_millis(10)
+                }
             }
         );
     }
