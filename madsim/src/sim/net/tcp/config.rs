@@ -6,11 +6,11 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-/// Network configurations.
+/// tcp configurations.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Config {
-    /// Possibility of packet loss.
+    /// Possibility of packet loss and resend.
     #[serde(default)]
     pub packet_loss_rate: f64,
 

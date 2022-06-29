@@ -9,8 +9,9 @@ use crate::{
     time::TimeHandle,
 };
 
-/// a simulated Tcp
-/// just a wrapper for the inner TcpNetwork
+/// a Tcp simulator
+/// 
+/// simulate the delay of packet sending, and timout resend.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct TcpSim {
     rand: GlobalRng,
@@ -36,7 +37,7 @@ impl plugin::Simulator for TcpSim {
 }
 
 impl TcpSim {
-    /// Update network configurations.
+    /// Update tcp configurations.
     pub fn update_config(&self, f: impl FnOnce(&mut super::Config)) {
         self.network.update_config(f);
     }
@@ -58,12 +59,12 @@ impl TcpSim {
         }
     }
 
-    /// Connect a node to the network.
+    /// Connect a node to the tcp network.
     pub fn connect(&self, id: NodeId) {
         self.network.unclog_node(id);
     }
 
-    /// Disconnect a node from the network.
+    /// Disconnect a node from the tcp network.
     pub fn disconnect(&self, id: NodeId) {
         self.network.clog_node(id);
     }

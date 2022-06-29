@@ -19,7 +19,16 @@ pub struct TcpStream {
 }
 
 impl TcpStream {
-    /// connect to the addr listened by another node
+    /// Opens a simulated TCP connection to a remote host.
+    ///
+    /// `addr` is an address of the remote host. Anything which implements the
+    /// [`ToSocketAddrs`] trait can be supplied as the address.  If `addr`
+    /// yields multiple addresses, connect will be attempted with each of the
+    /// addresses until a connection is successful. If none of the addresses
+    /// result in a successful connection, the error returned from the last
+    /// connection attempt (the last address) is returned.
+    ///
+    /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<TcpStream> {
         let sim = plugin::simulator::<TcpSim>();
         let current_node = plugin::node();

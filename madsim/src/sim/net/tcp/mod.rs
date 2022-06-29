@@ -1,4 +1,4 @@
-//! an tokio Tcp Simulatior
+//! a tokio Tcp Simulatior
 //!
 //! # Examples
 //!
