@@ -10,6 +10,7 @@ use std::{
     collections::HashMap,
     fmt,
     future::Future,
+    io,
     ops::Deref,
     pin::Pin,
     sync::{
@@ -18,7 +19,6 @@ use std::{
     },
     task::{Context, Poll},
     time::Duration,
-    io,
 };
 
 pub use tokio::task::yield_now;
@@ -414,11 +414,10 @@ impl From<JoinError> for io::Error {
                 "task was cancelled"
             } else {
                 "task panicked"
-            }
+            },
         )
     }
 }
-
 
 #[cfg(test)]
 mod tests {

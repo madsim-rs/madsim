@@ -16,11 +16,10 @@ pub struct Config {
     /// Network configurations.
     #[serde(default)]
     pub net: net::Config,
-    
+
     /// Tcp Configurations
     #[serde(default)]
     pub tcp: tcp::Config,
-    
 }
 
 impl Config {

@@ -57,7 +57,7 @@ mod network;
 pub mod rpc;
 
 pub mod tcp;
-pub use tcp::{TcpListener, TcpStream, sim::TcpSim};
+pub use tcp::{sim::TcpSim, TcpListener, TcpStream};
 
 /// Network simulator.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]

@@ -1,7 +1,7 @@
 //! an tokio Tcp Simulatior
-//! 
+//!
 //! # Examples
-//! 
+//!
 //! ```
 //! use madsim::{runtime::Runtime, net::tcp::{TcpListener, TcpStream}};
 //! use std::sync::Arc;
@@ -43,9 +43,9 @@ use std::any::Any;
 /// tcp packet payload
 pub type Payload = Box<dyn Any + Send + Sync>;
 
-mod network;
-pub (crate) mod sim;
 mod listener;
+mod network;
+pub(crate) mod sim;
 pub use listener::*;
 mod stream;
 pub use stream::*;
@@ -61,13 +61,13 @@ mod tests {
     use std::time::Duration;
     use std::{net::SocketAddr, sync::Arc};
 
-    use super::*;
     use super::sim::TcpSim;
+    use super::*;
     use crate::plugin;
     use crate::runtime::Runtime;
     use crate::time::timeout;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::Barrier;
-    use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
     #[test]
     fn send_recv() {
@@ -92,9 +92,11 @@ mod tests {
             let mut stream = TcpStream::connect(addr1).await.unwrap();
             let mut buf = [0; 20];
             let n = stream.read(&mut buf).await.unwrap();
-            assert_eq!(&buf[0..n], [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]);
+            assert_eq!(
+                &buf[0..n],
+                [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
+            );
         });
-
 
         runtime.block_on(f1).unwrap();
         runtime.block_on(f2).unwrap();
@@ -129,10 +131,13 @@ mod tests {
             timeout(Duration::from_secs(1), stream.read(&mut buf))
                 .await
                 .err()
-                .unwrap();    
+                .unwrap();
             barrier2_.wait().await;
             let n = stream.read(&mut buf).await.unwrap();
-            assert_eq!(&buf[0..n], [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]);
+            assert_eq!(
+                &buf[0..n],
+                [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
+            );
         });
 
         runtime.block_on(f).unwrap();
@@ -169,7 +174,10 @@ mod tests {
             barrier_.wait().await;
             let mut stream = TcpStream::connect(addr1).await.unwrap();
             let mut buf = [0; 20];
-            timeout(Duration::from_secs(1), stream.read(&mut buf)).await.err().unwrap();
+            timeout(Duration::from_secs(1), stream.read(&mut buf))
+                .await
+                .err()
+                .unwrap();
             stream
         });
 
@@ -179,7 +187,7 @@ mod tests {
             sim.connect(id1);
             sim
         });
-        
+
         let f1 = node1.spawn(async move {
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
             stream1.write(&buf).await.unwrap();
@@ -189,7 +197,10 @@ mod tests {
         let f2 = node2.spawn(async move {
             let mut buf = [0; 20];
             let n = stream2.read(&mut buf).await.unwrap();
-            assert_eq!(&buf[0..n], [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]);
+            assert_eq!(
+                &buf[0..n],
+                [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
+            );
             stream2
         });
         let mut stream1 = runtime.block_on(f1).unwrap();
@@ -207,7 +218,10 @@ mod tests {
 
         let f2 = node2.spawn(async move {
             let mut buf = [0; 20];
-            timeout(Duration::from_secs(1), stream2.read(&mut buf)).await.err().unwrap();
+            timeout(Duration::from_secs(1), stream2.read(&mut buf))
+                .await
+                .err()
+                .unwrap();
             stream2
         });
 
@@ -217,7 +231,7 @@ mod tests {
             sim.connect2(id1, id2);
             sim
         });
-        
+
         let f1 = node1.spawn(async move {
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
             stream1.write(&buf).await.unwrap();
@@ -227,14 +241,15 @@ mod tests {
         let f2 = node2.spawn(async move {
             let mut buf = [0; 20];
             let n = stream2.read(&mut buf).await.unwrap();
-            assert_eq!(&buf[0..n], [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]);
+            assert_eq!(
+                &buf[0..n],
+                [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
+            );
             stream2
         });
 
         let _ = runtime.block_on(f1).unwrap();
         let _ = runtime.block_on(f2).unwrap();
-        
-
     }
 
     #[test]
@@ -253,8 +268,6 @@ mod tests {
         let barrier3 = Arc::new(Barrier::new(3));
         let barrier3_ = barrier3.clone();
         let barrier3__ = barrier3.clone();
-        
-        
 
         let f1 = node1.spawn(async move {
             let listener = TcpListener::bind(addr1).await.unwrap();
@@ -274,7 +287,11 @@ mod tests {
             barrier3_.wait().await;
 
             let mut buf = [0; 20];
-            timeout(Duration::from_secs(1), stream.read(&mut buf)).await.unwrap().err().unwrap();
+            timeout(Duration::from_secs(1), stream.read(&mut buf))
+                .await
+                .unwrap()
+                .err()
+                .unwrap();
         });
 
         runtime.block_on(async move {
@@ -287,5 +304,4 @@ mod tests {
             f2.await.unwrap();
         });
     }
-
 }

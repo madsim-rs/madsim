@@ -1,22 +1,26 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque}, 
-    net::SocketAddr, 
-    sync::{atomic::{AtomicU64, Ordering}, Mutex, Arc}, task::{Waker, Context}, time::Duration, 
+    collections::{HashMap, HashSet, VecDeque},
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    task::{Context, Waker},
+    time::Duration,
 };
 
 use futures::{channel::mpsc, SinkExt};
 use log::trace;
 use rand::Rng;
 
-use crate::{task::NodeId, rand::GlobalRng, time::TimeHandle};
+use crate::{rand::GlobalRng, task::NodeId, time::TimeHandle};
 
-use super::{Payload, Config};
-
+use super::{Config, Payload};
 
 /// an inner simulated implementation of Tcp
 /// which contains all the tcp network nodes in the simulation system.
 pub(crate) struct TcpNetwork {
-    pub(crate) inner: Arc<Mutex<Inner>>
+    pub(crate) inner: Arc<Mutex<Inner>>,
 }
 
 pub(crate) struct Inner {
@@ -27,10 +31,8 @@ pub(crate) struct Inner {
     pub(crate) conn: HashMap<ConnId, Connection>,
     clogged_node: HashSet<NodeId>,
     clogged_link: HashSet<(NodeId, NodeId)>,
-    conn_cnt: AtomicU64
+    conn_cnt: AtomicU64,
 }
-
-
 
 impl TcpNetwork {
     pub fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
@@ -43,8 +45,8 @@ impl TcpNetwork {
                 conn: HashMap::default(),
                 clogged_node: HashSet::default(),
                 clogged_link: HashSet::default(),
-                conn_cnt: 0.into()
-            }))
+                conn_cnt: 0.into(),
+            })),
         }
     }
 
@@ -73,11 +75,15 @@ impl TcpNetwork {
         self.inner.lock().unwrap().clogged_link.remove(&(src, dst));
     }
 
-    pub fn listen(&self, id: NodeId, addr: SocketAddr) -> Result<mpsc::Receiver<(ConnId, ConnId)>, String> {
+    pub fn listen(
+        &self,
+        id: NodeId,
+        addr: SocketAddr,
+    ) -> Result<mpsc::Receiver<(ConnId, ConnId)>, String> {
         let (tx, rx) = mpsc::channel(0);
         match self.inner.lock().unwrap().accept.insert(addr, (id, tx)) {
             Some(_) => Err("addr is in used".to_string()),
-            None => Ok(rx)
+            None => Ok(rx),
         }
     }
 
@@ -93,35 +99,35 @@ impl TcpNetwork {
 
             let send_conn = inner.conn_cnt.fetch_add(1, Ordering::SeqCst);
             let recv_conn = inner.conn_cnt.fetch_add(1, Ordering::SeqCst);
-        
+
             inner.conn.insert(send_conn, Connection::new(src, dst));
             inner.conn.insert(recv_conn, Connection::new(dst, src));
 
             trace!("tcp connect to conn({}, {})", send_conn, recv_conn);
             (send_conn, recv_conn, tx)
         };
-        
 
         // the other part has the reflex conn
         // if move this send call site into above block, the mutex will cross await
-        tx.send((recv_conn, send_conn)).await.map_err(|e| e.to_string())?;
+        tx.send((recv_conn, send_conn))
+            .await
+            .map_err(|e| e.to_string())?;
 
         trace!("tcp connect conn({}, {})", send_conn, recv_conn);
         Ok((send_conn, recv_conn))
     }
 
     pub fn send(&self, id: &ConnId, msg: Payload) -> Result<usize, String> {
-        
         let (mut rand, time, config) = {
             let mut inner = self.inner.lock().unwrap();
 
             let (src, dst) = if let Some(conn) = inner.conn.get_mut(id) {
-                    conn.is_block = true;
-                    (conn.src, conn.dst)
+                conn.is_block = true;
+                (conn.src, conn.dst)
             } else {
                 return Err("conn closed".to_string());
             };
-    
+
             if inner.clogged_node.contains(&src)
                 || inner.clogged_node.contains(&dst)
                 || inner.clogged_link.contains(&(src, dst))
@@ -145,10 +151,10 @@ impl TcpNetwork {
         let msg = msg.downcast::<Vec<u8>>().unwrap();
         let n = msg.len();
         trace!("delay: {latency:?}");
-        
+
         let inner_ = self.inner.clone();
         let id_ = *id;
-        
+
         time.add_timer(time.now() + latency, move || {
             let mut inner = inner_.lock().unwrap();
             let conn = inner.conn.get_mut(&id_).unwrap();
@@ -158,19 +164,22 @@ impl TcpNetwork {
                 waker.wake();
             }
         });
-        
+
         Ok(n)
     }
 
-
-    pub fn recv(&self, id: &ConnId, cx: Option<&mut Context<'_>>) -> Result<Option<Payload>, String> {
+    pub fn recv(
+        &self,
+        id: &ConnId,
+        cx: Option<&mut Context<'_>>,
+    ) -> Result<Option<Payload>, String> {
         match self.inner.lock().unwrap().conn.get_mut(id) {
             Some(conn) => {
                 if conn.is_block || conn.data.is_empty() {
                     trace!("wait for tcp msg at {:?}", conn);
                     match cx {
                         Some(cx) => conn.wakers.push_back(cx.waker().clone()),
-                        None => ()
+                        None => (),
                     }
                     Ok(None)
                 } else {
@@ -179,10 +188,9 @@ impl TcpNetwork {
                     Ok(msg)
                 }
             }
-            None => Err("conn closed".to_string())
+            None => Err("conn closed".to_string()),
         }
     }
-
 }
 
 #[derive(Debug)]
@@ -196,14 +204,14 @@ pub(crate) struct Connection {
 
 impl Connection {
     pub(crate) fn new(src: NodeId, dst: NodeId) -> Self {
-        Self { 
-            data: VecDeque::default(), 
-            wakers: VecDeque::default(), 
+        Self {
+            data: VecDeque::default(),
+            wakers: VecDeque::default(),
             is_block: false,
-            src, 
-            dst 
+            src,
+            dst,
         }
-    } 
+    }
 }
 
 pub type ConnId = u64;

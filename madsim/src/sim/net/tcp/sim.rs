@@ -1,9 +1,13 @@
-use std::time::Duration;
 use log::trace;
+use std::time::Duration;
 
-use crate::{rand::{GlobalRng, Rng}, time::TimeHandle, plugin, task::NodeId};
 use super::network::TcpNetwork;
-
+use crate::{
+    plugin,
+    rand::{GlobalRng, Rng},
+    task::NodeId,
+    time::TimeHandle,
+};
 
 /// a simulated Tcp
 /// just a wrapper for the inner TcpNetwork
@@ -26,14 +30,12 @@ impl plugin::Simulator for TcpSim {
         Self {
             rand: rand.clone(),
             time: time.clone(),
-            network: TcpNetwork::new(rand.clone(), time.clone(), config.tcp.clone())
+            network: TcpNetwork::new(rand.clone(), time.clone(), config.tcp.clone()),
         }
     }
-
 }
 
 impl TcpSim {
-
     /// Update network configurations.
     pub fn update_config(&self, f: impl FnOnce(&mut super::Config)) {
         self.network.update_config(f);
@@ -82,5 +84,4 @@ impl TcpSim {
         let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
         self.time.sleep(delay).await;
     }
-
-} 
+}

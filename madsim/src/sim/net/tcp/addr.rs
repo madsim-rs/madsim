@@ -28,7 +28,6 @@ use std::future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
-
 /// Converts or resolves without blocking to one or more `SocketAddr` values.
 ///
 /// # DNS
@@ -203,7 +202,6 @@ impl sealed::ToSocketAddrsPriv for str {
         // Run DNS lookup on the blocking pool
         let s = self.to_owned();
 
-
         MaybeReady(sealed::State::Blocking(spawn_blocking(move || {
             std::net::ToSocketAddrs::to_socket_addrs(&s)
         })))
@@ -240,7 +238,6 @@ impl sealed::ToSocketAddrsPriv for (&str, u16) {
         }
 
         let host = host.to_owned();
-
 
         MaybeReady(sealed::State::Blocking(spawn_blocking(move || {
             std::net::ToSocketAddrs::to_socket_addrs(&(&host[..], port))

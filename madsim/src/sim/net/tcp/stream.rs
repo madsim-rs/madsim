@@ -38,19 +38,20 @@ impl TcpStream {
                 }
                 Err(e) => {
                     last_err = Some(io::Error::new(
-                            io::ErrorKind::AddrNotAvailable,
-                            format!("there is no remote listened for {}", e),        
-                        ));
+                        io::ErrorKind::AddrNotAvailable,
+                        format!("there is no remote listened for {}", e),
+                    ));
                 }
             }
-                
         }
 
-        Err(last_err.unwrap_or_else(|| io::Error::new(
-            io::ErrorKind::AddrNotAvailable,
-            "no available addr to bind".to_string()
-        )))
-}
+        Err(last_err.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "no available addr to bind".to_string(),
+            )
+        }))
+    }
 }
 
 impl AsyncRead for TcpStream {
@@ -63,25 +64,22 @@ impl AsyncRead for TcpStream {
         match sim.network.recv(&self.recv_conn, Some(cx)) {
             Ok(Some(payload)) => {
                 let data = payload.downcast::<Vec<u8>>().expect("message is not data");
-                let mut b = unsafe {&mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])};
+                let mut b = unsafe {
+                    &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
+                };
                 match b.write(data.as_slice()) {
                     Ok(n) => {
-                        unsafe {buf.assume_init(n);}
+                        unsafe {
+                            buf.assume_init(n);
+                        }
                         buf.advance(n);
                         Poll::Ready(Ok(()))
                     }
-                    Err(e) => {
-                        Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e)))
-                    }
+                    Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e))),
                 }
-
             }
-            Ok(None) => {
-                Poll::Pending
-            }
-            Err(e) => {
-                Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e)))
-            }
+            Ok(None) => Poll::Pending,
+            Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e))),
         }
     }
 }
@@ -94,10 +92,10 @@ impl AsyncWrite for TcpStream {
     ) -> Poll<io::Result<usize>> {
         // self.poll_write_priv(cx, buf)
         let sim = plugin::simulator::<TcpSim>();
-        
+
         match sim.network.send(&self.send_conn, Box::new(Vec::from(buf))) {
             Ok(n) => Poll::Ready(Ok(n)),
-            Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e)))
+            Err(e) => Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionReset, e))),
         }
     }
 
@@ -121,10 +119,13 @@ impl AsyncWrite for TcpStream {
     fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
         let sim = plugin::simulator::<TcpSim>();
         let mut inner = sim.network.inner.lock().unwrap();
-        
+
         match inner.conn.remove(&self.send_conn) {
             Some(_) => Poll::Ready(Ok(())),
-            None => Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "connection already shutdown".to_string())))
+            None => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "connection already shutdown".to_string(),
+            ))),
         }
     }
 }

@@ -1,6 +1,10 @@
-use std::{ops::Range, time::Duration, hash::{Hasher, Hash}};
+use std::{
+    hash::{Hash, Hasher},
+    ops::Range,
+    time::Duration,
+};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Network configurations.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
