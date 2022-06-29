@@ -81,7 +81,7 @@ impl TcpListener {
             }
             None => Err(io::Error::new(
                 io::ErrorKind::ConnectionReset,
-                "connection reset".to_string(),
+                "simulator droped".to_string(),
             )),
         }
     }

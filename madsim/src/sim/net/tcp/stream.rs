@@ -106,7 +106,6 @@ impl AsyncWrite for TcpStream {
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // self.poll_write_priv(cx, buf)
         let sim = plugin::simulator::<TcpSim>();
 
         match sim

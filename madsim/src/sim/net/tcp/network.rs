@@ -85,8 +85,8 @@ impl TcpNetwork {
             Ok(())
         } else {
             Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "connection already shutdown".to_string(),
+                io::ErrorKind::NotConnected,
+                "connection not exist or already shutdown".to_string(),
             ))
         }
     }
