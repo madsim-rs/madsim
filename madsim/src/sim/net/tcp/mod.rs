@@ -80,7 +80,7 @@ mod tests {
 
         let barrier_ = barrier.clone();
         let f1 = node1.spawn(async move {
-            let mut listener = TcpListener::bind(addr1).await.unwrap();
+            let listener = TcpListener::bind(addr1).await.unwrap();
             barrier_.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
@@ -114,7 +114,7 @@ mod tests {
         let barrier2_ = barrier2.clone();
 
         let f = node1.spawn(async move {
-            let mut listener = TcpListener::bind(addr1).await.unwrap();
+            let listener = TcpListener::bind(addr1).await.unwrap();
             barrier_.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
@@ -157,7 +157,7 @@ mod tests {
         });
 
         let f1 = node1.spawn(async move {
-            let mut listener = TcpListener::bind(addr1).await.unwrap();
+            let listener = TcpListener::bind(addr1).await.unwrap();
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
@@ -257,7 +257,7 @@ mod tests {
         
 
         let f1 = node1.spawn(async move {
-            let mut listener = TcpListener::bind(addr1).await.unwrap();
+            let listener = TcpListener::bind(addr1).await.unwrap();
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             barrier2.wait().await;

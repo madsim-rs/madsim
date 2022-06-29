@@ -3,13 +3,14 @@ use std::{io, net::SocketAddr};
 
 use futures::{channel::mpsc, StreamExt};
 use log::trace;
+use tokio::sync::Mutex;
 
 use crate::plugin;
 use super::{TcpStream, ToSocketAddrs, to_socket_addrs, sim::TcpSim};
 
 /// a simulated TCP socket server, listen for connections
 pub struct TcpListener {
-    receiver: mpsc::Receiver<(u64, u64)>
+    receiver: Mutex<mpsc::Receiver<(u64, u64)>>
 }
 
 
@@ -27,7 +28,7 @@ impl TcpListener {
             match sim.network.listen(id, addr) {
                 Ok(receiver) => {
                     trace!("tcp bind to {}", addr);
-                    return Ok(TcpListener { receiver });
+                    return Ok(TcpListener { receiver: Mutex::new(receiver) });
                 }
                 Err(e) => {
                     last_err = Some(io::Error::new(
@@ -46,10 +47,11 @@ impl TcpListener {
     }
 
     /// simulated for tokio::net::TcpListener::accept
-    pub async fn accept(&mut self) -> io::Result<(TcpStream, SocketAddr)> {
+    pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         let sim = plugin::simulator::<TcpSim>();
         sim.rand_delay().await;
-        match self.receiver.next().await {
+        let mut receiver = self.receiver.lock().await;
+        match receiver.next().await {
             Some((send_conn, recv_conn)) => {
                 let tcp_stream = TcpStream {
                     send_conn, recv_conn
@@ -61,5 +63,5 @@ impl TcpListener {
             None => Err(io::Error::new(io::ErrorKind::ConnectionReset, "connection reset".to_string()))
         }
     }
-
+        
 }
