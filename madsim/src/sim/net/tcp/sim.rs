@@ -1,5 +1,6 @@
-use log::trace;
 use std::time::Duration;
+
+use log::debug;
 
 use super::network::TcpNetwork;
 use crate::{
@@ -10,13 +11,13 @@ use crate::{
 };
 
 /// a Tcp simulator
-/// 
+///
 /// simulate the delay of packet sending, and timout resend.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct TcpSim {
     rand: GlobalRng,
     time: TimeHandle,
-    pub(crate) network: TcpNetwork,
+    network: TcpNetwork,
 }
 
 impl plugin::Simulator for TcpSim {
@@ -45,17 +46,10 @@ impl TcpSim {
     /// Reset a node.
     ///
     /// All connections will be closed.
-    pub fn reset_node(&self, id: NodeId) {
-        trace!("reset node {}", id);
-        let mut inner = self.network.inner.lock().unwrap();
-        let mut drop_ids = vec![];
-        for (conn_id, conn) in &inner.conn {
-            if conn.src == id || conn.dst == id {
-                drop_ids.push(*conn_id)
-            }
-        }
-        for id in drop_ids {
-            inner.conn.remove(&id);
+    pub fn reset_node(&self, node: NodeId) {
+        match self.network.reset_node(node) {
+            Ok(()) => (),
+            Err(e) => debug!("{}: {}", e, node),
         }
     }
 
@@ -84,5 +78,9 @@ impl TcpSim {
     pub(crate) async fn rand_delay(&self) {
         let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
         self.time.sleep(delay).await;
+    }
+
+    pub(crate) fn network(&self) -> &TcpNetwork {
+        &self.network
     }
 }

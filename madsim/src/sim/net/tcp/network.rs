@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    io,
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -20,7 +21,7 @@ use super::{Config, Payload};
 /// an inner simulated implementation of Tcp
 /// which contains all the tcp network nodes in the simulation system.
 pub(crate) struct TcpNetwork {
-    pub(crate) inner: Arc<Mutex<Inner>>,
+    inner: Arc<Mutex<Inner>>,
 }
 
 pub(crate) struct Inner {
@@ -28,14 +29,14 @@ pub(crate) struct Inner {
     time: TimeHandle,
     config: Config,
     accept: HashMap<SocketAddr, (NodeId, mpsc::Sender<(ConnId, ConnId)>)>,
-    pub(crate) conn: HashMap<ConnId, Connection>,
+    conn: HashMap<ConnId, Connection>,
     clogged_node: HashSet<NodeId>,
     clogged_link: HashSet<(NodeId, NodeId)>,
     conn_cnt: AtomicU64,
 }
 
 impl TcpNetwork {
-    pub fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
+    pub(crate) fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 rand,
@@ -50,44 +51,87 @@ impl TcpNetwork {
         }
     }
 
-    pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
+    pub(crate) fn update_config(&self, f: impl FnOnce(&mut Config)) {
         let mut inner = self.inner.lock().unwrap();
         f(&mut inner.config);
     }
 
-    pub fn clog_node(&self, id: NodeId) {
+    pub(crate) fn reset_node(&self, node: NodeId) -> Result<(), String> {
+        trace!("reset node {}", node);
+        let mut inner = self.inner.lock().unwrap();
+        let mut drop_ids = vec![];
+
+        for (conn_id, conn) in &inner.conn {
+            if conn.src == node || conn.dst == node {
+                drop_ids.push(*conn_id);
+            }
+        }
+
+        if drop_ids.is_empty() {
+            Err("there is no node to reset".to_string())
+        } else {
+            for id in drop_ids {
+                inner.conn.remove(&id);
+            }
+
+            Ok(())
+        }
+    }
+
+    pub(crate) fn drop_connection(&self, conn: ConnId) -> io::Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let removed = inner.conn.remove(&conn).is_some();
+        if removed {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "connection already shutdown".to_string(),
+            ))
+        }
+    }
+
+    pub(crate) fn clog_node(&self, id: NodeId) {
         trace!("tcp clog: {id}");
         self.inner.lock().unwrap().clogged_node.insert(id);
     }
 
-    pub fn unclog_node(&self, id: NodeId) {
+    pub(crate) fn unclog_node(&self, id: NodeId) {
         trace!("tcp unclog: {id}");
         self.inner.lock().unwrap().clogged_node.remove(&id);
     }
 
-    pub fn clog_link(&self, src: NodeId, dst: NodeId) {
+    pub(crate) fn clog_link(&self, src: NodeId, dst: NodeId) {
         trace!("clog: {src} -> {dst}");
         self.inner.lock().unwrap().clogged_link.insert((src, dst));
     }
 
-    pub fn unclog_link(&self, src: NodeId, dst: NodeId) {
+    pub(crate) fn unclog_link(&self, src: NodeId, dst: NodeId) {
         trace!("tcp unclog: {src} -> {dst}");
         self.inner.lock().unwrap().clogged_link.remove(&(src, dst));
     }
 
-    pub fn listen(
+    pub(crate) fn listen(
         &self,
         id: NodeId,
         addr: SocketAddr,
     ) -> Result<mpsc::Receiver<(ConnId, ConnId)>, String> {
         let (tx, rx) = mpsc::channel(0);
-        match self.inner.lock().unwrap().accept.insert(addr, (id, tx)) {
-            Some(_) => Err("addr is in used".to_string()),
-            None => Ok(rx),
+        let is_inuse = self
+            .inner
+            .lock()
+            .unwrap()
+            .accept
+            .insert(addr, (id, tx))
+            .is_some();
+        if is_inuse {
+            Err("addr is in used".to_string())
+        } else {
+            Ok(rx)
         }
     }
 
-    pub async fn connect(&self, src: NodeId, dst: &SocketAddr) -> Result<(ConnId, ConnId), String> {
+    pub(crate) async fn connect(&self, src: NodeId, dst: &SocketAddr) -> Result<(ConnId, ConnId), String> {
         let (send_conn, recv_conn, mut tx) = {
             let mut inner = self.inner.lock().unwrap();
 
@@ -117,7 +161,7 @@ impl TcpNetwork {
         Ok((send_conn, recv_conn))
     }
 
-    pub fn send(&self, id: &ConnId, msg: Payload) -> Result<usize, String> {
+    pub(crate) fn send(&self, id: &ConnId, msg: Payload) -> Result<usize, String> {
         let (mut rand, time, config) = {
             let mut inner = self.inner.lock().unwrap();
 
@@ -146,7 +190,7 @@ impl TcpNetwork {
             cnt += 1;
         }
 
-        latency += rand.gen_range(config.send_latency.clone()) * cnt;
+        latency += rand.gen_range(config.send_latency) * cnt;
 
         let msg = msg.downcast::<Vec<u8>>().unwrap();
         let n = msg.len();
@@ -168,12 +212,14 @@ impl TcpNetwork {
         Ok(n)
     }
 
-    pub fn recv(
+    pub(crate) fn recv(
         &self,
         id: &ConnId,
         cx: Option<&mut Context<'_>>,
     ) -> Result<Option<Payload>, String> {
-        match self.inner.lock().unwrap().conn.get_mut(id) {
+        let mut inner = self.inner.lock().unwrap();
+        let conn = inner.conn.get_mut(id);
+        match conn {
             Some(conn) => {
                 if conn.is_block || conn.data.is_empty() {
                     trace!("wait for tcp msg at {:?}", conn);
@@ -195,11 +241,11 @@ impl TcpNetwork {
 
 #[derive(Debug)]
 pub(crate) struct Connection {
-    pub(crate) data: VecDeque<Payload>,
-    pub(crate) wakers: VecDeque<Waker>,
-    pub(crate) is_block: bool,
-    pub(crate) src: NodeId,
-    pub(crate) dst: NodeId,
+    data: VecDeque<Payload>,
+    wakers: VecDeque<Waker>,
+    is_block: bool,
+    src: NodeId,
+    dst: NodeId,
 }
 
 impl Connection {
