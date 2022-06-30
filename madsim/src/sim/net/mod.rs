@@ -2,7 +2,7 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```no_run
 //! use madsim::{runtime::Runtime, net::Endpoint};
 //! use std::sync::Arc;
 //! use std::net::SocketAddr;

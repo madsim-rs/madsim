@@ -131,7 +131,11 @@ impl TcpNetwork {
         }
     }
 
-    pub(crate) async fn connect(&self, src: NodeId, dst: &SocketAddr) -> Result<(ConnId, ConnId), String> {
+    pub(crate) async fn connect(
+        &self,
+        src: NodeId,
+        dst: &SocketAddr,
+    ) -> Result<(ConnId, ConnId), String> {
         let (send_conn, recv_conn, mut tx) = {
             let mut inner = self.inner.lock().unwrap();
 
