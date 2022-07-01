@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 
-use futures::{channel::mpsc, SinkExt};
 use log::trace;
 use rand::Rng;
 
@@ -28,7 +27,7 @@ pub(crate) struct Inner {
     rand: GlobalRng,
     time: TimeHandle,
     config: Config,
-    accept: HashMap<SocketAddr, (NodeId, mpsc::Sender<(ConnId, ConnId)>)>,
+    accept: HashMap<SocketAddr, (NodeId, async_channel::Sender<(ConnId, ConnId)>)>,
     conn: HashMap<ConnId, Connection>,
     clogged_node: HashSet<NodeId>,
     clogged_link: HashSet<(NodeId, NodeId)>,
@@ -56,7 +55,7 @@ impl TcpNetwork {
         f(&mut inner.config);
     }
 
-    pub(crate) fn reset_node(&self, node: NodeId) -> Result<(), String> {
+    pub(crate) fn reset_node(&self, node: NodeId) -> io::Result<()> {
         trace!("reset node {}", node);
         let mut inner = self.inner.lock().unwrap();
         let mut drop_ids = vec![];
@@ -68,7 +67,10 @@ impl TcpNetwork {
         }
 
         if drop_ids.is_empty() {
-            Err("there is no node to reset".to_string())
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "there is no node to reset".to_string(),
+            ))
         } else {
             for id in drop_ids {
                 inner.conn.remove(&id);
@@ -115,8 +117,8 @@ impl TcpNetwork {
         &self,
         id: NodeId,
         addr: SocketAddr,
-    ) -> Result<mpsc::Receiver<(ConnId, ConnId)>, String> {
-        let (tx, rx) = mpsc::channel(0);
+    ) -> io::Result<async_channel::Receiver<(ConnId, ConnId)>> {
+        let (tx, rx) = async_channel::unbounded();
         let is_inuse = self
             .inner
             .lock()
@@ -125,7 +127,10 @@ impl TcpNetwork {
             .insert(addr, (id, tx))
             .is_some();
         if is_inuse {
-            Err("addr is in used".to_string())
+            Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "addr is in used".to_string(),
+            ))
         } else {
             Ok(rx)
         }
@@ -135,18 +140,21 @@ impl TcpNetwork {
         &self,
         src: NodeId,
         dst: &SocketAddr,
-    ) -> Result<(ConnId, ConnId), String> {
-        let (send_conn, recv_conn, mut tx) = {
+    ) -> io::Result<(ConnId, ConnId)> {
+        let (send_conn, recv_conn, tx) = {
             let mut inner = self.inner.lock().unwrap();
 
             let (dst, tx) = if let Some((id, tx)) = inner.accept.get_mut(dst) {
                 (*id, tx.clone())
             } else {
-                return Err("addr not be listened".to_string());
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionRefused,
+                    "ConnectionRefused, maybe the server not listened at".to_string(),
+                ));
             };
 
-            let send_conn = inner.conn_cnt.fetch_add(1, Ordering::SeqCst);
-            let recv_conn = inner.conn_cnt.fetch_add(1, Ordering::SeqCst);
+            let send_conn = inner.conn_cnt.fetch_add(2, Ordering::SeqCst);
+            let recv_conn = send_conn + 1;
 
             inner.conn.insert(send_conn, Connection::new(src, dst));
             inner.conn.insert(recv_conn, Connection::new(dst, src));
@@ -159,13 +167,13 @@ impl TcpNetwork {
         // if move this send call site into above block, the mutex will cross await
         tx.send((recv_conn, send_conn))
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| io::Error::new(io::ErrorKind::Interrupted, e.to_string()))?;
 
         trace!("tcp connect conn({}, {})", send_conn, recv_conn);
         Ok((send_conn, recv_conn))
     }
 
-    pub(crate) fn send(&self, id: &ConnId, msg: Payload) -> Result<usize, String> {
+    pub(crate) fn send(&self, id: &ConnId, msg: Payload) -> io::Result<usize> {
         let (mut rand, time, config) = {
             let mut inner = self.inner.lock().unwrap();
 
@@ -173,7 +181,10 @@ impl TcpNetwork {
                 conn.is_block = true;
                 (conn.src, conn.dst)
             } else {
-                return Err("conn closed".to_string());
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionReset,
+                    "connection closed".to_string(),
+                ));
             };
 
             if inner.clogged_node.contains(&src)
@@ -181,7 +192,10 @@ impl TcpNetwork {
                 || inner.clogged_link.contains(&(src, dst))
             {
                 trace!("clogged");
-                return Err("clogged".to_string());
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "clogged".to_string(),
+                ));
             }
 
             (inner.rand.clone(), inner.time.clone(), inner.config.clone())
@@ -220,7 +234,7 @@ impl TcpNetwork {
         &self,
         id: &ConnId,
         cx: Option<&mut Context<'_>>,
-    ) -> Result<Option<Payload>, String> {
+    ) -> io::Result<Option<Payload>> {
         let mut inner = self.inner.lock().unwrap();
         let conn = inner.conn.get_mut(id);
         match conn {
@@ -238,7 +252,10 @@ impl TcpNetwork {
                     Ok(msg)
                 }
             }
-            None => Err("conn closed".to_string()),
+            None => Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "connection closed".to_string(),
+            )),
         }
     }
 }

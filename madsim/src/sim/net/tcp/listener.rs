@@ -1,8 +1,5 @@
-use std::{io, net::SocketAddr};
-
-use futures::{channel::mpsc, StreamExt};
 use log::trace;
-use tokio::sync::Mutex;
+use std::{io, net::SocketAddr};
 
 use super::{sim::TcpSim, to_socket_addrs, TcpStream, ToSocketAddrs};
 use crate::plugin;
@@ -12,7 +9,7 @@ use crate::plugin;
 pub struct TcpListener {
     // fixme: Maybe here no need for the mutex. but we need access
     // the receiver without the mut and the acess will cross .await
-    receiver: Mutex<mpsc::Receiver<(u64, u64)>>,
+    receiver: async_channel::Receiver<(u64, u64)>,
 }
 
 impl TcpListener {
@@ -40,9 +37,7 @@ impl TcpListener {
             match sim.network().listen(id, addr) {
                 Ok(receiver) => {
                     trace!("tcp bind to {}", addr);
-                    return Ok(TcpListener {
-                        receiver: Mutex::new(receiver),
-                    });
+                    return Ok(TcpListener { receiver });
                 }
                 Err(e) => {
                     last_err = Some(io::Error::new(io::ErrorKind::InvalidInput, e));
@@ -71,17 +66,16 @@ impl TcpListener {
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         let sim = plugin::simulator::<TcpSim>();
         sim.rand_delay().await;
-        let mut receiver = self.receiver.lock().await;
-        match receiver.next().await {
-            Some((send_conn, recv_conn)) => {
+        match self.receiver.recv().await {
+            Ok((send_conn, recv_conn)) => {
                 let tcp_stream = TcpStream::new(send_conn, recv_conn);
                 // fix ip selection
                 trace!("tcp accepted conn({}, {})", send_conn, recv_conn);
                 Ok((tcp_stream, "0.0.0.0:0".parse().unwrap()))
             }
-            None => Err(io::Error::new(
+            Err(e) => Err(io::Error::new(
                 io::ErrorKind::ConnectionReset,
-                "simulator droped".to_string(),
+                e.to_string(),
             )),
         }
     }
