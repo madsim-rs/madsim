@@ -13,9 +13,9 @@ use std::{
 use log::trace;
 use rand::Rng;
 
-use crate::{rand::GlobalRng, task::NodeId, time::TimeHandle};
+use crate::{rand::GlobalRng, task::NodeId, time::TimeHandle, Config};
 
-use super::{Config, Payload};
+use super::Payload;
 
 /// an inner simulated implementation of Tcp
 /// which contains all the tcp network nodes in the simulation system.
@@ -204,11 +204,11 @@ impl TcpNetwork {
         let mut latency = Duration::default();
         let mut cnt = 1;
         // simulated timout resend
-        while rand.gen_bool(config.packet_loss_rate) {
+        while rand.gen_bool(config.net.packet_loss_rate) {
             cnt += 1;
         }
 
-        latency += rand.gen_range(config.send_latency) * cnt;
+        latency += rand.gen_range(config.net.send_latency) * cnt;
 
         let msg = msg.downcast::<Vec<u8>>().unwrap();
         let n = msg.len();

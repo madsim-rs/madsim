@@ -19,7 +19,7 @@ pub struct Config {
 
     /// Tcp Configurations
     #[serde(default)]
-    pub tcp: tcp::Config,
+    pub tcp: tcp::TcpConfig,
 }
 
 impl Config {
@@ -61,8 +61,6 @@ mod tests {
         send_latency = { start = { secs = 0, nanos = 1000000 }, end = { secs = 0, nanos = 10000000 } }
         
         [tcp]
-        packet_loss_rate = 0.1
-        send_latency = { start = { secs = 0, nanos = 1000000 }, end = { secs = 0, nanos = 10000000 } }
         "#
         .parse()
         .unwrap();
@@ -73,10 +71,7 @@ mod tests {
                     packet_loss_rate: 0.1,
                     send_latency: Duration::from_millis(1)..Duration::from_millis(10)
                 },
-                tcp: tcp::Config {
-                    packet_loss_rate: 0.1,
-                    send_latency: Duration::from_millis(1)..Duration::from_millis(10)
-                }
+                tcp: tcp::TcpConfig {}
             }
         );
     }

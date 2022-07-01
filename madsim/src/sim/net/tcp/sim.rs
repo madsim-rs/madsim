@@ -32,14 +32,14 @@ impl plugin::Simulator for TcpSim {
         Self {
             rand: rand.clone(),
             time: time.clone(),
-            network: TcpNetwork::new(rand.clone(), time.clone(), config.tcp.clone()),
+            network: TcpNetwork::new(rand.clone(), time.clone(), config.clone()),
         }
     }
 }
 
 impl TcpSim {
     /// Update tcp configurations.
-    pub fn update_config(&self, f: impl FnOnce(&mut super::Config)) {
+    pub fn update_config(&self, f: impl FnOnce(&mut crate::Config)) {
         self.network.update_config(f);
     }
 
