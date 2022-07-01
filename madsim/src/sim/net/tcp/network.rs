@@ -190,10 +190,9 @@ impl TcpNetwork {
                 || inner.clogged_link.contains(&(src, dst))
             {
                 trace!("clogged");
-                return Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "clogged".to_string(),
-                ));
+                let msg = msg.downcast::<Vec<u8>>().unwrap();
+                let n = msg.len();
+                return Ok(n);
             }
 
             (inner.rand.clone(), inner.time.clone(), inner.config.clone())

@@ -105,44 +105,6 @@ mod tests {
     }
 
     #[test]
-    fn receiver_drop() {
-        let runtime = Runtime::new();
-        let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
-        let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
-        let node1 = runtime.create_node().ip(addr1.ip()).build();
-        let node2 = runtime.create_node().ip(addr2.ip()).build();
-        let barrier = Arc::new(Barrier::new(2));
-        let barrier_ = barrier.clone();
-
-        let f = node1.spawn(async move {
-            let listener = TcpListener::bind(addr1).await.unwrap();
-            barrier_.wait().await;
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-            barrier_.wait().await;
-            stream.write(&buf).await.unwrap();
-        });
-
-        node2.spawn(async move {
-            barrier.wait().await;
-            let mut stream = TcpStream::connect(addr1).await.unwrap();
-            let mut buf = [0; 20];
-            timeout(Duration::from_secs(1), stream.read(&mut buf))
-                .await
-                .err()
-                .unwrap();
-            barrier.wait().await;
-            let n = stream.read(&mut buf).await.unwrap();
-            assert_eq!(
-                &buf[0..n],
-                [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
-            );
-        });
-
-        runtime.block_on(f).unwrap();
-    }
-
-    #[test]
     fn disconnect() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
@@ -164,7 +126,7 @@ mod tests {
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-            stream.write(&buf).await.err().unwrap();
+            stream.write(&buf).await.unwrap();
             stream
         });
 
@@ -198,7 +160,6 @@ mod tests {
             let sim = plugin::simulator::<TcpSim>();
             sim.disconnect(id1);
             sim.connect(id1);
-            sim
         });
 
         let f1 = node1.spawn(async move {
@@ -206,8 +167,7 @@ mod tests {
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-            stream.write(&buf).await.err().unwrap();
-            stream
+            stream.write(&buf).await.unwrap();
         });
 
         let f2 = node2.spawn(async move {
@@ -240,7 +200,6 @@ mod tests {
         runtime.block_on(async move {
             let sim = plugin::simulator::<TcpSim>();
             sim.disconnect2(id1, id2);
-            sim
         });
 
         let f1 = node1.spawn(async move {
@@ -248,8 +207,7 @@ mod tests {
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-            stream.write(&buf).await.err().unwrap();
-            stream
+            stream.write(&buf).await.unwrap();
         });
 
         let f2 = node2.spawn(async move {
@@ -260,7 +218,6 @@ mod tests {
                 .await
                 .err()
                 .unwrap();
-            stream
         });
 
         runtime.block_on(f1).unwrap();
@@ -283,7 +240,6 @@ mod tests {
             let sim = plugin::simulator::<TcpSim>();
             sim.disconnect2(id1, id2);
             sim.connect2(id1, id2);
-            sim
         });
 
         let f1 = node1.spawn(async move {
@@ -291,8 +247,7 @@ mod tests {
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-            stream.write(&buf).await.err().unwrap();
-            stream
+            stream.write(&buf).await.unwrap();
         });
 
         let f2 = node2.spawn(async move {
