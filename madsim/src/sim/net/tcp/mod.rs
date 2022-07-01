@@ -64,7 +64,12 @@ pub use config::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{net::TcpSim, plugin, runtime::Runtime, time::timeout};
+    use crate::{
+        net::TcpSim,
+        plugin,
+        runtime::{NodeHandle, Runtime},
+        time::timeout,
+    };
     use std::{net::SocketAddr, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -79,8 +84,8 @@ mod tests {
         let node1 = runtime.create_node().ip(addr1.ip()).build();
         let node2 = runtime.create_node().ip(addr2.ip()).build();
         let barrier = Arc::new(Barrier::new(2));
-
         let barrier_ = barrier.clone();
+
         let f1 = node1.spawn(async move {
             let listener = TcpListener::bind(addr1).await.unwrap();
             barrier_.wait().await;
@@ -114,15 +119,12 @@ mod tests {
         let barrier = Arc::new(Barrier::new(2));
         let barrier_ = barrier.clone();
 
-        let barrier2 = Arc::new(Barrier::new(2));
-        let barrier2_ = barrier2.clone();
-
         let f = node1.spawn(async move {
             let listener = TcpListener::bind(addr1).await.unwrap();
             barrier_.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-            barrier2.wait().await;
+            barrier_.wait().await;
             stream.write(&buf).await.unwrap();
         });
 
@@ -134,7 +136,7 @@ mod tests {
                 .await
                 .err()
                 .unwrap();
-            barrier2_.wait().await;
+            barrier.wait().await;
             let n = stream.read(&mut buf).await.unwrap();
             assert_eq!(
                 &buf[0..n],
@@ -146,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn connect_disconnect() {
+    fn disconnect() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
@@ -264,19 +266,13 @@ mod tests {
         let barrier = Arc::new(Barrier::new(3));
         let barrier_ = barrier.clone();
         let barrier__ = barrier.clone();
-        let barrier2 = Arc::new(Barrier::new(3));
-        let barrier2_ = barrier2.clone();
-        let barrier2__ = barrier2.clone();
-        let barrier3 = Arc::new(Barrier::new(3));
-        let barrier3_ = barrier3.clone();
-        let barrier3__ = barrier3.clone();
 
         let f1 = node1.spawn(async move {
             let listener = TcpListener::bind(addr1).await.unwrap();
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
-            barrier2.wait().await;
-            barrier3.wait().await;
+            barrier.wait().await;
+            barrier.wait().await;
 
             let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
             stream.write(&buf).await.err().unwrap();
@@ -285,8 +281,8 @@ mod tests {
         let f2 = node2.spawn(async move {
             barrier_.wait().await;
             let mut stream = TcpStream::connect(addr1).await.unwrap();
-            barrier2_.wait().await;
-            barrier3_.wait().await;
+            barrier_.wait().await;
+            barrier_.wait().await;
 
             let mut buf = [0; 20];
             timeout(Duration::from_secs(1), stream.read(&mut buf))
@@ -298,9 +294,9 @@ mod tests {
 
         runtime.block_on(async move {
             barrier__.wait().await;
-            barrier2__.wait().await;
+            barrier__.wait().await;
             plugin::simulator::<TcpSim>().reset_node(node1.id());
-            barrier3__.wait().await;
+            barrier__.wait().await;
 
             f1.await.unwrap();
             f2.await.unwrap();
