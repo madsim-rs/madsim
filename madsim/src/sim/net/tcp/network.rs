@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     io,
     net::SocketAddr,
     sync::{
@@ -119,20 +119,20 @@ impl TcpNetwork {
         addr: SocketAddr,
     ) -> io::Result<async_channel::Receiver<(ConnId, ConnId)>> {
         let (tx, rx) = async_channel::unbounded();
-        let is_inuse = self
-            .inner
-            .lock()
-            .unwrap()
-            .accept
-            .insert(addr, (id, tx))
-            .is_some();
-        if is_inuse {
-            Err(io::Error::new(
-                io::ErrorKind::AddrInUse,
-                "addr is in used".to_string(),
-            ))
-        } else {
-            Ok(rx)
+        let mut inner = self.inner.lock().unwrap();
+        let entry = inner.accept.entry(addr);
+        
+        match entry {
+            Entry::Occupied(_) => {
+                Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    "addr is in used".to_string(),
+                ))
+            }
+            Entry::Vacant(o) => {
+                o.insert((id, tx));
+                Ok(rx)
+            }
         }
     }
 
