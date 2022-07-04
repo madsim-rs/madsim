@@ -397,33 +397,3 @@ fn init_logger() {
         builder.init();
     });
 }
-
-#[cfg(test)]
-mod test {
-    use crate::{
-        runtime::Runtime,
-        time::{sleep, Duration},
-    };
-    use rand::Rng;
-
-    #[test]
-    fn log_check() {
-        let f = || async {
-            for _ in 0..10 {
-                crate::rand::thread_rng().gen::<u64>();
-                // introduce non-determinism
-                let rand_num = rand::thread_rng().gen_range(0..10);
-                sleep(Duration::from_nanos(rand_num)).await;
-            }
-        };
-
-        let rt = Runtime::new();
-        rt.enable_determinism_check(None); // enable log
-        rt.block_on(f());
-        let log = rt.take_rand_log(); // take log for next turn
-
-        let rt = Runtime::new();
-        rt.enable_determinism_check(log); // enable check
-        rt.block_on(f());
-    }
-}
