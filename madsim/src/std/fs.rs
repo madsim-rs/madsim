@@ -43,8 +43,8 @@ impl File {
     pub async fn write_all_at(&mut self, buf: &[u8], offset: u64) -> Result<()> {
         // TODO: make it &self
         self.inner.seek(SeekFrom::Start(offset)).await?;
-        let len = self.inner.write_all(buf).await?;
-        Ok(len)
+        self.inner.write_all(buf).await?;
+        Ok(())
     }
 
     /// Truncates or extends the underlying file, updating the size of this file to become `size`.

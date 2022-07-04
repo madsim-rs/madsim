@@ -59,6 +59,7 @@ impl Runtime {
         let rt = Runtime { rand, task, handle };
         rt.add_simulator::<fs::FsSim>();
         rt.add_simulator::<net::NetSim>();
+        rt.add_simulator::<net::TcpSim>();
         rt
     }
 
@@ -217,7 +218,9 @@ impl Handle {
     /// - All data that has not been flushed to the disk will be lost.
     pub fn kill(&self, id: NodeId) {
         self.task.kill(id);
-        for sim in self.sims.lock().unwrap().values() {
+        let sims = self.sims.lock().unwrap();
+        let values = sims.values();
+        for sim in values {
             sim.reset_node(id);
         }
     }
@@ -225,7 +228,9 @@ impl Handle {
     /// Restart a node。
     pub fn restart(&self, id: NodeId) {
         self.task.restart(id);
-        for sim in self.sims.lock().unwrap().values() {
+        let sims = self.sims.lock().unwrap();
+        let values = sims.values();
+        for sim in values {
             sim.reset_node(id);
         }
     }
@@ -299,7 +304,9 @@ impl<'a> NodeBuilder<'a> {
     /// Build a node.
     pub fn build(self) -> NodeHandle {
         let task = self.handle.task.create_node(self.name, self.init);
-        for sim in self.handle.sims.lock().unwrap().values() {
+        let sims = self.handle.sims.lock().unwrap();
+        let values = sims.values();
+        for sim in values {
             sim.create_node(task.id());
             if let Some(ip) = self.ip {
                 if let Some(net) = sim.downcast_ref::<net::NetSim>() {
