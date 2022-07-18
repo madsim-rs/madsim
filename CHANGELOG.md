@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.4] - 2022-07-18
+
+### Added
+
+- madsim: Add TCP simulation.
+- madsim-tokio: Add `task::consume_budget` and `task::Id`.
+
+### Fixed
+
+- madsim: Avoid duplicate connection and close unused connection on TCP.
+- madsim-tokio: Fix `full` feature.
+
 ## [0.2.0-alpha.3] - 2022-05-25
 
 ### Added
