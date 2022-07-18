@@ -13,5 +13,5 @@ Replace all `tokio` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-tokio = { version = "=0.2.0-alpha.3", package = "madsim-tokio" }
+tokio = { version = "=0.2.0-alpha.4", package = "madsim-tokio" }
 ```
