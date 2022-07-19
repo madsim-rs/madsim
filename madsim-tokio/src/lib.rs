@@ -6,7 +6,6 @@ pub use self::sim::*;
 #[cfg(madsim)]
 mod sim {
     // no mod `runtime`
-    // TODO: simulate `task_local`
 
     // simulated API
     pub use madsim::net;
@@ -22,6 +21,16 @@ mod sim {
         pub use madsim::task::yield_now as consume_budget;
 
         pub use madsim::task::*;
+        #[cfg(feature = "rt")]
+        pub use tokio::task::LocalKey;
+    }
+
+    #[cfg(feature = "signal")]
+    pub mod signal {
+        /// Completes when a "ctrl-c" notification is sent to the process.
+        pub async fn ctrl_c() -> std::io::Result<()> {
+            futures_lite::future::pending().await
+        }
     }
 
     // not simulated API
@@ -30,10 +39,10 @@ mod sim {
     pub use tokio::fs;
     #[cfg(feature = "process")]
     pub use tokio::process;
-    #[cfg(feature = "signal")]
-    pub use tokio::signal;
     #[cfg(feature = "sync")]
     pub use tokio::sync;
+    #[cfg(feature = "rt")]
+    pub use tokio::task_local;
     pub use tokio::{io, pin};
     #[cfg(feature = "macros")]
     pub use tokio::{join, select, try_join};
