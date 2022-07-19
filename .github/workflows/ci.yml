@@ -54,7 +54,7 @@ jobs:
         with:
           command: build
 
-  test:
+  test-std:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -66,7 +66,16 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --release --no-fail-fast
+          args: --release --no-fail-fast --workspace --exclude madsim-tokio-postgres
+
+  test-sim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
       - name: Test sim
         uses: actions-rs/cargo@v1
         env:
@@ -74,7 +83,7 @@ jobs:
           RUSTDOCFLAGS: "--cfg madsim"
         with:
           command: test
-          args: --release --no-fail-fast
+          args: --release --no-fail-fast --workspace --exclude madsim-tokio-postgres
 
   bench:
     runs-on: ubuntu-latest

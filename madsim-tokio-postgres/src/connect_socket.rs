@@ -10,6 +10,7 @@ use tokio::net::UnixStream;
 use tokio::net::{self, TcpStream};
 use tokio::time;
 
+#[cfg_attr(madsim, allow(unused_variables))]
 pub(crate) async fn connect_socket(
     host: &Host,
     port: u16,
