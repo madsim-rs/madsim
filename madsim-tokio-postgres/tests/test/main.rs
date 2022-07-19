@@ -1,5 +1,7 @@
 #![warn(rust_2018_idioms)]
 
+extern crate madsim_tokio_postgres as tokio_postgres;
+
 use bytes::{Bytes, BytesMut};
 use futures::channel::mpsc;
 use futures::{

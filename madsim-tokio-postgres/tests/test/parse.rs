@@ -102,14 +102,14 @@ fn url() {
             .port(5433)
             .dbname("database"),
     );
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     check(
         "postgresql:///dbname?host=/var/lib/postgresql",
         Config::new()
             .dbname("dbname")
             .host_path("/var/lib/postgresql"),
     );
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     check(
         "postgresql://%2Fvar%2Flib%2Fpostgresql/dbname",
         Config::new()

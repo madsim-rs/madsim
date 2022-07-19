@@ -54,11 +54,11 @@ phf = "0.10"
 postgres-protocol = { version = "0.6.4" }
 postgres-types = { version = "0.2.3" }
 socket2 = "0.4"
-tokio = { version = "=0.2.0-alpha.4", package = "madsim-tokio", features = ["io-util"] }
+tokio = { version = "=0.2.0-alpha.4", package = "madsim-tokio", path = "../madsim-tokio", features = ["io-util"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 
 [dev-dependencies]
-tokio = { version = "=0.2.0-alpha.4", package = "madsim-tokio", features = ["full"] }
+tokio = { version = "=0.2.0-alpha.4", package = "madsim-tokio", path = "../madsim-tokio", features = ["full"] }
 env_logger = "0.9"
 criterion = "0.3"
 
@@ -74,3 +74,6 @@ uuid-08 = { version = "0.8", package = "uuid" }
 uuid-1 = { version = "1.0", package = "uuid" }
 time-02 = { version = "0.2", package = "time" }
 time-03 = { version = "0.3", package = "time", features = ["parsing"] }
+
+[target.'cfg(madsim)'.dev-dependencies]
+madsim = { version = "=0.2.0-alpha.4", path = "../madsim" }
