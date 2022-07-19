@@ -1,10 +1,11 @@
 use crate::config::Host;
 use crate::{Error, Socket};
+#[cfg(not(madsim))]
 use socket2::{SockRef, TcpKeepalive};
 use std::future::Future;
 use std::io;
 use std::time::Duration;
-#[cfg(unix)]
+#[cfg(all(unix, not(madsim)))]
 use tokio::net::UnixStream;
 use tokio::net::{self, TcpStream};
 use tokio::time;
@@ -35,6 +36,7 @@ pub(crate) async fn connect_socket(
                     };
 
                 stream.set_nodelay(true).map_err(Error::connect)?;
+                #[cfg(not(madsim))] // TODO: simulate keep alive
                 if keepalives {
                     SockRef::from(&stream)
                         .set_tcp_keepalive(&TcpKeepalive::new().with_time(keepalives_idle))
@@ -51,7 +53,7 @@ pub(crate) async fn connect_socket(
                 ))
             }))
         }
-        #[cfg(unix)]
+        #[cfg(all(unix, not(madsim)))]
         Host::Unix(path) => {
             let path = path.join(format!(".s.PGSQL.{}", port));
             let socket = connect_with_timeout(UnixStream::connect(path), connect_timeout).await?;

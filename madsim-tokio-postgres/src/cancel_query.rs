@@ -27,7 +27,7 @@ where
     let hostname = match &config.host {
         Host::Tcp(host) => &**host,
         // postgres doesn't support TLS over unix sockets, so the choice here doesn't matter
-        #[cfg(unix)]
+        #[cfg(all(unix, not(madsim)))]
         Host::Unix(_) => "",
     };
     let tls = tls

@@ -59,6 +59,11 @@ pub mod rpc;
 pub mod tcp;
 pub use tcp::{sim::TcpSim, TcpListener, TcpStream};
 
+// #[cfg(unix)]
+// pub mod unix;
+// #[cfg(unix)]
+// pub use unix::{UnixDatagram, UnixListener, UnixStream};
+
 /// Network simulator.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct NetSim {
@@ -324,6 +329,12 @@ impl Drop for Endpoint {
             network.close(self.node, self.addr);
         }
     }
+}
+
+/// Performs a DNS resolution.
+pub async fn lookup_host(host: impl ToSocketAddrs) -> io::Result<impl Iterator<Item = SocketAddr>> {
+    // TODO: simulate DNS resolution
+    host.to_socket_addrs()
 }
 
 #[cfg(test)]

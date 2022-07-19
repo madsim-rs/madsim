@@ -3,13 +3,13 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
-#[cfg(unix)]
+#[cfg(all(unix, not(madsim)))]
 use tokio::net::UnixStream;
 
 #[derive(Debug)]
 enum Inner {
     Tcp(TcpStream),
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     Unix(UnixStream),
 }
 
@@ -24,7 +24,7 @@ impl Socket {
         Socket(Inner::Tcp(stream))
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     pub(crate) fn new_unix(stream: UnixStream) -> Socket {
         Socket(Inner::Unix(stream))
     }
@@ -38,7 +38,7 @@ impl AsyncRead for Socket {
     ) -> Poll<io::Result<()>> {
         match &mut self.0 {
             Inner::Tcp(s) => Pin::new(s).poll_read(cx, buf),
-            #[cfg(unix)]
+            #[cfg(all(unix, not(madsim)))]
             Inner::Unix(s) => Pin::new(s).poll_read(cx, buf),
         }
     }
@@ -52,7 +52,7 @@ impl AsyncWrite for Socket {
     ) -> Poll<io::Result<usize>> {
         match &mut self.0 {
             Inner::Tcp(s) => Pin::new(s).poll_write(cx, buf),
-            #[cfg(unix)]
+            #[cfg(all(unix, not(madsim)))]
             Inner::Unix(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
@@ -60,7 +60,7 @@ impl AsyncWrite for Socket {
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut self.0 {
             Inner::Tcp(s) => Pin::new(s).poll_flush(cx),
-            #[cfg(unix)]
+            #[cfg(all(unix, not(madsim)))]
             Inner::Unix(s) => Pin::new(s).poll_flush(cx),
         }
     }
@@ -68,7 +68,7 @@ impl AsyncWrite for Socket {
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match &mut self.0 {
             Inner::Tcp(s) => Pin::new(s).poll_shutdown(cx),
-            #[cfg(unix)]
+            #[cfg(all(unix, not(madsim)))]
             Inner::Unix(s) => Pin::new(s).poll_shutdown(cx),
         }
     }

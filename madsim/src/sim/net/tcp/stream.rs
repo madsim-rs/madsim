@@ -68,6 +68,12 @@ impl TcpStream {
             recv_conn,
         }
     }
+
+    /// Sets the value of the `TCP_NODELAY` option on this socket.
+    pub fn set_nodelay(&self, _nodelay: bool) -> io::Result<()> {
+        // TODO: simulate TCP_NODELAY
+        Ok(())
+    }
 }
 
 impl AsyncRead for TcpStream {

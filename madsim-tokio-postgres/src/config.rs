@@ -10,11 +10,11 @@ use crate::tls::TlsConnect;
 use crate::Socket;
 use crate::{Client, Connection, Error};
 use std::borrow::Cow;
-#[cfg(unix)]
+#[cfg(all(unix, not(madsim)))]
 use std::ffi::OsStr;
-#[cfg(unix)]
+#[cfg(all(unix, not(madsim)))]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(unix)]
+#[cfg(all(unix, not(madsim)))]
 use std::path::{Path, PathBuf};
 use std::str;
 use std::str::FromStr;
@@ -64,7 +64,7 @@ pub enum Host {
     /// A path to a directory containing the server's Unix socket.
     ///
     /// This variant is only available on Unix platforms.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     Unix(PathBuf),
 }
 
@@ -272,7 +272,7 @@ impl Config {
     /// Multiple hosts can be specified by calling this method multiple times, and each will be tried in order. On Unix
     /// systems, a host starting with a `/` is interpreted as a path to a directory containing Unix domain sockets.
     pub fn host(&mut self, host: &str) -> &mut Config {
-        #[cfg(unix)]
+        #[cfg(all(unix, not(madsim)))]
         {
             if host.starts_with('/') {
                 return self.host_path(host);
@@ -291,7 +291,7 @@ impl Config {
     /// Adds a Unix socket host to the configuration.
     ///
     /// Unlike `host`, this method allows non-UTF8 paths.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     pub fn host_path<T>(&mut self, host: T) -> &mut Config
     where
         T: AsRef<Path>,
@@ -897,7 +897,7 @@ impl<'a> UrlParser<'a> {
         Ok(())
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(madsim)))]
     fn host_param(&mut self, s: &str) -> Result<(), Error> {
         let decoded = Cow::from(percent_encoding::percent_decode(s.as_bytes()));
         if decoded.get(0) == Some(&b'/') {
@@ -910,7 +910,7 @@ impl<'a> UrlParser<'a> {
         Ok(())
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(all(unix, not(madsim))))]
     fn host_param(&mut self, s: &str) -> Result<(), Error> {
         let s = self.decode(s)?;
         self.config.param("host", &s)

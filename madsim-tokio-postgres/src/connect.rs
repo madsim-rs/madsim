@@ -35,7 +35,7 @@ where
         let hostname = match host {
             Host::Tcp(host) => host.as_str(),
             // postgres doesn't support TLS over unix sockets, so the choice here doesn't matter
-            #[cfg(unix)]
+            #[cfg(all(unix, not(madsim)))]
             Host::Unix(_) => "",
         };
 
