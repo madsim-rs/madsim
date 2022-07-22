@@ -28,6 +28,11 @@ use std::future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
+/// Performs a DNS resolution.
+pub async fn lookup_host(host: impl ToSocketAddrs) -> io::Result<impl Iterator<Item = SocketAddr>> {
+    to_socket_addrs(host).await
+}
+
 /// Converts or resolves without blocking to one or more `SocketAddr` values.
 ///
 /// # DNS

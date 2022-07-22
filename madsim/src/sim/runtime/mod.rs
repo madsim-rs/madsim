@@ -59,7 +59,6 @@ impl Runtime {
         let rt = Runtime { rand, task, handle };
         rt.add_simulator::<fs::FsSim>();
         rt.add_simulator::<net::NetSim>();
-        rt.add_simulator::<net::TcpSim>();
         rt
     }
 
