@@ -158,14 +158,16 @@ impl AsyncRead for TcpStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if self.peer_socket.strong_count() == 0 {
-            return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                "connection closed",
-            )));
-        }
         use tokio_util::compat::FuturesAsyncReadCompatExt;
-        Pin::new(&mut (&mut self.data).compat()).poll_read(cx, buf)
+        match Pin::new(&mut (&mut self.data).compat()).poll_read(cx, buf) {
+            Poll::Pending if self.peer_socket.strong_count() == 0 => {
+                // ref: https://man7.org/linux/man-pages/man2/recv.2.html
+                // > When a stream socket peer has performed an orderly shutdown, the
+                // > return value will be 0 (the traditional "end-of-file" return).
+                Poll::Ready(Ok(()))
+            }
+            x => x,
+        }
     }
 }
 
