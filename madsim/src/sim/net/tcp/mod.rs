@@ -24,19 +24,17 @@
 //!     let listener = TcpListener::bind(addr1).await.unwrap();
 //!     barrier_.wait().await;
 //!     let (mut stream, _) = listener.accept().await.unwrap();
-//!     let buf = [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100];
-//!     stream.write(&buf).await.unwrap();
+//!     stream.write(b"hello world").await.unwrap();
+//!     stream.flush().await.unwrap();
+//!     stream
 //! });
 //!
 //! let f2 = node2.spawn(async move {
 //!     barrier.wait().await;
 //!     let mut stream = TcpStream::connect(addr1).await.unwrap();
 //!     let mut buf = [0; 20];
-//!     let n = stream.read(&mut buf).await.unwrap();
-//!     assert_eq!(
-//!         &buf[0..n],
-//!         [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]
-//!     );
+//!     let len = stream.read(&mut buf).await.unwrap();
+//!     assert_eq!(&buf[0..len], b"hello world");
 //! });
 //!
 //! runtime.block_on(f1).unwrap();
