@@ -37,13 +37,13 @@
 
 use log::*;
 use std::{
+    any::Any,
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
 };
+use tokio::sync::oneshot;
 
-pub use self::network::{Config, Stat};
-use self::network::{Network, Payload};
 use crate::{
     plugin,
     rand::{GlobalRng, Rng},
@@ -51,13 +51,17 @@ use crate::{
     time::{Duration, TimeHandle},
 };
 
+mod addr;
 mod network;
 #[cfg(feature = "rpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
 pub mod rpc;
-
 pub mod tcp;
-pub use tcp::{sim::TcpSim, TcpListener, TcpStream};
+
+pub use self::addr::{lookup_host, ToSocketAddrs};
+pub use self::network::{Config, Stat};
+use self::network::{Network, Socket};
+pub use self::tcp::{TcpListener, TcpStream};
 
 // #[cfg(unix)]
 // pub mod unix;
@@ -75,7 +79,7 @@ pub struct NetSim {
 impl plugin::Simulator for NetSim {
     fn new(rand: &GlobalRng, time: &TimeHandle, config: &crate::Config) -> Self {
         NetSim {
-            network: Mutex::new(Network::new(rand.clone(), time.clone(), config.net.clone())),
+            network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
             rand: rand.clone(),
             time: time.clone(),
         }
@@ -143,15 +147,19 @@ impl NetSim {
         network.clog_link(node2, node1);
     }
 
-    async fn rand_delay(&self) {
+    /// Delay a small random time and probably inject failure.
+    async fn rand_delay(&self) -> io::Result<()> {
         let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
         self.time.sleep(delay).await;
+        // TODO: inject failure
+        Ok(())
     }
 }
 
 /// An endpoint.
 pub struct Endpoint {
     net: Arc<NetSim>,
+    mailbox: Arc<Mutex<Mailbox>>,
     node: NodeId,
     addr: SocketAddr,
     peer: Option<SocketAddr>,
@@ -162,11 +170,14 @@ impl Endpoint {
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let net = plugin::simulator::<NetSim>();
         let node = plugin::node();
-        let addr = addr.to_socket_addrs()?.next().unwrap();
-        net.rand_delay().await;
-        let addr = net.network.lock().unwrap().bind(node, addr)?;
+        let addr = lookup_host(addr).await?.next().unwrap();
+        net.rand_delay().await?;
+
+        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
+        let addr = (net.network.lock().unwrap()).bind(node, addr, mailbox.clone())?;
         Ok(Endpoint {
             net,
+            mailbox,
             node,
             addr,
             peer: None,
@@ -177,16 +188,19 @@ impl Endpoint {
     pub async fn connect(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let net = plugin::simulator::<NetSim>();
         let node = plugin::node();
-        let peer = addr.to_socket_addrs()?.next().unwrap();
-        net.rand_delay().await;
+        let peer = lookup_host(addr).await?.next().unwrap();
+        net.rand_delay().await?;
+
         let addr = if peer.ip().is_loopback() {
             SocketAddr::from((Ipv4Addr::LOCALHOST, 0))
         } else {
             SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))
         };
-        let addr = net.network.lock().unwrap().bind(node, addr)?;
+        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
+        let addr = (net.network.lock().unwrap()).bind(node, addr, mailbox.clone())?;
         Ok(Endpoint {
             net,
+            mailbox,
             node,
             addr,
             peer: Some(peer),
@@ -216,7 +230,7 @@ impl Endpoint {
     /// });
     /// ```
     pub async fn send_to(&self, dst: impl ToSocketAddrs, tag: u64, buf: &[u8]) -> io::Result<()> {
-        let dst = dst.to_socket_addrs()?.next().unwrap();
+        let dst = lookup_host(dst).await?.next().unwrap();
         self.send_to_raw(dst, tag, Box::new(Vec::from(buf))).await
     }
 
@@ -266,12 +280,28 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
+        self.net.rand_delay().await?;
+        let (mailbox, latency) = match self.net.network.lock().unwrap().try_send(self.node, dst) {
+            Some((socket, latency)) => (
+                socket
+                    .downcast_arc::<Mutex<Mailbox>>()
+                    .ok()
+                    .expect("mismatch socket type"),
+                latency,
+            ),
+            None => return Ok(()),
+        };
+        let msg = Message {
+            tag,
+            data,
+            from: self.addr,
+        };
+        trace!("delay: {latency:?}");
         self.net
-            .network
-            .lock()
-            .unwrap()
-            .send(plugin::node(), self.addr, dst, tag, data);
-        self.net.rand_delay().await;
+            .time
+            .add_timer(self.net.time.now() + latency, move || {
+                mailbox.lock().unwrap().deliver(msg);
+            });
         Ok(())
     }
 
@@ -281,16 +311,11 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
-        let recver = self
-            .net
-            .network
-            .lock()
-            .unwrap()
-            .recv(plugin::node(), self.addr, tag);
+        let recver = self.mailbox.lock().unwrap().recv(tag);
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
-        self.net.rand_delay().await;
+        self.net.rand_delay().await?;
 
         trace!("recv: {} <- {}, tag={}", self.addr, msg.from, msg.tag);
         Ok((msg.data, msg.from))
@@ -326,15 +351,62 @@ impl Drop for Endpoint {
     fn drop(&mut self) {
         // avoid panic on panicking
         if let Ok(mut network) = self.net.network.lock() {
-            network.close(self.node, self.addr);
+            network.close(self.node, self.addr.port());
         }
     }
 }
 
-/// Performs a DNS resolution.
-pub async fn lookup_host(host: impl ToSocketAddrs) -> io::Result<impl Iterator<Item = SocketAddr>> {
-    // TODO: simulate DNS resolution
-    host.to_socket_addrs()
+struct Message {
+    tag: u64,
+    data: Payload,
+    from: SocketAddr,
+}
+
+type Payload = Box<dyn Any + Send + Sync>;
+
+/// Tag message mailbox for an endpoint.
+#[derive(Default)]
+struct Mailbox {
+    /// Pending receive requests.
+    registered: Vec<(u64, oneshot::Sender<Message>)>,
+    /// Messages that have not been received.
+    msgs: Vec<Message>,
+}
+
+impl Socket for Mutex<Mailbox> {}
+
+impl Mailbox {
+    fn deliver(&mut self, msg: Message) {
+        let mut i = 0;
+        let mut msg = Some(msg);
+        while i < self.registered.len() {
+            if matches!(&msg, Some(msg) if msg.tag == self.registered[i].0) {
+                // tag match, take and try send
+                let (_, sender) = self.registered.swap_remove(i);
+                msg = match sender.send(msg.take().unwrap()) {
+                    Ok(_) => return,
+                    Err(m) => Some(m),
+                };
+                // failed to send, try next
+            } else {
+                // tag mismatch, move to next
+                i += 1;
+            }
+        }
+        // failed to match awaiting recv, save
+        self.msgs.push(msg.unwrap());
+    }
+
+    fn recv(&mut self, tag: u64) -> oneshot::Receiver<Message> {
+        let (tx, rx) = oneshot::channel();
+        if let Some(idx) = self.msgs.iter().position(|msg| tag == msg.tag) {
+            let msg = self.msgs.swap_remove(idx);
+            tx.send(msg).ok().unwrap();
+        } else {
+            self.registered.push((tag, tx));
+        }
+        rx
+    }
 }
 
 #[cfg(test)]
@@ -419,6 +491,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: rethink what happens when network "resets"
     fn reset() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();

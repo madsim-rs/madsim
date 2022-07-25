@@ -59,7 +59,6 @@ impl Runtime {
         let rt = Runtime { rand, task, handle };
         rt.add_simulator::<fs::FsSim>();
         rt.add_simulator::<net::NetSim>();
-        rt.add_simulator::<net::TcpSim>();
         rt
     }
 
@@ -352,6 +351,12 @@ fn init_logger() {
             .map(|s| Duration::from_secs_f64(s.parse::<f64>().unwrap()));
         let mut builder = env_logger::Builder::from_default_env();
         builder.format(move |buf, record| {
+            // filter time
+            if let Some(time) = crate::time::TimeHandle::try_current() {
+                if matches!(start, Some(t0) if time.elapsed() < t0) {
+                    return write!(buf, "");
+                }
+            }
             let mut style = buf.style();
             style.set_color(Color::Black).set_intense(true);
             let mut level_style = buf.style();
@@ -362,37 +367,16 @@ fn init_logger() {
                 log::Level::Debug => Color::Blue,
                 log::Level::Trace => Color::Cyan,
             });
+            write!(buf, "{}", style.value('['))?;
             if let Some(time) = crate::time::TimeHandle::try_current() {
-                if matches!(start, Some(t0) if time.elapsed() < t0) {
-                    return write!(buf, "");
-                }
-                let task = crate::context::current_task();
-                writeln!(
-                    buf,
-                    "{}{:>5}{}{:.6}s{}{}{}{:>10}{} {}",
-                    style.value('['),
-                    level_style.value(record.level()),
-                    style.value("]["),
-                    time.elapsed().as_secs_f64(),
-                    style.value("]["),
-                    task.name,
-                    style.value("]["),
-                    record.target(),
-                    style.value(']'),
-                    record.args()
-                )
-            } else {
-                writeln!(
-                    buf,
-                    "{}{:>5}{}{:>10}{} {}",
-                    style.value('['),
-                    level_style.value(record.level()),
-                    style.value("]["),
-                    record.target(),
-                    style.value(']'),
-                    record.args()
-                )
+                write!(buf, "{:.6}s", time.elapsed().as_secs_f64())?;
             }
+            write!(buf, " {:>5}", level_style.value(record.level()))?;
+            if let Some(task) = crate::context::try_current_task() {
+                write!(buf, " {}", task.name)?;
+            }
+            write!(buf, " {:>10}", style.value(record.target()))?;
+            writeln!(buf, "{} {}", style.value(']'), record.args())
         });
         builder.init();
     });

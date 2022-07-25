@@ -1,5 +1,5 @@
-use crate::{rand::*, task::NodeId, time::TimeHandle};
-use futures::channel::oneshot;
+use crate::{rand::*, task::NodeId};
+use downcast_rs::{impl_downcast, DowncastSync};
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,14 +9,16 @@ use std::{
     io,
     net::{IpAddr, SocketAddr},
     ops::Range,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
 /// A simulated network.
+///
+/// This object manages the links and address resolution.
+/// It doesn't care about specific communication protocol.
 pub(crate) struct Network {
     rand: GlobalRng,
-    time: TimeHandle,
     config: Config,
     stat: Stat,
     nodes: HashMap<NodeId, Node>,
@@ -34,8 +36,12 @@ struct Node {
     /// NOTE: now a node can have at most one IP address.
     ip: Option<IpAddr>,
     /// Sockets in the node.
-    sockets: HashMap<u16, Arc<Mutex<Mailbox>>>,
+    sockets: HashMap<u16, Arc<dyn Socket>>,
 }
+
+/// Upper-level protocol should implement its own socket type.
+pub trait Socket: Any + Send + Sync + DowncastSync {}
+impl_downcast!(sync Socket);
 
 /// Network configurations.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
@@ -79,10 +85,9 @@ pub struct Stat {
 }
 
 impl Network {
-    pub fn new(rand: GlobalRng, time: TimeHandle, config: Config) -> Self {
+    pub fn new(rand: GlobalRng, config: Config) -> Self {
         Self {
             rand,
-            time,
             config,
             stat: Stat::default(),
             nodes: HashMap::new(),
@@ -151,7 +156,20 @@ impl Network {
         self.clogged_link.remove(&(src, dst));
     }
 
-    pub fn bind(&mut self, node: NodeId, mut addr: SocketAddr) -> io::Result<SocketAddr> {
+    /// Returns whether a link is clogged.
+    pub fn link_clogged(&self, src: NodeId, dst: NodeId) -> bool {
+        self.clogged_node.contains(&src)
+            || self.clogged_node.contains(&dst)
+            || self.clogged_link.contains(&(src, dst))
+    }
+
+    /// Bind a socket to the specified address.
+    pub fn bind(
+        &mut self,
+        node: NodeId,
+        mut addr: SocketAddr,
+        socket: Arc<dyn Socket>,
+    ) -> io::Result<SocketAddr> {
         debug!("bind: {addr} -> {node}");
         let node = self.nodes.get_mut(&node).expect("node not found");
         // resolve IP if unspecified
@@ -186,121 +204,53 @@ impl Network {
                 ))
             }
             Entry::Vacant(o) => {
-                o.insert(Default::default());
+                o.insert(socket);
             }
         }
         Ok(addr)
     }
 
-    pub fn close(&mut self, node: NodeId, addr: SocketAddr) {
-        debug!("close: {node} {addr}");
+    /// Close a socket.
+    pub fn close(&mut self, node: NodeId, port: u16) {
+        debug!("close: {node} port={port}");
         let node = self.nodes.get_mut(&node).expect("node not found");
-        node.sockets.remove(&addr.port());
+        node.sockets.remove(&port);
     }
 
-    pub fn send(
-        &mut self,
-        node: NodeId,
-        src: SocketAddr,
-        dst: SocketAddr,
-        tag: u64,
-        data: Payload,
-    ) {
-        trace!("send: {node} {src} -> {dst}, tag={tag}");
-        let dst_node = if dst.ip().is_loopback() {
-            node
+    /// Returns the latency of sending a packet. If packet loss, returns `None`.
+    fn test_link(&mut self, src: NodeId, dst: NodeId) -> Option<Duration> {
+        if self.link_clogged(src, dst) || self.rand.gen_bool(self.config.packet_loss_rate) {
+            None
+        } else {
+            self.stat.msg_count += 1;
+            Some(self.rand.gen_range(self.config.send_latency.clone()))
+        }
+    }
+
+    /// Resolve destination node from IP address.
+    pub fn resolve_dest_node(&self, node: NodeId, dst: SocketAddr) -> Option<NodeId> {
+        if dst.ip().is_loopback() {
+            Some(node)
         } else if let Some(x) = self.addr_to_node.get(&dst.ip()) {
-            *x
+            Some(*x)
         } else {
             trace!("destination not found: {dst}");
-            return;
-        };
-        if self.clogged_node.contains(&node)
-            || self.clogged_node.contains(&dst_node)
-            || self.clogged_link.contains(&(node, dst_node))
-        {
-            trace!("clogged");
-            return;
+            None
         }
-        if self.rand.gen_bool(self.config.packet_loss_rate) {
-            trace!("packet loss");
-            return;
-        }
-        let ep = match self.nodes[&dst_node].sockets.get(&dst.port()) {
-            Some(ep) => ep.clone(),
-            None => {
-                trace!("destination not found: {dst}");
-                return;
-            }
-        };
-        let msg = Message {
-            tag,
-            data,
-            from: src,
-        };
-        let latency = self.rand.gen_range(self.config.send_latency.clone());
-        trace!("delay: {latency:?}");
-        self.time.add_timer(self.time.now() + latency, move || {
-            ep.lock().unwrap().deliver(msg);
-        });
-        self.stat.msg_count += 1;
     }
 
-    pub fn recv(&mut self, node: NodeId, dst: SocketAddr, tag: u64) -> oneshot::Receiver<Message> {
-        self.nodes[&node].sockets[&dst.port()]
-            .lock()
-            .unwrap()
-            .recv(tag)
-    }
-}
-
-pub struct Message {
-    pub tag: u64,
-    pub data: Payload,
-    pub from: SocketAddr,
-}
-
-pub type Payload = Box<dyn Any + Send + Sync>;
-
-/// Tag message mailbox for an endpoint.
-#[derive(Default)]
-struct Mailbox {
-    /// Pending receive requests.
-    registered: Vec<(u64, oneshot::Sender<Message>)>,
-    /// Messages that have not been received.
-    msgs: Vec<Message>,
-}
-
-impl Mailbox {
-    fn deliver(&mut self, msg: Message) {
-        let mut i = 0;
-        let mut msg = Some(msg);
-        while i < self.registered.len() {
-            if matches!(&msg, Some(msg) if msg.tag == self.registered[i].0) {
-                // tag match, take and try send
-                let (_, sender) = self.registered.swap_remove(i);
-                msg = match sender.send(msg.take().unwrap()) {
-                    Ok(_) => return,
-                    Err(m) => Some(m),
-                };
-                // failed to send, try next
-            } else {
-                // tag mismatch, move to next
-                i += 1;
-            }
-        }
-        // failed to match awaiting recv, save
-        self.msgs.push(msg.unwrap());
-    }
-
-    fn recv(&mut self, tag: u64) -> oneshot::Receiver<Message> {
-        let (tx, rx) = oneshot::channel();
-        if let Some(idx) = self.msgs.iter().position(|msg| tag == msg.tag) {
-            let msg = self.msgs.swap_remove(idx);
-            tx.send(msg).ok().unwrap();
-        } else {
-            self.registered.push((tag, tx));
-        }
-        rx
+    /// Try sending a message to the destination.
+    ///
+    /// If destination is not found or packet loss, returns `None`.
+    /// Otherwise returns the socket and latency.
+    pub fn try_send(
+        &mut self,
+        node: NodeId,
+        dst: SocketAddr,
+    ) -> Option<(Arc<dyn Socket>, Duration)> {
+        let dst_node = self.resolve_dest_node(node, dst)?;
+        let latency = self.test_link(node, dst_node)?;
+        let ep = self.nodes.get(&dst_node)?.sockets.get(&dst.port())?;
+        Some((ep.clone(), latency))
     }
 }

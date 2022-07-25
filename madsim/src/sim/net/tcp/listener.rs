@@ -1,20 +1,24 @@
 use log::trace;
-use std::{io, net::SocketAddr};
+use std::{io, net::SocketAddr, sync::Arc};
 
-use super::{sim::TcpSim, to_socket_addrs, TcpStream, ToSocketAddrs};
-use crate::plugin;
+use crate::{
+    net::{lookup_host, network::Socket, NetSim, TcpStream, ToSocketAddrs},
+    plugin,
+    task::NodeId,
+};
 
-/// a simulated TCP socket server, listen for connections
+/// A TCP socket server, listening for connections.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct TcpListener {
-    // fixme: Maybe here no need for the mutex. but we need access
-    // the receiver without the mut and the acess will cross .await
-    receiver: async_channel::Receiver<(u64, u64)>,
+    net: Arc<NetSim>,
+    node: NodeId,
+    /// Local address.
+    addr: SocketAddr,
+    /// Incoming connections.
+    rx: async_channel::Receiver<(TcpStream, SocketAddr)>,
 }
 
 impl TcpListener {
-    /// simulated for tokio::net::TcpListener::bind
-    ///
     /// Creates a new TcpListener, which will be bound to the specified address.
     ///
     /// The returned listener is ready for accepting connections.
@@ -27,56 +31,70 @@ impl TcpListener {
     ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
-        let sim = plugin::simulator::<TcpSim>();
-        let id = plugin::node();
-        let addrs = to_socket_addrs(addr).await?;
-        let mut last_err = None;
+        let net = plugin::simulator::<NetSim>();
+        let node = plugin::node();
 
-        for addr in addrs {
-            sim.rand_delay().await;
-            match sim.network().listen(id, addr) {
-                Ok(receiver) => {
-                    trace!("tcp bind to {}", addr);
-                    return Ok(TcpListener { receiver });
+        let (tx, rx) = async_channel::unbounded();
+        let socket = Arc::new(TcpListenerSocket { tx });
+
+        // attempt to bind to each address
+        let mut last_err = None;
+        for addr in lookup_host(addr).await? {
+            net.rand_delay().await?;
+            match net.network.lock().unwrap().bind(node, addr, socket.clone()) {
+                Ok(addr) => {
+                    trace!("tcp listening on {}", addr);
+                    return Ok(TcpListener {
+                        net: net.clone(),
+                        node,
+                        addr,
+                        rx,
+                    });
                 }
-                Err(e) => {
-                    last_err = Some(io::Error::new(io::ErrorKind::InvalidInput, e));
-                }
+                Err(e) => last_err = Some(e),
             }
         }
 
         Err(last_err.unwrap_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "no available addr to bind".to_string(),
-            )
+            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
         }))
     }
 
-    /// simulated for tokio::net::TcpListener::accept
-    ///
     /// Accepts a new incoming connection from this listener.
     ///
     /// This function will yield once a new TCP connection is established. When
     /// established, the corresponding [`TcpStream`] and the remote peer's
     /// address will be returned.
     ///
-    ///
     /// [`TcpStream`]: struct@crate::net::TcpStream
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let sim = plugin::simulator::<TcpSim>();
-        sim.rand_delay().await;
-        match self.receiver.recv().await {
-            Ok((send_conn, recv_conn)) => {
-                let tcp_stream = TcpStream::new(send_conn, recv_conn);
-                // fix ip selection
-                trace!("tcp accepted conn({}, {})", send_conn, recv_conn);
-                Ok((tcp_stream, "0.0.0.0:0".parse().unwrap()))
-            }
-            Err(e) => Err(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                e.to_string(),
-            )),
+        let sim = plugin::simulator::<NetSim>();
+        sim.rand_delay().await?;
+
+        let (stream, addr) = (self.rx.recv().await)
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
+        trace!("accept tcp connection from {}", addr);
+        Ok((stream, addr))
+    }
+
+    /// Returns the local socket address.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(self.addr)
+    }
+}
+
+impl Drop for TcpListener {
+    fn drop(&mut self) {
+        // avoid panic on panicking
+        if let Ok(mut network) = self.net.network.lock() {
+            network.close(self.node, self.addr.port());
         }
     }
 }
+
+/// Socket registered in the [`Network`].
+pub(super) struct TcpListenerSocket {
+    pub tx: async_channel::Sender<(TcpStream, SocketAddr)>,
+}
+
+impl Socket for TcpListenerSocket {}
