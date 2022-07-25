@@ -280,6 +280,7 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
+        trace!("send: {} {} -> {dst}, tag={tag}", self.node, self.addr);
         self.net.rand_delay().await?;
         let (mailbox, latency) = match self.net.network.lock().unwrap().try_send(self.node, dst) {
             Some((socket, latency)) => (
