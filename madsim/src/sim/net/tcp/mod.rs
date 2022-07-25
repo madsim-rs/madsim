@@ -200,7 +200,8 @@ mod tests {
             barrier_.wait().await;
 
             let mut buf = [0; 20];
-            stream.read(&mut buf).await.expect_err("read should fail");
+            let len = stream.read(&mut buf).await.expect("read should return EOF");
+            assert_eq!(len, 0);
         });
 
         runtime.block_on(async move {
