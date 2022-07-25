@@ -51,7 +51,7 @@ impl<L> Server<L> {
     pub fn add_service<S>(&mut self, svc: S) -> Router<L>
     where
         S: Service<
-                (PathAndQuery, BoxMessageStream),
+                (SocketAddr, PathAndQuery, BoxMessageStream),
                 Response = BoxMessageStream,
                 Error = Infallible,
                 Future = BoxFuture<BoxMessageStream, Infallible>,
@@ -87,7 +87,7 @@ pub struct Router<L = Identity> {
         &'static str,
         Box<
             dyn Service<
-                    (PathAndQuery, BoxMessageStream),
+                    (SocketAddr, PathAndQuery, BoxMessageStream),
                     Response = BoxMessageStream,
                     Error = Infallible,
                     Future = BoxFuture<BoxMessageStream, Infallible>,
@@ -102,7 +102,7 @@ impl<L> Router<L> {
     pub fn add_service<S>(mut self, svc: S) -> Self
     where
         S: Service<
-                (PathAndQuery, BoxMessageStream),
+                (SocketAddr, PathAndQuery, BoxMessageStream),
                 Response = BoxMessageStream,
                 Error = Infallible,
                 Future = BoxFuture<BoxMessageStream, Infallible>,
@@ -138,7 +138,7 @@ impl<L> Router<L> {
             let (mut tag, path, msg, client_stream, server_stream) = *msg
                 .downcast::<(u64, PathAndQuery, BoxMessage, bool, bool)>()
                 .expect("invalid type");
-            log::trace!("request: {path} <- {from}");
+            log::debug!("request: {path} <- {from}");
 
             let requests: BoxMessageStream = if !client_stream {
                 // single request
@@ -163,7 +163,7 @@ impl<L> Router<L> {
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let rsp_future = svc.call((path, requests));
+            let rsp_future = svc.call((from, path, requests));
             let ep = ep.clone();
             madsim::task::spawn(async move {
                 let mut stream = rsp_future.await.unwrap();

@@ -38,8 +38,13 @@ impl Greeter for MyGreeter {
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
         println!("Got a request: {:?}", request);
+        let remote_addr = request.remote_addr().expect("no remote address");
         let reply = HelloReply {
-            message: format!("Hello {}!", request.into_inner().name),
+            message: format!(
+                "Hello {}! ({})",
+                request.into_inner().name,
+                remote_addr.ip()
+            ),
         };
         Ok(Response::new(reply))
     }
@@ -51,11 +56,12 @@ impl Greeter for MyGreeter {
         request: Request<HelloRequest>,
     ) -> Result<Response<Self::LotsOfRepliesStream>, Status> {
         println!("Got a request: {:?}", request);
+        let remote_addr = request.remote_addr().expect("no remote address");
         let stream = try_stream! {
             let name = request.into_inner().name;
             for i in 0..3 {
                 yield HelloReply {
-                    message: format!("{i}: Hello {name}!"),
+                    message: format!("{i}: Hello {name}! ({})", remote_addr.ip()),
                 };
                 sleep(Duration::from_secs(1)).await;
             }
@@ -68,6 +74,7 @@ impl Greeter for MyGreeter {
         request: Request<Streaming<HelloRequest>>,
     ) -> Result<Response<HelloReply>, Status> {
         println!("Got a request: {:?}", request);
+        let remote_addr = request.remote_addr().expect("no remote address");
         let mut stream = request.into_inner();
         let mut s = String::new();
         while let Some(request) = stream.message().await? {
@@ -76,7 +83,7 @@ impl Greeter for MyGreeter {
             s += &request.name;
         }
         let reply = HelloReply {
-            message: format!("Hello{s}!"),
+            message: format!("Hello{s}! ({})", remote_addr.ip()),
         };
         Ok(Response::new(reply))
     }
@@ -88,12 +95,13 @@ impl Greeter for MyGreeter {
         request: Request<Streaming<HelloRequest>>,
     ) -> Result<Response<Self::BidiHelloStream>, Status> {
         println!("Got a request: {:?}", request);
+        let remote_addr = request.remote_addr().expect("no remote address");
         let stream = try_stream! {
             let mut stream = request.into_inner();
             while let Some(request) = stream.message().await? {
                 println!("-> {:?}", request);
                 yield HelloReply {
-                    message: format!("Hello {}!", request.name),
+                    message: format!("Hello {}! ({})", request.name, remote_addr.ip()),
                 };
             }
         };
@@ -160,7 +168,7 @@ mod tests {
                 name: "Tonic".into(),
             });
             let response = client.say_hello(request).await.unwrap();
-            assert_eq!(response.into_inner().message, "Hello Tonic!");
+            assert_eq!(response.into_inner().message, "Hello Tonic! (10.0.0.2)");
         });
 
         // another service
@@ -189,7 +197,7 @@ mod tests {
             let mut stream = response.into_inner();
             let mut i = 0;
             while let Some(reply) = stream.message().await.unwrap() {
-                assert_eq!(reply.message, format!("{i}: Hello Tonic!"));
+                assert_eq!(reply.message, format!("{i}: Hello Tonic! (10.0.0.4)"));
                 i += 1;
             }
             assert_eq!(i, 3);
@@ -213,7 +221,10 @@ mod tests {
                 .await
                 .unwrap();
             let response = client.lots_of_greetings(new_stream()).await.unwrap();
-            assert_eq!(response.into_inner().message, "Hello Tonic0 Tonic1 Tonic2!");
+            assert_eq!(
+                response.into_inner().message,
+                "Hello Tonic0 Tonic1 Tonic2! (10.0.0.5)"
+            );
         });
 
         // bi-directional stream
@@ -226,7 +237,7 @@ mod tests {
             let mut stream = response.into_inner();
             let mut i = 0;
             while let Some(reply) = stream.message().await.unwrap() {
-                assert_eq!(reply.message, format!("Hello Tonic{i}!"));
+                assert_eq!(reply.message, format!("Hello Tonic{i}! (10.0.0.6)"));
                 i += 1;
             }
             assert_eq!(i, 3);

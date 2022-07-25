@@ -104,7 +104,7 @@ pub fn generate<T: Service>(
                 #configure_compression_methods
             }
 
-            impl<T> tonic::codegen::Service<(PathAndQuery, BoxMessageStream)> for #server_service<T>
+            impl<T> tonic::codegen::Service<(SocketAddr, PathAndQuery, BoxMessageStream)> for #server_service<T>
                 where
                     T: #server_trait,
             {
@@ -116,7 +116,7 @@ pub fn generate<T: Service>(
                     Poll::Ready(Ok(()))
                 }
 
-                fn call(&mut self, (path, mut req): (PathAndQuery, BoxMessageStream)) -> Self::Future {
+                fn call(&mut self, (remote_addr, path, mut req): (SocketAddr, PathAndQuery, BoxMessageStream)) -> Self::Future {
                     let inner = self.inner.clone();
 
                     match path.path() {
@@ -335,9 +335,10 @@ fn generate_unary<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let request = *req.next().await.unwrap().unwrap()
+            let mut request = *req.next().await.unwrap().unwrap()
                 .downcast::<tonic::Request<#request>>()
                 .unwrap();
+            request.set_remote_addr(remote_addr);
             let res = (*inner).#method_ident(request).await.expect("rpc handler returns error");
             Ok(stream::once(async move { Ok(Box::new(res) as BoxMessage) }).boxed())
         })
@@ -356,9 +357,10 @@ fn generate_server_streaming<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let request = *req.next().await.unwrap().unwrap()
+            let mut request = *req.next().await.unwrap().unwrap()
                 .downcast::<tonic::Request<#request>>()
                 .unwrap();
+            request.set_remote_addr(remote_addr);
             let res = (*inner).#method_ident(request).await.expect("rpc handler returns error");
             Ok(res.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed())
         })
@@ -377,11 +379,13 @@ fn generate_client_streaming<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let request = req
+            let stream = req
                 .map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap()))
                 .boxed();
+            let mut request = tonic::Request::new(tonic::Streaming::from_stream(stream));
+            request.set_remote_addr(remote_addr);
             let res = inner
-                .#method_ident(tonic::Request::new(tonic::Streaming::from_stream(request)))
+                .#method_ident(request)
                 .await
                 .expect("rpc handler returns error");
             Ok(stream::once(async move { Ok(Box::new(res) as BoxMessage) }).boxed())
@@ -401,11 +405,13 @@ fn generate_streaming<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let request = req
+            let stream = req
                 .map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap()))
                 .boxed();
+            let mut request = tonic::Request::new(tonic::Streaming::from_stream(stream));
+            request.set_remote_addr(remote_addr);
             let res = inner
-                .#method_ident(tonic::Request::new(tonic::Streaming::from_stream(request)))
+                .#method_ident(request)
                 .await
                 .expect("rpc handler returns error");
             Ok(res.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed())
