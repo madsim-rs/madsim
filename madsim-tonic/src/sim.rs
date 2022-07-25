@@ -17,6 +17,7 @@ pub mod transport;
 /// Codegen exports used by `madsim-tonic-build`.
 pub mod codegen {
     use std::any::Any;
+    pub use std::net::SocketAddr;
 
     pub use futures;
     pub use tonic::codegen::*;
@@ -25,4 +26,17 @@ pub mod codegen {
     pub type BoxMessage = Box<dyn Any + Send + Sync>;
     /// A type-erased stream of messages.
     pub type BoxMessageStream = BoxStream<BoxMessage>;
+
+    pub trait RequestExt {
+        fn set_remote_addr(&mut self, addr: SocketAddr);
+    }
+
+    impl<T> RequestExt for tonic::Request<T> {
+        /// Set the remote address of Request.
+        fn set_remote_addr(&mut self, addr: SocketAddr) {
+            let tcp_info: tonic::transport::server::TcpConnectInfo =
+                unsafe { std::mem::transmute(Some(addr)) };
+            self.extensions_mut().insert(tcp_info);
+        }
+    }
 }

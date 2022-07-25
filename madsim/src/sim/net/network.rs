@@ -166,12 +166,12 @@ impl Network {
     /// Bind a socket to the specified address.
     pub fn bind(
         &mut self,
-        node: NodeId,
+        node_id: NodeId,
         mut addr: SocketAddr,
         socket: Arc<dyn Socket>,
     ) -> io::Result<SocketAddr> {
-        debug!("bind: {addr} -> {node}");
-        let node = self.nodes.get_mut(&node).expect("node not found");
+        let origin_addr = addr;
+        let node = self.nodes.get_mut(&node_id).expect("node not found");
         // resolve IP if unspecified
         if addr.ip().is_unspecified() {
             if let Some(ip) = node.ip {
@@ -207,6 +207,7 @@ impl Network {
                 o.insert(socket);
             }
         }
+        debug!("bind: {node_id} {origin_addr} -> {addr}");
         Ok(addr)
     }
 
@@ -234,7 +235,7 @@ impl Network {
         } else if let Some(x) = self.addr_to_node.get(&dst.ip()) {
             Some(*x)
         } else {
-            trace!("destination not found: {dst}");
+            warn!("destination not found: {dst}");
             None
         }
     }
