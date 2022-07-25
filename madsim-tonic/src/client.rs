@@ -43,6 +43,9 @@ impl Grpc<crate::transport::Channel> {
         // receive response
         let rsp = self.inner.ep.recv_raw(rsp_tag).await?;
         let rsp = *rsp
+            .downcast::<Result<BoxMessage, Status>>()
+            .expect("message type mismatch");
+        let rsp = *rsp?
             .downcast::<Response<M2>>()
             .expect("message type mismatch");
         Ok(rsp)
@@ -66,6 +69,9 @@ impl Grpc<crate::transport::Channel> {
         // receive response
         let rsp = self.inner.ep.recv_raw(tag).await?;
         let rsp = *rsp
+            .downcast::<Result<BoxMessage, Status>>()
+            .expect("message type mismatch");
+        let rsp = *rsp?
             .downcast::<Response<M2>>()
             .expect("message type mismatch");
         Ok(rsp)

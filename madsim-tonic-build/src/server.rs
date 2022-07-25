@@ -339,8 +339,8 @@ fn generate_unary<T: Method>(
                 .downcast::<tonic::Request<#request>>()
                 .unwrap();
             request.set_remote_addr(remote_addr);
-            let res = (*inner).#method_ident(request).await.expect("rpc handler returns error");
-            Ok(stream::once(async move { Ok(Box::new(res) as BoxMessage) }).boxed())
+            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
+            Ok(stream::once(async move { res.map(|rsp| Box::new(rsp) as BoxMessage) }).boxed())
         })
     }
 }
@@ -361,8 +361,11 @@ fn generate_server_streaming<T: Method>(
                 .downcast::<tonic::Request<#request>>()
                 .unwrap();
             request.set_remote_addr(remote_addr);
-            let res = (*inner).#method_ident(request).await.expect("rpc handler returns error");
-            Ok(res.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed())
+            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
+            match res {
+                Ok(rsp) => Ok(rsp.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed()),
+                Err(err) => Ok(stream::once(async move { Err(err) }).boxed()),
+            }
         })
     }
 }
@@ -384,11 +387,8 @@ fn generate_client_streaming<T: Method>(
                 .boxed();
             let mut request = tonic::Request::new(tonic::Streaming::from_stream(stream));
             request.set_remote_addr(remote_addr);
-            let res = inner
-                .#method_ident(request)
-                .await
-                .expect("rpc handler returns error");
-            Ok(stream::once(async move { Ok(Box::new(res) as BoxMessage) }).boxed())
+            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
+            Ok(stream::once(async move { res.map(|rsp| Box::new(rsp) as BoxMessage) }).boxed())
         })
     }
 }
@@ -410,11 +410,11 @@ fn generate_streaming<T: Method>(
                 .boxed();
             let mut request = tonic::Request::new(tonic::Streaming::from_stream(stream));
             request.set_remote_addr(remote_addr);
-            let res = inner
-                .#method_ident(request)
-                .await
-                .expect("rpc handler returns error");
-            Ok(res.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed())
+            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
+            match res {
+                Ok(rsp) => Ok(rsp.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed()),
+                Err(err) => Ok(stream::once(async move { Err(err) }).boxed()),
+            }
         })
     }
 }

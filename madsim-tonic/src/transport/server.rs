@@ -169,7 +169,8 @@ impl<L> Router<L> {
                 let mut stream = rsp_future.await.unwrap();
                 // send the response
                 while let Some(rsp) = stream.next().await {
-                    ep.send_to_raw(from, tag, rsp.unwrap())
+                    // rsp: Result<BoxMessage, Status>
+                    ep.send_to_raw(from, tag, Box::new(rsp))
                         .await
                         .expect("failed to send response");
                     tag += 1;

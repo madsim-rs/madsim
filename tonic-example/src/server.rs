@@ -39,12 +39,12 @@ impl Greeter for MyGreeter {
     ) -> Result<Response<HelloReply>, Status> {
         println!("Got a request: {:?}", request);
         let remote_addr = request.remote_addr().expect("no remote address");
+        let name = request.into_inner().name;
+        if name == "error" {
+            return Err(Status::invalid_argument("error!"));
+        }
         let reply = HelloReply {
-            message: format!(
-                "Hello {}! ({})",
-                request.into_inner().name,
-                remote_addr.ip()
-            ),
+            message: format!("Hello {}! ({})", name, remote_addr.ip()),
         };
         Ok(Response::new(reply))
     }
@@ -65,6 +65,7 @@ impl Greeter for MyGreeter {
                 };
                 sleep(Duration::from_secs(1)).await;
             }
+            Err(Status::unknown("EOF"))?;
         };
         Ok(Response::new(Box::pin(stream)))
     }
@@ -169,6 +170,12 @@ mod tests {
             });
             let response = client.say_hello(request).await.unwrap();
             assert_eq!(response.into_inner().message, "Hello Tonic! (10.0.0.2)");
+
+            let request = tonic::Request::new(HelloRequest {
+                name: "error".into(),
+            });
+            let response = client.say_hello(request).await.unwrap_err();
+            assert_eq!(response.code(), tonic::Code::InvalidArgument);
         });
 
         // another service
@@ -195,12 +202,12 @@ mod tests {
             });
             let response = client.lots_of_replies(request).await.unwrap();
             let mut stream = response.into_inner();
-            let mut i = 0;
-            while let Some(reply) = stream.message().await.unwrap() {
+            for i in 0..3 {
+                let reply = stream.message().await.unwrap().unwrap();
                 assert_eq!(reply.message, format!("{i}: Hello Tonic! (10.0.0.4)"));
-                i += 1;
             }
-            assert_eq!(i, 3);
+            let error = stream.message().await.unwrap_err();
+            assert_eq!(error.code(), tonic::Code::Unknown);
         });
 
         let new_stream = || {
