@@ -1,4 +1,4 @@
-use crate::Status;
+use crate::{codegen::BoxMessage, Status};
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
 use madsim::task::JoinHandle;
@@ -36,7 +36,8 @@ impl<T: Send + 'static> Streaming<T> {
                     if msg.downcast_ref::<StreamEnd>().is_some() {
                         return;
                     }
-                    yield *msg.downcast::<T>().unwrap();
+                    let msg = *msg.downcast::<Result<BoxMessage, Status>>().unwrap();
+                    yield *msg?.downcast::<T>().unwrap();
                 }
             }
             .boxed(),

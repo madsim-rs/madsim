@@ -84,3 +84,15 @@ impl<T> Receiver<T> {
         }
     }
 }
+
+impl<T> Drop for Receiver<T> {
+    fn drop(&mut self) {
+        // XXX: avoid panic on dropping runtime
+        // drop futures while keeping the sender available
+        if let Ok(mut queue) = self.inner.queue.lock() {
+            let q = std::mem::take(&mut *queue);
+            drop(queue);
+            drop(q);
+        }
+    }
+}
