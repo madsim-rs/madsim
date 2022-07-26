@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Fixed
 
 - madsim: Refactor TCP simulator and fix several bugs. (#18)
+- madsim: Avoid some panics on panicking.
 
 ## [0.2.0-alpha.4] - 2022-07-18
 
