@@ -55,11 +55,12 @@ impl<T> Sender<T> {
     /// Attempts to send a value on this channel, returning it back if it could not be sent.
     pub fn send(&self, value: T) -> Result<(), SendError<T>> {
         if let Some(inner) = self.inner.upgrade() {
-            inner.queue.lock().unwrap().push(value);
-            Ok(())
-        } else {
-            Err(SendError(value))
+            if let Ok(mut queue) = inner.queue.lock() {
+                queue.push(value);
+                return Ok(());
+            }
         }
+        Err(SendError(value))
     }
 }
 
