@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.5] - 2022-07-26
+
+## Added
+
+- Migrate a new crate `madsim-tokio-postgres` for simulation.
+- madsim-tokio: Add `task_local`, `task::LocalKey`, `signal::ctrl_c`.
+- madsim-tonic: Support `Request::remote_addr` and returning error from server.
+
+## Fixed
+
+- madsim: Refactor TCP simulator and fix several bugs. (#18)
+
 ## [0.2.0-alpha.4] - 2022-07-18
 
 ### Added
