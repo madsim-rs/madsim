@@ -369,7 +369,7 @@ fn init_logger() {
             });
             write!(buf, "{}", style.value('['))?;
             if let Some(time) = crate::time::TimeHandle::try_current() {
-                write!(buf, "{:.6}s", time.elapsed().as_secs_f64())?;
+                write!(buf, "{:.9}s", time.elapsed().as_secs_f64())?;
             }
             write!(buf, " {:>5}", level_style.value(record.level()))?;
             if let Some(task) = crate::context::try_current_task() {

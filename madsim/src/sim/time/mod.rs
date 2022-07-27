@@ -37,8 +37,8 @@ impl TimeRuntime {
         &self.handle
     }
 
-    /// Advance the time and fire timers.
-    pub fn advance(&self) -> bool {
+    /// Advances time to the closest timer event. Returns true if succeed.
+    pub fn advance_to_next_event(&self) -> bool {
         let mut timer = self.handle.timer.lock().unwrap();
         if let Some(mut time) = timer.next() {
             // WARN: in some platform such as M1 macOS,
@@ -53,6 +53,11 @@ impl TimeRuntime {
         } else {
             false
         }
+    }
+
+    /// Advances time.
+    pub fn advance(&self, duration: Duration) {
+        self.handle.clock.advance(duration);
     }
 
     #[allow(dead_code)]
@@ -170,6 +175,11 @@ impl ClockHandle {
     fn elapsed(&self) -> Duration {
         let inner = self.inner.lock().unwrap();
         inner.advance
+    }
+
+    fn advance(&self, duration: Duration) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.advance += duration;
     }
 
     fn base(&self) -> Instant {
