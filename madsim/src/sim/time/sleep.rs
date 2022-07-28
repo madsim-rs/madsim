@@ -32,7 +32,7 @@ impl Sleep {
     ///
     /// A `Sleep` instance is elapsed when the requested duration has elapsed.
     pub fn is_elapsed(&self) -> bool {
-        self.handle.clock.now() >= self.deadline
+        self.handle.clock.now_instant() >= self.deadline
     }
 
     /// Resets the `Sleep` instance to a new deadline.

@@ -68,8 +68,8 @@ impl Executor {
                 sender,
                 next_node_id: Arc::new(AtomicU64::new(1)),
             },
+            time: TimeRuntime::new(&rand),
             rand,
-            time: TimeRuntime::new(),
             time_limit: None,
         }
     }

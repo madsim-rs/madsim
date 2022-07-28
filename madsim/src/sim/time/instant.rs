@@ -47,7 +47,7 @@ impl Instant {
     /// ```
     pub fn now() -> Instant {
         let handle = super::TimeHandle::current();
-        handle.now()
+        handle.now_instant()
     }
 
     /// Create a `madsim::time::Instant` from a `std::time::Instant`.

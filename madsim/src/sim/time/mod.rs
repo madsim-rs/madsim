@@ -2,6 +2,7 @@
 //!
 //!
 
+use crate::rand::{GlobalRng, Rng};
 use futures::{select_biased, FutureExt};
 use naive_timer::Timer;
 #[doc(no_inline)]
@@ -9,12 +10,14 @@ pub use std::time::Duration;
 use std::{
     future::Future,
     sync::{Arc, Mutex},
+    time::SystemTime,
 };
 
 pub mod error;
 mod instant;
 mod interval;
 mod sleep;
+mod system_time;
 
 pub use self::instant::Instant;
 pub use self::interval::{interval, interval_at, Interval, MissedTickBehavior};
@@ -25,10 +28,16 @@ pub(crate) struct TimeRuntime {
 }
 
 impl TimeRuntime {
-    pub fn new() -> Self {
+    pub fn new(rand: &GlobalRng) -> Self {
+        // around 2022
+        let base_time = SystemTime::UNIX_EPOCH
+            + Duration::from_secs(
+                60 * 60 * 24 * 365 * (2022 - 1970)
+                    + rand.with(|rng| rng.gen_range(0..60 * 60 * 24 * 365)),
+            );
         let handle = TimeHandle {
             timer: Arc::new(Mutex::new(Timer::default())),
-            clock: ClockHandle::new(),
+            clock: ClockHandle::new(base_time),
         };
         TimeRuntime { handle }
     }
@@ -62,8 +71,8 @@ impl TimeRuntime {
 
     #[allow(dead_code)]
     /// Get the current time.
-    pub fn now(&self) -> Instant {
-        self.handle.now()
+    pub fn now_instant(&self) -> Instant {
+        self.handle.now_instant()
     }
 }
 
@@ -86,8 +95,13 @@ impl TimeHandle {
     }
 
     /// Return the current time.
-    pub fn now(&self) -> Instant {
-        self.clock.now()
+    pub fn now_instant(&self) -> Instant {
+        self.clock.now_instant()
+    }
+
+    /// Return the current time.
+    pub fn now_time(&self) -> SystemTime {
+        self.clock.now_time()
     }
 
     /// Returns the amount of time elapsed since this handle was created.
@@ -97,7 +111,7 @@ impl TimeHandle {
 
     /// Waits until `duration` has elapsed.
     pub fn sleep(&self, duration: Duration) -> Sleep {
-        self.sleep_until(self.clock.now() + duration)
+        self.sleep_until(self.clock.now_instant() + duration)
     }
 
     /// Waits until `deadline` is reached.
@@ -130,7 +144,7 @@ impl TimeHandle {
         callback: impl FnOnce() + Send + Sync + 'static,
     ) {
         let mut timer = self.timer.lock().unwrap();
-        timer.add(deadline - self.clock.base(), |_| callback());
+        timer.add(deadline - self.clock.base_instant(), |_| callback());
     }
 }
 
@@ -151,15 +165,17 @@ struct ClockHandle {
 #[derive(Debug)]
 struct Clock {
     /// Time basis for which mock time is derived.
-    base: std::time::Instant,
+    base_time: std::time::SystemTime,
+    base_instant: std::time::Instant,
     /// The amount of mock time which has elapsed.
     advance: Duration,
 }
 
 impl ClockHandle {
-    fn new() -> Self {
+    fn new(base_time: SystemTime) -> Self {
         let clock = Clock {
-            base: std::time::Instant::now(),
+            base_time,
+            base_instant: std::time::Instant::now(),
             advance: Duration::default(),
         };
         ClockHandle {
@@ -182,14 +198,19 @@ impl ClockHandle {
         inner.advance += duration;
     }
 
-    fn base(&self) -> Instant {
+    fn base_instant(&self) -> Instant {
         let inner = self.inner.lock().unwrap();
-        Instant::from_std(inner.base)
+        Instant::from_std(inner.base_instant)
     }
 
-    fn now(&self) -> Instant {
+    fn now_instant(&self) -> Instant {
         let inner = self.inner.lock().unwrap();
-        Instant::from_std(inner.base + inner.advance)
+        Instant::from_std(inner.base_instant + inner.advance)
+    }
+
+    fn now_time(&self) -> SystemTime {
+        let inner = self.inner.lock().unwrap();
+        inner.base_time + inner.advance
     }
 }
 
