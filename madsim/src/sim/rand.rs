@@ -256,6 +256,11 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     #[test]
+    #[cfg_attr(target_os = "linux", ignore)]
+    // NOTE: 
+    //   Deterministic rand is only available on macOS.
+    //   On linux, the call stack is `rand` -> `getrandom` -> `SYS_getrandom`,
+    //   which is hard to intercept.
     fn deterministic_rand() {
         let mut seqs = BTreeSet::new();
         for i in 0..9 {
