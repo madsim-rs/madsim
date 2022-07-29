@@ -175,6 +175,8 @@ thread_local! {
 
 /// Obtain a series of random bytes.
 ///
+/// Returns the number of bytes that were copied to the buffer buf.
+///
 /// # Safety
 ///
 /// Input must be a valid buffer.
@@ -186,10 +188,10 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
         assert_eq!(buflen, 16);
         std::slice::from_raw_parts_mut(buf as *mut u64, 2).fill(seed);
         SEED.with(|s| s.set(None));
-        0
+        return 16;
     } else if let Some(rand) = crate::context::try_current(|h| h.rand.clone()) {
         // inside a madsim context, use the global RNG.
-        // let s = core::slice::from_raw_parts(buf, buflen);
+        let len = buflen;
         while buflen >= std::mem::size_of::<u64>() {
             (buf as *mut u64).write(rand.with(|rng| rng.gen()));
             buf = buf.add(std::mem::size_of::<u64>());
@@ -197,10 +199,22 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
         }
         let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
         core::ptr::copy(val.as_ptr(), buf, buflen);
-        // eprintln!("getrandom: {:?}", s);
-        0
-    } else {
+        return len as _;
+    }
+    #[cfg(target_os = "linux")]
+    {
         // not in madsim, call the original function.
+        lazy_static::lazy_static! {
+            static ref GETRANDOM: unsafe extern "C" fn(buf: *mut u8, buflen: usize, flags: u32) -> isize = unsafe {
+                let ptr = libc::dlsym(libc::RTLD_NEXT, b"getrandom\0".as_ptr() as _);
+                assert!(!ptr.is_null());
+                std::mem::transmute(ptr)
+            };
+        }
+        GETRANDOM(buf, buflen, _flags)
+    }
+    #[cfg(target_os = "macos")]
+    {
         lazy_static::lazy_static! {
             static ref GETENTROPY: unsafe extern "C" fn(buf: *mut u8, buflen: usize) -> libc::c_int = unsafe {
                 let ptr = libc::dlsym(libc::RTLD_NEXT, b"getentropy\0".as_ptr() as _);
@@ -208,8 +222,14 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
                 std::mem::transmute(ptr)
             };
         }
-        GETENTROPY(buf, buflen) as _
+        match GETENTROPY(buf, buflen) {
+            -1 => -1,
+            0 => buflen as _,
+            _ => unreachable!(),
+        }
     }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    compile_error!("unsupported os");
 }
 
 /// Fill a buffer with random bytes.
@@ -224,7 +244,10 @@ unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
     if buflen > 256 {
         return -1;
     }
-    getrandom(buf, buflen, 0) as _
+    match getrandom(buf, buflen, 0) {
+        -1 => -1,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
