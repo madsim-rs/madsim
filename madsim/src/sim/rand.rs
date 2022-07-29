@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     #[cfg_attr(target_os = "linux", ignore)]
-    // NOTE: 
+    // NOTE:
     //   Deterministic rand is only available on macOS.
     //   On linux, the call stack is `rand` -> `getrandom` -> `SYS_getrandom`,
     //   which is hard to intercept.
