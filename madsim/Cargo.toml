@@ -13,17 +13,16 @@ categories = ["asynchronous", "simulation"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["macros", "logger", "rpc"]
+default = ["macros", "rpc"]
 ucx = ["async-ucx"]
 rpc = ["bincode"]
 macros = ["madsim-macros", "tokio/macros"]
-logger = ["env_logger"]
 erpc = ["rpc"] # "mad_rpc"
 
 [dependencies]
 bincode = { version = "1", optional = true }
 bytes = "1"
-env_logger = { version = "0.9", optional = true }
+env_logger = "0.9"
 futures = "0.3"
 lazy_static = "1.4"
 log = "0.4"

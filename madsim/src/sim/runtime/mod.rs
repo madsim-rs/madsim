@@ -44,9 +44,6 @@ impl Runtime {
 
     /// Create a new runtime instance with given seed and config.
     pub fn with_seed_and_config(seed: u64, config: Config) -> Self {
-        #[cfg(feature = "logger")]
-        init_logger();
-
         let rand = rand::GlobalRng::new_with_seed(seed);
         let task = task::Executor::new(rand.clone());
         let handle = Handle {
@@ -339,8 +336,8 @@ impl NodeHandle {
     }
 }
 
-#[cfg(feature = "logger")]
-fn init_logger() {
+/// Initialize logger.
+pub fn init_logger() {
     use env_logger::fmt::Color;
     use std::io::Write;
     use std::sync::Once;
