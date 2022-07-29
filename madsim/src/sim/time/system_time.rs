@@ -20,13 +20,17 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
         0
     } else {
         // not in madsim, call the original function.
-        let ptr = libc::dlsym(libc::RTLD_NEXT, b"gettimeofday\0".as_ptr() as _);
-        assert!(!ptr.is_null());
-        let origin_gettimeofday: unsafe extern "C" fn(
-            tp: *mut libc::timeval,
-            tz: *mut libc::c_void,
-        ) -> libc::c_int = std::mem::transmute(ptr);
-        origin_gettimeofday(tp, tz)
+        lazy_static::lazy_static! {
+            static ref GETTIMEOFDAY: unsafe extern "C" fn(
+                tp: *mut libc::timeval,
+                tz: *mut libc::c_void,
+            ) -> libc::c_int = unsafe {
+                let ptr = libc::dlsym(libc::RTLD_NEXT, b"gettimeofday\0".as_ptr() as _);
+                assert!(!ptr.is_null());
+                std::mem::transmute(ptr)
+            };
+        }
+        GETTIMEOFDAY(tp, tz)
     }
 }
 

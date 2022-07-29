@@ -14,7 +14,7 @@ categories = ["asynchronous", "simulation"]
 
 [features]
 default = ["macros", "logger", "rpc"]
-ucx = ["async-ucx", "lazy_static"]
+ucx = ["async-ucx"]
 rpc = ["bincode"]
 macros = ["madsim-macros", "tokio/macros"]
 logger = ["env_logger"]
@@ -25,6 +25,7 @@ bincode = { version = "1", optional = true }
 bytes = "1"
 env_logger = { version = "0.9", optional = true }
 futures = "0.3"
+lazy_static = "1.4"
 log = "0.4"
 madsim-macros = { version = "=0.2.0-alpha.5", path = "../madsim-macros", optional = true }
 rand = { version = "0.8", features = ["small_rng"] }
@@ -44,7 +45,6 @@ toml = "0.5"
 
 [target.'cfg(not(madsim))'.dependencies]
 async-ucx = { version = "0.1", features = ["event"], optional = true }
-lazy_static = { version = "1.4", optional = true }
 tokio = { version = "1", features = ["rt", "fs", "net", "time", "io-util", "sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 # mad_rpc = { git = "https://github.com/madsys-dev/madrpc", rev = "2be4b02", optional = true }
