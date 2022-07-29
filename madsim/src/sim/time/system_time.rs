@@ -1,4 +1,4 @@
-/// Override the libc `gettimeofday` function.
+/// Override the libc `gettimeofday` function. For macOS.
 #[no_mangle]
 unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void) -> libc::c_int {
     // NOTE: tz should be NULL.
@@ -31,6 +31,38 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
             };
         }
         GETTIMEOFDAY(tp, tz)
+    }
+}
+
+/// Override the libc `clock_gettime` function. For Linux.
+#[no_mangle]
+unsafe extern "C" fn clock_gettime(
+    clockid: libc::clockid_t,
+    tp: *mut libc::timespec,
+) -> libc::c_int {
+    if let Some(time) = super::TimeHandle::try_current() {
+        // inside a madsim context, use the simulated time.
+        let dur = time
+            .now_time()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        tp.write(libc::timespec {
+            tv_sec: dur.as_secs() as _,
+            tv_nsec: dur.subsec_nanos() as _,
+        });
+        0
+    } else {
+        lazy_static::lazy_static! {
+            static ref CLOCK_GETTIME: unsafe extern "C" fn(
+                clockid: libc::clockid_t,
+                tp: *mut libc::timespec,
+            ) -> libc::c_int = unsafe {
+                let ptr = libc::dlsym(libc::RTLD_NEXT, b"clock_gettime\0".as_ptr() as _);
+                assert!(!ptr.is_null());
+                std::mem::transmute(ptr)
+            };
+        }
+        CLOCK_GETTIME(clockid, tp)
     }
 }
 
