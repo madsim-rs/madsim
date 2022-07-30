@@ -183,6 +183,7 @@ thread_local! {
 ///
 /// Ref: <https://man7.org/linux/man-pages/man2/getrandom.2.html>
 #[no_mangle]
+#[inline(never)]
 unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32) -> isize {
     if let Some(seed) = SEED.with(|s| s.get()) {
         assert_eq!(buflen, 16);
@@ -240,6 +241,7 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
 ///
 /// Ref: <https://man7.org/linux/man-pages/man3/getentropy.3.html>
 #[no_mangle]
+#[inline(never)]
 unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
     if buflen > 256 {
         return -1;

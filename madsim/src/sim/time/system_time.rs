@@ -1,5 +1,6 @@
 /// Override the libc `gettimeofday` function. For macOS.
 #[no_mangle]
+#[inline(never)]
 unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void) -> libc::c_int {
     // NOTE: tz should be NULL.
     // Linux: The use of the timezone structure is obsolete; the tz argument should normally be specified as NULL.
@@ -36,6 +37,7 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
 
 /// Override the libc `clock_gettime` function. For Linux.
 #[no_mangle]
+#[inline(never)]
 unsafe extern "C" fn clock_gettime(
     clockid: libc::clockid_t,
     tp: *mut libc::timespec,
