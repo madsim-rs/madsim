@@ -175,7 +175,7 @@ impl ClockHandle {
     fn new(base_time: SystemTime) -> Self {
         let clock = Clock {
             base_time,
-            base_instant: std::time::Instant::now(),
+            base_instant: unsafe { std::mem::zeroed() },
             advance: Duration::default(),
         };
         ClockHandle {

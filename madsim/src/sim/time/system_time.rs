@@ -1,4 +1,4 @@
-/// Override the libc `gettimeofday` function. For macOS.
+/// Override the libc `gettimeofday` function. For `SystemTime` on macOS.
 #[no_mangle]
 #[inline(never)]
 unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void) -> libc::c_int {
@@ -68,10 +68,26 @@ unsafe extern "C" fn clock_gettime(
     }
 }
 
-// #[no_mangle]
-// extern "C" fn mach_absolute_time() -> u64 {
-//     todo!("mach_absolute_time");
-// }
+/// Override the `mach_absolute_time` function. For `Instant` on macOS.
+#[no_mangle]
+#[inline(never)]
+#[cfg(target_os = "macos")]
+extern "C" fn mach_absolute_time() -> u64 {
+    if let Some(time) = super::TimeHandle::try_current() {
+        // inside a madsim context, use the simulated time.
+        let instant = time.now_instant();
+        unsafe { std::mem::transmute(instant) }
+    } else {
+        lazy_static::lazy_static! {
+            static ref MACH_ABSOLUTE_TIME: extern "C" fn() -> u64 = unsafe {
+                let ptr = libc::dlsym(libc::RTLD_NEXT, b"mach_absolute_time\0".as_ptr() as _);
+                assert!(!ptr.is_null());
+                std::mem::transmute(ptr)
+            };
+        }
+        MACH_ABSOLUTE_TIME()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -98,19 +114,19 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: intercept std Instant
     fn deterministic_std_instant() {
         let mut times = BTreeSet::new();
         for i in 0..9 {
             let runtime = Runtime::with_seed_and_config(i / 3, crate::Config::default());
-            let time = runtime.block_on(async {
+            let dur = runtime.block_on(async {
                 let t0 = Instant::now();
                 crate::time::sleep(Duration::from_secs(1)).await;
-                assert!(t0.elapsed() >= Duration::from_secs(1));
-                t0
+                let dur = t0.elapsed();
+                assert!(dur >= Duration::from_secs(1));
+                dur
             });
-            times.insert(time);
+            times.insert(dur);
         }
-        assert_eq!(times.len(), 3);
+        assert_eq!(times.len(), 1);
     }
 }
