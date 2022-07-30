@@ -6,7 +6,7 @@ use crate::rand::{GlobalRng, Rng};
 use futures::{select_biased, FutureExt};
 use naive_timer::Timer;
 #[doc(no_inline)]
-pub use std::time::Duration;
+pub use std::time::{Duration, Instant};
 use std::{
     future::Future,
     sync::{Arc, Mutex},
@@ -14,12 +14,10 @@ use std::{
 };
 
 pub mod error;
-mod instant;
 mod interval;
 mod sleep;
 mod system_time;
 
-pub use self::instant::Instant;
 pub use self::interval::{interval, interval_at, Interval, MissedTickBehavior};
 pub use self::sleep::{sleep, sleep_until, Sleep};
 
@@ -200,12 +198,12 @@ impl ClockHandle {
 
     fn base_instant(&self) -> Instant {
         let inner = self.inner.lock().unwrap();
-        Instant::from_std(inner.base_instant)
+        inner.base_instant
     }
 
     fn now_instant(&self) -> Instant {
         let inner = self.inner.lock().unwrap();
-        Instant::from_std(inner.base_instant + inner.advance)
+        inner.base_instant + inner.advance
     }
 
     fn now_time(&self) -> SystemTime {
