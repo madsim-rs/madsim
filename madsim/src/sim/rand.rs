@@ -25,6 +25,7 @@ use rand::{
     prelude::{Distribution, SmallRng},
 };
 
+use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 
 // TODO: mock `rngs` module
@@ -58,6 +59,14 @@ struct Inner {
 impl GlobalRng {
     /// Create a new RNG using the given seed.
     pub(crate) fn new_with_seed(seed: u64) -> Self {
+        // XXX: call this function to make sure it won't be gc.
+        unsafe { getentropy(std::ptr::null_mut(), 0) };
+        if !init_std_random_state(seed) {
+            log::warn!(
+                "failed to initialize std random state, std HashMap will not be deterministic"
+            );
+        }
+
         let inner = Inner {
             rng: SeedableRng::seed_from_u64(seed),
             log: None,
@@ -150,3 +159,140 @@ where
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 #[derive(Debug, PartialEq, Eq)]
 pub struct Log(Vec<u8>);
+
+/// Initialize std `RandomState` with specified seed.
+///
+/// You should call this function before constructing any `HashMap` or `HashSet` in a new thread.
+fn init_std_random_state(seed: u64) -> bool {
+    SEED.with(|s| s.set(Some(seed)));
+    let _ = std::collections::hash_map::RandomState::new();
+    SEED.with(|s| s.replace(None)).is_none()
+}
+
+thread_local! {
+    static SEED: Cell<Option<u64>> = Cell::new(None);
+}
+
+/// Obtain a series of random bytes.
+///
+/// Returns the number of bytes that were copied to the buffer buf.
+///
+/// # Safety
+///
+/// Input must be a valid buffer.
+///
+/// Ref: <https://man7.org/linux/man-pages/man2/getrandom.2.html>
+#[no_mangle]
+#[inline(never)]
+unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32) -> isize {
+    if let Some(seed) = SEED.with(|s| s.get()) {
+        assert_eq!(buflen, 16);
+        std::slice::from_raw_parts_mut(buf as *mut u64, 2).fill(seed);
+        SEED.with(|s| s.set(None));
+        return 16;
+    } else if let Some(rand) = crate::context::try_current(|h| h.rand.clone()) {
+        // inside a madsim context, use the global RNG.
+        let len = buflen;
+        while buflen >= std::mem::size_of::<u64>() {
+            (buf as *mut u64).write(rand.with(|rng| rng.gen()));
+            buf = buf.add(std::mem::size_of::<u64>());
+            buflen -= std::mem::size_of::<u64>();
+        }
+        let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
+        core::ptr::copy(val.as_ptr(), buf, buflen);
+        return len as _;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // not in madsim, call the original function.
+        lazy_static::lazy_static! {
+            static ref GETRANDOM: unsafe extern "C" fn(buf: *mut u8, buflen: usize, flags: u32) -> isize = unsafe {
+                let ptr = libc::dlsym(libc::RTLD_NEXT, b"getrandom\0".as_ptr() as _);
+                assert!(!ptr.is_null());
+                std::mem::transmute(ptr)
+            };
+        }
+        GETRANDOM(buf, buflen, _flags)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        lazy_static::lazy_static! {
+            static ref GETENTROPY: unsafe extern "C" fn(buf: *mut u8, buflen: usize) -> libc::c_int = unsafe {
+                let ptr = libc::dlsym(libc::RTLD_NEXT, b"getentropy\0".as_ptr() as _);
+                assert!(!ptr.is_null());
+                std::mem::transmute(ptr)
+            };
+        }
+        match GETENTROPY(buf, buflen) {
+            -1 => -1,
+            0 => buflen as _,
+            _ => unreachable!(),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    compile_error!("unsupported os");
+}
+
+/// Fill a buffer with random bytes.
+///
+/// # Safety
+///
+/// Input must be a valid buffer.
+///
+/// Ref: <https://man7.org/linux/man-pages/man3/getentropy.3.html>
+#[no_mangle]
+#[inline(never)]
+unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
+    if buflen > 256 {
+        return -1;
+    }
+    match getrandom(buf, buflen, 0) {
+        -1 => -1,
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::runtime::Runtime;
+    use std::collections::{BTreeSet, HashMap};
+
+    #[test]
+    #[cfg_attr(target_os = "linux", ignore)]
+    // NOTE:
+    //   Deterministic rand is only available on macOS.
+    //   On linux, the call stack is `rand` -> `getrandom` -> `SYS_getrandom`,
+    //   which is hard to intercept.
+    fn deterministic_rand() {
+        let mut seqs = BTreeSet::new();
+        for i in 0..9 {
+            let seq = std::thread::spawn(move || {
+                let runtime = Runtime::with_seed_and_config(i / 3, crate::Config::default());
+                runtime
+                    .block_on(async { (0..10).map(|_| rand::random::<u64>()).collect::<Vec<_>>() })
+            })
+            .join()
+            .unwrap();
+            seqs.insert(seq);
+        }
+        assert_eq!(seqs.len(), 3);
+    }
+
+    #[test]
+    fn deterministic_std_hashmap() {
+        let mut seqs = BTreeSet::new();
+        for i in 0..9 {
+            let seq = std::thread::spawn(move || {
+                let runtime = Runtime::with_seed_and_config(i / 3, crate::Config::default());
+                runtime.block_on(async {
+                    let set = (0..10).map(|i| (i, i)).collect::<HashMap<_, _>>();
+                    set.into_iter().collect::<Vec<_>>()
+                })
+            })
+            .join()
+            .unwrap();
+            seqs.insert(seq);
+        }
+        assert_eq!(seqs.len(), 3, "hashmap is not deterministic");
+    }
+}

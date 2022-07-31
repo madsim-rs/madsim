@@ -6,6 +6,5 @@ members = [
     "madsim-tokio-postgres",
     "madsim-tonic",
     "madsim-tonic-build",
-    "madsim-norandom",
     "tonic-example",
 ]

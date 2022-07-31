@@ -6,6 +6,7 @@ use super::{
     utils::mpsc,
 };
 use async_task::{FallibleTask, Runnable};
+use rand::Rng;
 use std::{
     collections::HashMap,
     fmt,
@@ -67,8 +68,8 @@ impl Executor {
                 sender,
                 next_node_id: Arc::new(AtomicU64::new(1)),
             },
+            time: TimeRuntime::new(&rand),
             rand,
-            time: TimeRuntime::new(),
             time_limit: None,
         }
     }
@@ -112,8 +113,8 @@ impl Executor {
             if let Poll::Ready(val) = Pin::new(&mut task).poll(&mut cx) {
                 return val;
             }
-            let going = self.time.advance();
-            assert!(going, "no events, the task will block forever");
+            let going = self.time.advance_to_next_event();
+            assert!(going, "no events, all tasks will block forever");
             if let Some(limit) = self.time_limit {
                 assert!(
                     self.time.handle().elapsed() < limit,
@@ -136,9 +137,12 @@ impl Executor {
                 nodes.get_mut(&info.node).unwrap().paused.push(runnable);
                 continue;
             }
-            // run task
+            // run the task
             let _guard = crate::context::enter_task(info);
             runnable.run();
+            // advance time: 50-100ns
+            let dur = Duration::from_nanos(self.rand.with(|rng| rng.gen_range(50..100)));
+            self.time.advance(dur);
         }
     }
 }
@@ -168,6 +172,7 @@ struct Node {
 impl TaskHandle {
     /// Kill all tasks of the node.
     pub fn kill(&self, id: NodeId) {
+        log::debug!("kill {}", id);
         let mut nodes = self.nodes.lock().unwrap();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
@@ -184,6 +189,7 @@ impl TaskHandle {
     /// Kill all tasks of the node and restart the initial task.
     pub fn restart(&self, id: NodeId) {
         self.kill(id);
+        log::debug!("restart {}", id);
         let nodes = self.nodes.lock().unwrap();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
@@ -196,6 +202,7 @@ impl TaskHandle {
 
     /// Pause all tasks of the node.
     pub fn pause(&self, id: NodeId) {
+        log::debug!("pause {}", id);
         let nodes = self.nodes.lock().unwrap();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
@@ -203,6 +210,7 @@ impl TaskHandle {
 
     /// Resume the execution of the address.
     pub fn resume(&self, id: NodeId) {
+        log::debug!("resume {}", id);
         let mut nodes = self.nodes.lock().unwrap();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
@@ -220,6 +228,7 @@ impl TaskHandle {
         init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
+        log::debug!("create {}", id);
         let info = Arc::new(TaskInfo {
             node: id,
             name: name.unwrap_or_else(|| format!("node-{}", id.0)),
@@ -283,19 +292,23 @@ impl TaskNodeHandle {
         F: Future + 'static,
         F::Output: 'static,
     {
+        let id = Id::new();
+        log::trace!("spawn task {}", id);
+
         let sender = self.sender.clone();
         let info = self.info.clone();
         let (runnable, task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
+                log::trace!("wake task {}", id);
                 let _ = sender.send((runnable, info.clone()));
             })
         };
         runnable.schedule();
 
         JoinHandle {
-            id: Id::new(),
+            id,
             task: Mutex::new(Some(task.fallible())),
         }
     }

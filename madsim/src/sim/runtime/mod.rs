@@ -44,9 +44,6 @@ impl Runtime {
 
     /// Create a new runtime instance with given seed and config.
     pub fn with_seed_and_config(seed: u64, config: Config) -> Self {
-        #[cfg(feature = "logger")]
-        init_logger();
-
         let rand = rand::GlobalRng::new_with_seed(seed);
         let task = task::Executor::new(rand.clone());
         let handle = Handle {
@@ -339,8 +336,8 @@ impl NodeHandle {
     }
 }
 
-#[cfg(feature = "logger")]
-fn init_logger() {
+/// Initialize logger.
+pub fn init_logger() {
     use env_logger::fmt::Color;
     use std::io::Write;
     use std::sync::Once;
@@ -369,7 +366,7 @@ fn init_logger() {
             });
             write!(buf, "{}", style.value('['))?;
             if let Some(time) = crate::time::TimeHandle::try_current() {
-                write!(buf, "{:.6}s", time.elapsed().as_secs_f64())?;
+                write!(buf, "{:.9}s", time.elapsed().as_secs_f64())?;
             }
             write!(buf, " {:>5}", level_style.value(record.level()))?;
             if let Some(task) = crate::context::try_current_task() {

@@ -300,7 +300,7 @@ impl Endpoint {
         trace!("delay: {latency:?}");
         self.net
             .time
-            .add_timer(self.net.time.now() + latency, move || {
+            .add_timer(self.net.time.now_instant() + latency, move || {
                 mailbox.lock().unwrap().deliver(msg);
             });
         Ok(())
