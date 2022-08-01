@@ -13,7 +13,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tonic = "0.7"
+tonic = "0.8"
 
 [target.'cfg(madsim)'.dependencies]
 async-stream = "0.3"

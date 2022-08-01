@@ -15,10 +15,10 @@ license = "MIT"
 [dependencies]
 prettyplease = "0.1"
 proc-macro2 = "1"
-prost-build = { version = "0.10", optional = true }
+prost-build = { version = "0.11", optional = true }
 quote = "1"
 syn = "1"
-tonic-build = "0.7"
+tonic-build = "0.8"
 
 [features]
 compression = []
