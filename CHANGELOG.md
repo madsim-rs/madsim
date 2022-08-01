@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
     Exception: `rand` is not deterministic on linux. use `madsim::rand` instead.
 
+### Changed
+
+- madsim-tonic: Update tonic to v0.8. Additional system protoc is required.
+
 
 ## [0.2.0-alpha.5] - 2022-07-26
 
