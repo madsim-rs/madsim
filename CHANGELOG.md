@@ -6,15 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.6] - 2022-08-01
+
+### Added
+
+- Make deterministic on `rand` and `std::{collections::{HashMap, HashSet}, time::{SystemTime, Instant}}`.
+
+    Exception: `rand` is not deterministic on linux. use `madsim::rand` instead.
+
+
 ## [0.2.0-alpha.5] - 2022-07-26
 
-## Added
+### Added
 
 - Migrate a new crate `madsim-tokio-postgres` for simulation.
 - madsim-tokio: Add `task_local`, `task::LocalKey`, `signal::ctrl_c`.
 - madsim-tonic: Support `Request::remote_addr` and returning error from server.
 
-## Fixed
+### Fixed
 
 - madsim: Refactor TCP simulator and fix several bugs. (#18)
 - madsim: Avoid some panics on panicking.

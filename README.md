@@ -30,15 +30,15 @@ Add the following lines to your Cargo.toml:
 
 ```toml
 [dependencies]
-madsim = "=0.2.0-alpha.5"
+madsim = "=0.2.0-alpha.6"
 ```
 
 If your project depends on tokio or tonic, replace all `tokio`, `tonic` and `tonic-build` entries too:
 
 ```toml
 [dependencies]
-tokio = { version = "=0.2.0-alpha.5", package = "madsim-tokio" }
-tonic = { version = "=0.2.0-alpha.5", package = "madsim-tonic" }
+tokio = { version = "=0.2.0-alpha.6", package = "madsim-tokio" }
+tonic = { version = "=0.2.0-alpha.6", package = "madsim-tonic" }
 
 [dev-dependencies]
 tonic-build = { version = "=0.2.0-alpha.5", package = "madsim-tonic-build" }
@@ -47,7 +47,6 @@ tonic-build = { version = "=0.2.0-alpha.5", package = "madsim-tonic-build" }
 Next, redirect the following APIs to madsim:
 
 ```rust
-use std::collections    -> use madsim::collections
 use rand                -> use madsim::rand
 ```
 

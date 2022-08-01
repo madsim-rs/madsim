@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tokio-postgres"
-version = "0.2.0-alpha.5"
+version = "0.2.0-alpha.6"
 authors = ["Steven Fackler <sfackler@gmail.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
@@ -54,11 +54,11 @@ phf = "0.10"
 postgres-protocol = { version = "0.6.4" }
 postgres-types = { version = "0.2.3" }
 socket2 = "0.4"
-tokio = { version = "=0.2.0-alpha.5", package = "madsim-tokio", path = "../madsim-tokio", features = ["io-util"] }
+tokio = { version = "=0.2.0-alpha.6", package = "madsim-tokio", path = "../madsim-tokio", features = ["io-util"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 
 [dev-dependencies]
-tokio = { version = "=0.2.0-alpha.5", package = "madsim-tokio", path = "../madsim-tokio", features = ["full"] }
+tokio = { version = "=0.2.0-alpha.6", package = "madsim-tokio", path = "../madsim-tokio", features = ["full"] }
 env_logger = "0.9"
 criterion = "0.3"
 
@@ -76,4 +76,4 @@ time-02 = { version = "0.2", package = "time" }
 time-03 = { version = "0.3", package = "time", features = ["parsing"] }
 
 [target.'cfg(madsim)'.dev-dependencies]
-madsim = { version = "=0.2.0-alpha.5", path = "../madsim" }
+madsim = { version = "=0.2.0-alpha.6", path = "../madsim" }
