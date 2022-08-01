@@ -41,7 +41,7 @@ tokio = { version = "=0.2.0-alpha.6", package = "madsim-tokio" }
 tonic = { version = "=0.2.0-alpha.6", package = "madsim-tonic" }
 
 [dev-dependencies]
-tonic-build = { version = "=0.2.0-alpha.5", package = "madsim-tonic-build" }
+tonic-build = { version = "=0.2.0-alpha.6", package = "madsim-tonic-build" }
 ```
 
 Next, redirect the following APIs to madsim:
