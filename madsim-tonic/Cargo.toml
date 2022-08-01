@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.2.0-alpha.5"
+version = "0.2.0-alpha.6"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."
@@ -13,11 +13,11 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tonic = "0.7"
+tonic = "0.8"
 
 [target.'cfg(madsim)'.dependencies]
 async-stream = "0.3"
 futures = "0.3"
 log = "0.4"
-madsim = { version = "=0.2.0-alpha.5", path = "../madsim" }
+madsim = { version = "=0.2.0-alpha.6", path = "../madsim" }
 tower = "0.4"
