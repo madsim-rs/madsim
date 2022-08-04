@@ -257,6 +257,7 @@ pub struct NodeBuilder<'a> {
     handle: &'a Handle,
     name: Option<String>,
     ip: Option<IpAddr>,
+    cores: Option<usize>,
     init: Option<Arc<dyn Fn(&task::TaskNodeHandle)>>,
 }
 
@@ -266,6 +267,7 @@ impl<'a> NodeBuilder<'a> {
             handle,
             name: None,
             ip: None,
+            cores: None,
             init: None,
         }
     }
@@ -297,9 +299,21 @@ impl<'a> NodeBuilder<'a> {
         self
     }
 
+    /// Set the number of CPU cores of the node.
+    ///
+    /// This will be the return value of [`std::thread::available_parallelism`].
+    pub fn cores(mut self, cores: usize) -> Self {
+        assert_ne!(cores, 0, "cores must be greater than 0");
+        self.cores = Some(cores);
+        self
+    }
+
     /// Build a node.
     pub fn build(self) -> NodeHandle {
-        let task = self.handle.task.create_node(self.name, self.init);
+        let task = self
+            .handle
+            .task
+            .create_node(self.name, self.init, self.cores);
         let sims = self.handle.sims.lock().unwrap();
         let values = sims.values();
         for sim in values {

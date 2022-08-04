@@ -52,6 +52,8 @@ impl NodeId {
 pub(crate) struct TaskInfo {
     pub node: NodeId,
     pub name: String,
+    /// The number of CPU cores.
+    pub cores: usize,
     /// A flag indicating that the task should be paused.
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
@@ -92,6 +94,7 @@ impl Executor {
         let info = Arc::new(TaskInfo {
             node: NodeId(0),
             name: "main".into(),
+            cores: 1,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
         });
@@ -179,6 +182,7 @@ impl TaskHandle {
         let new_info = Arc::new(TaskInfo {
             node: id,
             name: node.info.name.clone(),
+            cores: 1,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
         });
@@ -226,12 +230,14 @@ impl TaskHandle {
         &self,
         name: Option<String>,
         init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
+        cores: Option<usize>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
         log::debug!("create {}", id);
         let info = Arc::new(TaskInfo {
             node: id,
             name: name.unwrap_or_else(|| format!("node-{}", id.0)),
+            cores: cores.unwrap_or(1),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
         });
@@ -454,6 +460,60 @@ impl From<JoinError> for io::Error {
     }
 }
 
+/// For `std::thread::available_parallelism` on Linux.
+///
+/// Ref: <https://man7.org/linux/man-pages/man2/sched_setaffinity.2.html>
+#[no_mangle]
+#[inline(never)]
+#[cfg(target_os = "linux")]
+unsafe extern "C" fn sched_getaffinity(
+    pid: libc::pid_t,
+    cpusetsize: libc::size_t,
+    cpuset: *mut libc::cpu_set_t,
+) -> libc::c_int {
+    if let Some(info) = crate::context::try_current_task() {
+        assert_eq!(cpusetsize, std::mem::size_of::<libc::cpu_set_t>());
+        assert!(cpusetsize * 8 >= info.cores as _);
+        for i in 0..info.cores {
+            libc::CPU_SET(i, &mut *cpuset);
+        }
+        return 0;
+    }
+    lazy_static::lazy_static! {
+        static ref SCHED_GETAFFINITY: unsafe extern "C" fn(
+            pid: libc::pid_t,
+            cpusetsize: libc::size_t,
+            cpuset: *mut libc::cpu_set_t,
+        ) -> libc::c_int = unsafe {
+            let ptr = libc::dlsym(libc::RTLD_NEXT, b"sched_getaffinity\0".as_ptr() as _);
+            assert!(!ptr.is_null());
+            std::mem::transmute(ptr)
+        };
+    }
+    SCHED_GETAFFINITY(pid, cpusetsize, cpuset)
+}
+
+/// For `std::thread::available_parallelism` on macOS.
+///
+/// Ref: <https://man7.org/linux/man-pages/man3/sysconf.3.html>
+#[no_mangle]
+#[inline(never)]
+unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
+    if name == libc::_SC_NPROCESSORS_ONLN {
+        if let Some(info) = crate::context::try_current_task() {
+            return info.cores as _;
+        }
+    }
+    lazy_static::lazy_static! {
+        static ref SYSCONF: unsafe extern "C" fn(name: libc::c_int) -> libc::c_long = unsafe {
+            let ptr = libc::dlsym(libc::RTLD_NEXT, b"sysconf\0".as_ptr() as _);
+            assert!(!ptr.is_null());
+            std::mem::transmute(ptr)
+        };
+    }
+    SYSCONF(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,5 +666,23 @@ mod tests {
             seqs.insert(seq);
         }
         assert_eq!(seqs.len(), 10);
+    }
+
+    #[test]
+    fn deterministic_std_thread_available_parallelism() {
+        let runtime = Runtime::new();
+        runtime.block_on(async move {
+            // available_parallelism is 1 by default
+            assert_eq!(std::thread::available_parallelism().unwrap().get(), 1);
+        });
+        let f1 = runtime.create_node().build().spawn(async move {
+            // available_parallelism is 1 by default
+            assert_eq!(std::thread::available_parallelism().unwrap().get(), 1);
+        });
+        let f2 = runtime.create_node().cores(128).build().spawn(async move {
+            assert_eq!(std::thread::available_parallelism().unwrap().get(), 128);
+        });
+        runtime.block_on(f1).unwrap();
+        runtime.block_on(f2).unwrap();
     }
 }
