@@ -64,6 +64,10 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 ///     By default, the number is 1.
 ///
+/// - `MADSIM_TEST_JOBS`: Set the number of jobs to run simultaneously.
+///
+///     By default, the number of jobs is 1.
+///
 /// - `MADSIM_TEST_CONFIG`: Set the config file path.
 ///
 ///     By default, tests will use the default configuration.
@@ -103,60 +107,7 @@ fn parse(
     input.block = syn::parse2(quote! {
         {
             ::madsim::runtime::init_logger();
-            let seed: u64 = if let Ok(seed_str) = ::std::env::var("MADSIM_TEST_SEED") {
-                seed_str.parse().expect("MADSIM_TEST_SEED should be an integer")
-            } else {
-                ::std::time::SystemTime::now().duration_since(::std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
-            };
-            let config = if let Ok(config_path) = std::env::var("MADSIM_TEST_CONFIG") {
-                let content = std::fs::read_to_string(config_path).expect("failed to read config file");
-                content.parse::<::madsim::Config>().expect("failed to parse config file")
-            } else {
-                ::madsim::Config::default()
-            };
-            let mut count: u64 = if let Ok(num_str) = std::env::var("MADSIM_TEST_NUM") {
-                num_str.parse().expect("MADSIM_TEST_NUM should be an integer")
-            } else {
-                1
-            };
-            let time_limit_s = std::env::var("MADSIM_TEST_TIME_LIMIT").ok().map(|num_str| {
-                num_str.parse::<f64>().expect("MADSIM_TEST_TIME_LIMIT should be an number")
-            });
-            let check = ::std::env::var("MADSIM_TEST_CHECK_DETERMINISM").is_ok();
-            if check {
-                count = count.max(2);
-            }
-            let mut rand_log = None;
-            let mut return_value = None;
-            for i in 0..count {
-                let seed = if check { seed } else { seed + i };
-                let rand_log0 = rand_log.take();
-                let config_ = config.clone();
-                let res = std::thread::spawn(move || {
-                    let mut rt = ::madsim::runtime::Runtime::with_seed_and_config(seed, config_);
-                    if check {
-                        rt.enable_determinism_check(rand_log0);
-                    }
-                    if let Some(limit) = time_limit_s {
-                        rt.set_time_limit(::std::time::Duration::from_secs_f64(limit));
-                    }
-                    let ret = rt.block_on(async #body);
-                    let log = rt.take_rand_log();
-                    (ret, log)
-                }).join();
-                match res {
-                    Ok((ret, log)) => {
-                        return_value = Some(ret);
-                        rand_log = log;
-                    }
-                    Err(e) => {
-                        eprintln!("note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error", seed);
-                        eprintln!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", config.hash());
-                        ::std::panic::resume_unwind(e);
-                    }
-                }
-            }
-            return_value.unwrap()
+            ::madsim::runtime::Builder::from_env().run(|| async #body);
         }
     })
     .expect("Parsing failure");

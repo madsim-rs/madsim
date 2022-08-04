@@ -3,7 +3,7 @@
 use super::*;
 use crate::task::{JoinHandle, NodeId};
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     collections::HashMap,
     future::Future,
     net::IpAddr,
@@ -11,7 +11,10 @@ use std::{
     time::Duration,
 };
 
+mod builder;
 pub(crate) mod context;
+
+pub use self::builder::Builder;
 
 /// The madsim runtime.
 ///
@@ -138,7 +141,7 @@ impl Runtime {
         self.task.set_time_limit(limit);
     }
 
-    /// Enable determinism check during the simulation.
+    /// Check determinism of the future.
     ///
     /// # Example
     ///
@@ -146,7 +149,7 @@ impl Runtime {
     /// use madsim::{runtime::Runtime, time::{sleep, Duration}};
     /// use rand::Rng;
     ///
-    /// let f = || async {
+    /// Runtime::check_determinism(|| async {
     ///     for _ in 0..10 {
     ///         madsim::rand::thread_rng().gen::<u64>();
     ///         // introduce non-determinism
@@ -154,34 +157,42 @@ impl Runtime {
     ///         sleep(Duration::from_nanos(rand_num)).await;
     ///     }
     /// };
-    ///
-    /// let mut rt = Runtime::new();
-    /// rt.enable_determinism_check(None);      // enable log
-    /// rt.block_on(f());
-    /// let log = rt.take_rand_log();           // take log for next turn
-    ///
-    /// let mut rt = Runtime::new();
-    /// rt.enable_determinism_check(log);       // enable check
-    /// rt.block_on(f());                       // run the same logic again,
-    ///                                         // should panic here.
     /// ```
-    pub fn enable_determinism_check(&self, log: Option<rand::Log>) {
-        assert_eq!(
-            self.task.time_handle().elapsed(),
-            Duration::default(),
-            "deterministic check must be set at init"
-        );
-        if let Some(log) = log {
-            self.rand.enable_check(log);
-        } else {
-            self.rand.enable_log();
-        }
-    }
+    pub fn check_determinism<F>(seed: u64, config: Config, f: fn() -> F) -> F::Output
+    where
+        F: Future + 'static,
+        F::Output: Send,
+    {
+        let hash = config.hash();
+        let config0 = config.clone();
+        let log = std::thread::spawn(move || {
+            let rt = Runtime::with_seed_and_config(seed, config0);
+            rt.rand.enable_log();
+            rt.block_on(f());
+            rt.rand.take_log().unwrap()
+        })
+        .join()
+        .map_err(|e| panic_with_info(seed, hash, e))
+        .unwrap();
 
-    /// Take random log so that you can check determinism in the next turn.
-    pub fn take_rand_log(self) -> Option<rand::Log> {
-        self.rand.take_log()
+        std::thread::spawn(move || {
+            let rt = Runtime::with_seed_and_config(seed, config);
+            rt.rand.enable_check(log);
+            rt.block_on(f())
+        })
+        .join()
+        .map_err(|e| panic_with_info(seed, hash, e))
+        .unwrap()
     }
+}
+
+fn panic_with_info(seed: u64, hash: u64, payload: Box<dyn Any + Send>) -> ! {
+    eprintln!(
+        "note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error",
+        seed
+    );
+    eprintln!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", hash);
+    std::panic::resume_unwind(payload);
 }
 
 /// Supervisor handle to the runtime.
