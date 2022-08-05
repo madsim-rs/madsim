@@ -220,6 +220,18 @@ impl Handle {
         context::current(|h| h.clone())
     }
 
+    /// Returns the random seed of the current runtime.
+    ///
+    /// ```
+    /// use madsim::{Config, runtime::Runtime};
+    ///
+    /// let rt = Runtime::with_seed_and_config(2333, Config::default());
+    /// assert_eq!(rt.handle().seed(), 2333);
+    /// ```
+    pub fn seed(&self) -> u64 {
+        self.rand.seed()
+    }
+
     /// Kill a node.
     ///
     /// - All tasks spawned on this node will be killed immediately.
