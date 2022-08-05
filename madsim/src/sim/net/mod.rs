@@ -282,8 +282,10 @@ impl Endpoint {
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         trace!("send: {} {} -> {dst}, tag={tag}", self.node, self.addr);
         self.net.rand_delay().await?;
-        let (mailbox, latency) = match self.net.network.lock().unwrap().try_send(self.node, dst) {
-            Some((socket, latency)) => (
+        let (ip, mailbox, latency) = match self.net.network.lock().unwrap().try_send(self.node, dst)
+        {
+            Some((ip, socket, latency)) => (
+                ip,
                 socket
                     .downcast_arc::<Mutex<Mailbox>>()
                     .ok()
@@ -295,7 +297,7 @@ impl Endpoint {
         let msg = Message {
             tag,
             data,
-            from: self.addr,
+            from: (ip, self.addr.port()).into(),
         };
         trace!("delay: {latency:?}");
         self.net
@@ -524,13 +526,13 @@ mod tests {
             // unspecified
             let ep = Endpoint::bind("0.0.0.0:0").await.unwrap();
             let addr = ep.local_addr().unwrap();
-            assert_eq!(addr.ip(), ip);
+            assert_eq!(addr.ip().to_string(), "0.0.0.0");
             assert_ne!(addr.port(), 0);
 
             // unspecified v6
             let ep = Endpoint::bind(":::0").await.unwrap();
             let addr = ep.local_addr().unwrap();
-            assert_eq!(addr.ip(), ip);
+            assert_eq!(addr.ip().to_string(), "::");
             assert_ne!(addr.port(), 0);
 
             // localhost
@@ -549,15 +551,18 @@ mod tests {
             let err = Endpoint::bind("10.0.0.2:0").await.err().unwrap();
             assert_eq!(err.kind(), std::io::ErrorKind::AddrNotAvailable);
 
+            // local IP
+            let ep = Endpoint::bind("10.0.0.1:100").await.unwrap();
+            assert_eq!(ep.local_addr().unwrap().to_string(), "10.0.0.1:100");
+
             // drop and reuse port
-            let _ = Endpoint::bind("10.0.0.1:100").await.unwrap();
+            drop(ep);
             let _ = Endpoint::bind("10.0.0.1:100").await.unwrap();
         });
         runtime.block_on(f).unwrap();
     }
 
     #[test]
-    #[ignore]
     fn localhost() {
         let runtime = Runtime::new();
         let ip1 = "10.0.0.1".parse::<IpAddr>().unwrap();
@@ -578,7 +583,8 @@ mod tests {
                 .err()
                 .expect("localhost endpoint should not receive from other nodes");
             // ep2 should receive
-            ep2.recv_from(1, &mut []).await.unwrap();
+            let (_, from) = ep2.recv_from(1, &mut []).await.unwrap();
+            assert_eq!(from.to_string(), "10.0.0.2:1");
         });
         let f2 = node2.spawn(async move {
             let ep = Endpoint::bind("127.0.0.1:1").await.unwrap();

@@ -75,7 +75,7 @@ impl TcpStream {
     /// Connects to one address.
     async fn connect1(net: &Arc<NetSim>, node: NodeId, addr: SocketAddr) -> io::Result<TcpStream> {
         trace!("connecting to {}", addr);
-        let (socket, latency) = (net.network.lock().unwrap())
+        let (ip, socket, latency) = (net.network.lock().unwrap())
             .try_send(node, addr)
             .ok_or_else(|| {
                 io::Error::new(
@@ -93,16 +93,18 @@ impl TcpStream {
         net.time.sleep(latency * 3).await;
 
         // bind sockets
-        let unspecified = SocketAddr::from(([0, 0, 0, 0], 0));
         let dst_node = (net.network.lock().unwrap())
             .resolve_dest_node(node, addr)
             .unwrap();
         let local_socket = Arc::new(TcpStreamSocket);
         let peer_socket = Arc::new(TcpStreamSocket);
         let local_addr =
-            (net.network.lock().unwrap()).bind(node, unspecified, local_socket.clone())?;
-        let peer_addr =
-            (net.network.lock().unwrap()).bind(dst_node, unspecified, peer_socket.clone())?;
+            (net.network.lock().unwrap()).bind(node, (ip, 0).into(), local_socket.clone())?;
+        let peer_addr = (net.network.lock().unwrap()).bind(
+            dst_node,
+            (addr.ip(), 0).into(),
+            peer_socket.clone(),
+        )?;
         let (d1, d2) = async_ringbuffer::Duplex::pair(0x10_0000);
         let local = TcpStream {
             net: net.clone(),

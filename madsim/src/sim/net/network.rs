@@ -7,7 +7,7 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     hash::{Hash, Hasher},
     io,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     ops::Range,
     sync::Arc,
     time::Duration,
@@ -36,7 +36,7 @@ struct Node {
     /// NOTE: now a node can have at most one IP address.
     ip: Option<IpAddr>,
     /// Sockets in the node.
-    sockets: HashMap<u16, Arc<dyn Socket>>,
+    sockets: HashMap<u16, (IpAddr, Arc<dyn Socket>)>,
 }
 
 /// Upper-level protocol should implement its own socket type.
@@ -172,15 +172,12 @@ impl Network {
     ) -> io::Result<SocketAddr> {
         let origin_addr = addr;
         let node = self.nodes.get_mut(&node_id).expect("node not found");
-        // resolve IP if unspecified
-        if addr.ip().is_unspecified() {
-            if let Some(ip) = node.ip {
-                addr.set_ip(ip);
-            } else {
-                todo!("try to bind 0.0.0.0, but the node IP is also unspecified");
-            }
-        } else if addr.ip().is_loopback() {
-        } else if addr.ip() != node.ip.expect("node IP is unset") {
+        // check IP address
+        if !addr.ip().is_unspecified()
+            && !addr.ip().is_loopback()
+            && node.ip.is_some()
+            && addr.ip() != node.ip.unwrap()
+        {
             return Err(io::Error::new(
                 io::ErrorKind::AddrNotAvailable,
                 format!("invalid address: {addr}"),
@@ -204,7 +201,7 @@ impl Network {
                 ))
             }
             Entry::Vacant(o) => {
-                o.insert(socket);
+                o.insert((addr.ip(), socket));
             }
         }
         debug!("bind: {node_id} {origin_addr} -> {addr}");
@@ -232,6 +229,9 @@ impl Network {
     pub fn resolve_dest_node(&self, node: NodeId, dst: SocketAddr) -> Option<NodeId> {
         if dst.ip().is_loopback() {
             Some(node)
+        } else if self.nodes.get(&node).expect("node not found").ip.is_none() {
+            warn!("ip not set: {node}");
+            None
         } else if let Some(x) = self.addr_to_node.get(&dst.ip()) {
             Some(*x)
         } else {
@@ -243,15 +243,20 @@ impl Network {
     /// Try sending a message to the destination.
     ///
     /// If destination is not found or packet loss, returns `None`.
-    /// Otherwise returns the socket and latency.
+    /// Otherwise returns the source IP, socket and latency.
     pub fn try_send(
         &mut self,
         node: NodeId,
         dst: SocketAddr,
-    ) -> Option<(Arc<dyn Socket>, Duration)> {
+    ) -> Option<(IpAddr, Arc<dyn Socket>, Duration)> {
         let dst_node = self.resolve_dest_node(node, dst)?;
         let latency = self.test_link(node, dst_node)?;
-        let ep = self.nodes.get(&dst_node)?.sockets.get(&dst.port())?;
-        Some((ep.clone(), latency))
+        let (bound_ip, ep) = self.nodes.get(&dst_node)?.sockets.get(&dst.port())?;
+        if bound_ip.is_loopback() && node != dst_node {
+            return None;
+        }
+        let src_ip = (self.nodes.get(&node).expect("node not found").ip)
+            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        Some((src_ip, ep.clone(), latency))
     }
 }
