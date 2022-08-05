@@ -57,7 +57,7 @@ impl Endpoint {
 
         // handshake
         let tag = madsim::rand::random::<u64>();
-        ep.send_raw(1, Box::new(tag))
+        ep.send_raw(0, Box::new(tag))
             .await
             .map_err(Error::from_source)?;
         madsim::time::timeout(Duration::from_secs(1), ep.recv_raw(tag))
