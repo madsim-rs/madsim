@@ -153,10 +153,10 @@ impl Runtime {
     /// Runtime::check_determinism(0, Config::default(), || async {
     ///     // read a real random number from OS
     ///     let mut file = std::fs::File::open("/dev/urandom").unwrap();
-    ///     let mut buf = [0u8];
+    ///     let mut buf = [0u8; 8];
     ///     file.read_exact(&mut buf).unwrap();
     ///
-    ///     sleep(Duration::from_nanos(buf[0] as _)).await;
+    ///     sleep(Duration::from_nanos(u64::from_ne_bytes(buf))).await;
     /// });
     /// ```
     pub fn check_determinism<F>(seed: u64, config: Config, f: fn() -> F) -> F::Output
