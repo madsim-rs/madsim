@@ -51,6 +51,7 @@ pub struct GlobalRng {
 }
 
 struct Inner {
+    seed: u64,
     rng: SmallRng,
     log: Option<Vec<u8>>,
     check: Option<(Vec<u8>, usize)>,
@@ -68,6 +69,7 @@ impl GlobalRng {
         }
 
         let inner = Inner {
+            seed,
             rng: SeedableRng::seed_from_u64(seed),
             log: None,
             check: None,
@@ -102,6 +104,11 @@ impl GlobalRng {
             }
         }
         ret
+    }
+
+    pub(crate) fn seed(&self) -> u64 {
+        let lock = self.inner.lock().unwrap();
+        lock.seed
     }
 
     pub(crate) fn enable_check(&self, log: Log) {
