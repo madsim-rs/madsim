@@ -107,7 +107,7 @@ fn parse(
     input.block = syn::parse2(quote! {
         {
             ::madsim::runtime::init_logger();
-            ::madsim::runtime::Builder::from_env().run(|| async #body);
+            ::madsim::runtime::Builder::from_env().run(|| async #body)
         }
     })
     .expect("Parsing failure");
