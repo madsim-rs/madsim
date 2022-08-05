@@ -1,4 +1,5 @@
 use super::{Config, Runtime};
+use futures::StreamExt;
 use std::future::Future;
 use std::time::{Duration, SystemTime};
 
@@ -9,7 +10,7 @@ pub struct Builder {
     /// The number of tests.
     pub count: u64,
     /// The number of jobs to run simultaneously.
-    pub jobs: u64,
+    pub jobs: u16,
     /// The configuration.
     pub config: Config,
     /// The time limit for the test.
@@ -62,7 +63,7 @@ impl Builder {
                 .unwrap()
                 .as_secs()
         };
-        let jobs: u64 = if let Ok(jobs_str) = std::env::var("MADSIM_TEST_JOBS") {
+        let jobs: u16 = if let Ok(jobs_str) = std::env::var("MADSIM_TEST_JOBS") {
             jobs_str
                 .parse()
                 .expect("MADSIM_TEST_JOBS should be an integer")
@@ -114,21 +115,31 @@ impl Builder {
         if self.check {
             return Runtime::check_determinism(self.seed, self.config, f);
         }
-        let mut return_value = None;
-        for i in 0..self.count {
-            let seed = self.seed + i;
-            let config = self.config.clone();
-            let ret = std::thread::spawn(move || {
-                let mut rt = Runtime::with_seed_and_config(seed, config);
-                if let Some(limit) = self.time_limit {
-                    rt.set_time_limit(limit);
+        let stream = futures::stream::iter(self.seed..self.seed + self.count)
+            .map(|seed| {
+                let config = self.config.clone();
+                async move {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let handle = std::thread::spawn(move || {
+                        let mut rt = Runtime::with_seed_and_config(seed, config);
+                        if let Some(limit) = self.time_limit {
+                            rt.set_time_limit(limit);
+                        }
+                        let ret = rt.block_on(f());
+                        tx.send(()).unwrap();
+                        ret
+                    });
+                    let _ = rx.await;
+                    (seed, handle.join())
                 }
-                rt.block_on(f())
             })
-            .join()
-            .map_err(|e| super::panic_with_info(seed, self.config.hash(), e))
-            .unwrap();
-            return_value = Some(ret);
+            .buffer_unordered(self.jobs as usize);
+        let mut return_value = None;
+        for (seed, res) in futures::executor::block_on_stream(stream) {
+            match res {
+                Ok(ret) => return_value = Some(ret),
+                Err(e) => super::panic_with_info(seed, self.config.hash(), e),
+            }
         }
         return_value.unwrap()
     }
