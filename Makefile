@@ -1,19 +1,21 @@
 .PHONY: build test sbuild stest
 
+SIM_FLAGS := RUSTFLAGS="--cfg madsim" RUSTDOCFLAGS="--cfg madsim" CARGO_TARGET_DIR="target/sim"
+
 build:
 	cargo build
 
 sbuild:
-	RUSTFLAGS="--cfg madsim" \
-	RUSTDOCFLAGS="--cfg madsim" \
-	CARGO_TARGET_DIR="target/sim" \
-	cargo build
+	$(SIM_FLAGS) cargo build
 
 test:
 	cargo test
 
 stest:
-	RUSTFLAGS="--cfg madsim" \
-	RUSTDOCFLAGS="--cfg madsim" \
-	CARGO_TARGET_DIR="target/sim" \
-	cargo test
+	$(SIM_FLAGS) cargo test
+
+clippy:
+	cargo clippy
+
+sclippy:
+	$(SIM_FLAGS) cargo clippy
