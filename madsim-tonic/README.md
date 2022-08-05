@@ -13,8 +13,8 @@ Replace all `tonic` and `tonic-build` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-tonic = { version = "=0.2.0-alpha.6", package = "madsim-tonic" }
+tonic = { version = "=0.2.0-alpha.7", package = "madsim-tonic" }
 
 [dev-dependencies]
-tonic-build = { version = "=0.2.0-alpha.6", package = "madsim-tonic-build" }
+tonic-build = { version = "=0.2.0-alpha.7", package = "madsim-tonic-build" }
 ```
