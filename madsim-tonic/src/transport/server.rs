@@ -132,6 +132,19 @@ impl<L> Router<L> {
         loop {
             // receive a request
             let (msg, from) = select_biased! {
+                // connection request
+                ret = ep.recv_from_raw(1).fuse() => {
+                    let (msg, from) = ret.map_err(Error::from_source)?;
+                    log::debug!("accept client: {from}");
+                    let ep = ep.clone();
+                    let tag = *msg.downcast::<u64>().expect("invalid type");
+                    // ACK
+                    madsim::task::spawn(async move {
+                        let _ = ep.send_to_raw(from, tag, Box::new(())).await;
+                    });
+                    continue;
+                },
+                // RPC request
                 ret = ep.recv_from_raw(0).fuse() => ret.map_err(Error::from_source)?,
                 _ = &mut signal => return Ok(()),
             };

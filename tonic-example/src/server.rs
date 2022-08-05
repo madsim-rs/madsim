@@ -135,7 +135,7 @@ mod tests {
     use super::*;
 
     #[madsim::test]
-    async fn test() {
+    async fn basic() {
         let handle = Handle::current();
         let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
         let ip1 = "10.0.0.2".parse().unwrap();
@@ -255,5 +255,19 @@ mod tests {
         task3.await.unwrap();
         task4.await.unwrap();
         task5.await.unwrap();
+    }
+
+    #[madsim::test]
+    async fn invalid_address() {
+        let handle = Handle::current();
+        let ip1 = "10.0.0.2".parse().unwrap();
+        let node1 = handle.create_node().name("client").ip(ip1).build();
+
+        let task1 = node1.spawn(async move {
+            GreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap_err();
+        });
+        task1.await.unwrap();
     }
 }
