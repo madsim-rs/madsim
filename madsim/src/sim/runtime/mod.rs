@@ -146,17 +146,18 @@ impl Runtime {
     /// # Example
     ///
     /// ```should_panic
-    /// use madsim::{runtime::Runtime, time::{sleep, Duration}};
+    /// use madsim::{Config, runtime::Runtime, time::{Duration, sleep}};
+    /// use std::io::Read;
     /// use rand::Rng;
     ///
-    /// Runtime::check_determinism(|| async {
-    ///     for _ in 0..10 {
-    ///         madsim::rand::thread_rng().gen::<u64>();
-    ///         // introduce non-determinism
-    ///         let rand_num = rand::thread_rng().gen_range(0..10);
-    ///         sleep(Duration::from_nanos(rand_num)).await;
-    ///     }
-    /// };
+    /// Runtime::check_determinism(0, Config::default(), || async {
+    ///     // read a real random number from OS
+    ///     let mut file = std::fs::File::open("/dev/urandom").unwrap();
+    ///     let mut buf = [0u8];
+    ///     file.read_exact(&mut buf).unwrap();
+    ///
+    ///     sleep(Duration::from_nanos(buf[0] as _)).await;
+    /// });
     /// ```
     pub fn check_determinism<F>(seed: u64, config: Config, f: fn() -> F) -> F::Output
     where
