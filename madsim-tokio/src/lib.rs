@@ -14,7 +14,11 @@ mod sim {
     #[cfg(feature = "time")]
     pub use madsim::time;
     #[cfg(all(feature = "rt", feature = "macros"))]
-    pub use madsim::{main, test};
+    pub use madsim::{tokio_main as main, tokio_test as test};
+    // for macro use
+    #[cfg(all(feature = "rt", feature = "macros"))]
+    #[doc(hidden)]
+    pub use madsim;
 
     pub mod task {
         #[cfg(tokio_unstable)]
