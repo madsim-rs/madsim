@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.7] - 2022-08-05
+
+### Added
+
+- madsim: Allow user to set the number of CPU cores and simulate `std::thread::available_parallelism`.
+- madsim: Add `MADSIM_TEST_JOBS` environment variable to set the number of jobs to run simultaneously.
+- madsim: Introduce runtime `Builder`.
+- madsim: Expose seed via `Handle::seed`.
+
+### Fixed
+
+- madsim: Fix the local address after bind `0.0.0.0`.
+- madsim-tonic: Client connecting to an invalid address should return error.
+
+### Removed
+
+- madsim: Remove `Runtime::{enable_determinism_check, take_rand_log}`. Replaced by `check_determinism`.
+
+
 ## [0.2.0-alpha.6] - 2022-08-01
 
 ### Added
