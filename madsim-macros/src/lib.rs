@@ -37,7 +37,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
     let args = syn::parse_macro_input!(args as syn::AttributeArgs);
 
-    parse(input, args, false).unwrap_or_else(|e| e.to_compile_error().into())
+    parse(input, args, false, false).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 /// Marks async function to be executed by runtime, suitable to test environment.
@@ -89,13 +89,34 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
     let args = syn::parse_macro_input!(args as syn::AttributeArgs);
 
-    parse(input, args, true).unwrap_or_else(|e| e.to_compile_error().into())
+    parse(input, args, true, false).unwrap_or_else(|e| e.to_compile_error().into())
+}
+
+// This macro is used by madsim-tokio.
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn tokio_main(args: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::ItemFn);
+    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+
+    parse(input, args, false, true).unwrap_or_else(|e| e.to_compile_error().into())
+}
+
+// This macro is used by madsim-tokio.
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn tokio_test(args: TokenStream, item: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(item as syn::ItemFn);
+    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+
+    parse(input, args, true, true).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 fn parse(
     mut input: syn::ItemFn,
     _args: syn::AttributeArgs,
     is_test: bool,
+    is_tokio: bool,
 ) -> Result<TokenStream, syn::Error> {
     if input.sig.asyncness.take().is_none() {
         let msg = "the `async` keyword is missing from the function declaration";
@@ -104,10 +125,15 @@ fn parse(
 
     let body = &input.block;
     let brace_token = input.block.brace_token;
+    let tokio = if is_tokio {
+        quote! { ::tokio }
+    } else {
+        quote! {}
+    };
     input.block = syn::parse2(quote! {
         {
-            ::madsim::runtime::init_logger();
-            ::madsim::runtime::Builder::from_env().run(|| async #body)
+            #tokio::madsim::runtime::init_logger();
+            #tokio::madsim::runtime::Builder::from_env().run(|| async #body)
         }
     })
     .expect("Parsing failure");
