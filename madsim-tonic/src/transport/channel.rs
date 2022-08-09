@@ -3,7 +3,7 @@
 use super::Error;
 use std::{fmt, net::IpAddr, sync::Arc, time::Duration};
 use tonic::{
-    codegen::{Bytes, StdError},
+    codegen::{http::HeaderValue, Bytes, StdError},
     transport::Uri,
 };
 
@@ -66,6 +66,82 @@ impl Endpoint {
             .map_err(Error::from_source)?;
 
         Ok(Channel { ep: Arc::new(ep) })
+    }
+
+    /// Set a custom user-agent header.
+    pub fn user_agent<T>(self, _user_agent: T) -> Result<Self, Error>
+    where
+        T: TryInto<HeaderValue>,
+    {
+        // ignore this setting
+        Ok(self)
+    }
+
+    /// Set a custom origin.
+    pub fn origin(self, _origin: Uri) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set whether TCP keepalive messages are enabled on accepted connections.
+    pub fn tcp_keepalive(self, _tcp_keepalive: Option<Duration>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Apply a concurrency limit to each request.
+    pub fn concurrency_limit(self, _limit: usize) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Apply a rate limit to each request.
+    pub fn rate_limit(self, _limit: u64, _duration: Duration) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the `SETTINGS_INITIAL_WINDOW_SIZE` option for HTTP2
+    /// stream-level flow control.
+    pub fn initial_stream_window_size(self, _sz: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the max connection-level flow control for HTTP2
+    pub fn initial_connection_window_size(self, _sz: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set the value of `TCP_NODELAY` option for accepted connections. Enabled by default.
+    pub fn tcp_nodelay(self, _enabled: bool) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set http2 KEEP_ALIVE_INTERVAL. Uses `hyper`'s default otherwise.
+    pub fn http2_keep_alive_interval(self, _interval: Duration) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set http2 KEEP_ALIVE_TIMEOUT. Uses `hyper`'s default otherwise.
+    pub fn keep_alive_timeout(self, _duration: Duration) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set http2 KEEP_ALIVE_WHILE_IDLE. Uses `hyper`'s default otherwise.
+    pub fn keep_alive_while_idle(self, _enabled: bool) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets whether to use an adaptive flow control. Uses `hyper`'s default otherwise.
+    pub fn http2_adaptive_window(self, _enabled: bool) -> Self {
+        // ignore this setting
+        self
     }
 }
 
