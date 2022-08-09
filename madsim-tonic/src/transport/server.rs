@@ -14,7 +14,10 @@ use std::{
     future::{pending, Future},
     net::SocketAddr,
     sync::Arc,
+    time::Duration,
 };
+#[cfg(feature = "tls")]
+use tonic::transport::ServerTlsConfig;
 use tonic::{
     codegen::{http::uri::PathAndQuery, BoxFuture, Service},
     transport::NamedService,
@@ -73,6 +76,91 @@ impl<L> Server<L> {
         Server {
             builder: self.builder.layer(new_layer),
         }
+    }
+
+    /// Configure TLS for this server.
+    #[cfg(feature = "tls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+    pub fn tls_config(self, _tls_config: ServerTlsConfig) -> Result<Self, Error> {
+        // ignore this setting
+        Ok(self)
+    }
+
+    /// Set the concurrency limit applied to on requests inbound per connection.
+    #[must_use]
+    pub fn concurrency_limit_per_connection(self, _limit: usize) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set a timeout on for all request handlers.
+    #[must_use]
+    pub fn timeout(self, _timeout: Duration) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the `SETTINGS_INITIAL_WINDOW_SIZE` option for HTTP2 stream-level flow control.
+    #[must_use]
+    pub fn initial_stream_window_size(self, _sz: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the max connection-level flow control for HTTP2
+    #[must_use]
+    pub fn initial_connection_window_size(self, _sz: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the `SETTINGS_MAX_CONCURRENT_STREAMS` option for HTTP2 connections.
+    #[must_use]
+    pub fn max_concurrent_streams(self, _max: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set whether HTTP2 Ping frames are enabled on accepted connections.
+    #[must_use]
+    pub fn http2_keepalive_interval(self, _http2_keepalive_interval: Option<Duration>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets a timeout for receiving an acknowledgement of the keepalive ping.
+    #[must_use]
+    pub fn http2_keepalive_timeout(self, _http2_keepalive_timeout: Option<Duration>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set whether TCP keepalive messages are enabled on accepted connections.
+    #[must_use]
+    pub fn tcp_keepalive(self, _tcp_keepalive: Option<Duration>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Set the value of `TCP_NODELAY` option for accepted connections. Enabled by default.
+    #[must_use]
+    pub fn tcp_nodelay(self, _enabled: bool) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the maximum frame size to use for HTTP2.
+    #[must_use]
+    pub fn max_frame_size(self, _frame_size: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Allow this server to accept http1 requests.
+    #[must_use]
+    pub fn accept_http1(self, _accept_http1: bool) -> Self {
+        // ignore this setting
+        self
     }
 }
 
