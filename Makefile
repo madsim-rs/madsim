@@ -19,3 +19,6 @@ clippy:
 
 sclippy:
 	$(SIM_FLAGS) cargo clippy
+
+doc:
+	$(SIM_FLAGS) cargo doc --no-deps

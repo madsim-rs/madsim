@@ -24,35 +24,35 @@ A part of the implementation of this crate is inspired by [tokio-rs/simulation](
 
 ## Usage
 
-**NOTE: The current version 0.2 is in preview. API may be changed in the future.**
-
 Add the following lines to your Cargo.toml:
 
 ```toml
 [dependencies]
-madsim = "=0.2.0-alpha.7"
+madsim = "0.2"
 ```
 
-If your project depends on tokio or tonic, replace all `tokio`, `tonic` and `tonic-build` entries too:
+If your project depends on tokio or tonic, replace all the following entries:
 
 ```toml
 [dependencies]
-tokio = { version = "=0.2.0-alpha.7", package = "madsim-tokio" }
-tonic = { version = "=0.2.0-alpha.7", package = "madsim-tonic" }
+tokio = { version = "0.2", package = "madsim-tokio" }
+tonic = { version = "0.2", package = "madsim-tonic" }
 
 [dev-dependencies]
-tonic-build = { version = "=0.2.0-alpha.7", package = "madsim-tonic-build" }
+tonic-build = { version = "0.2", package = "madsim-tonic-build" }
 ```
 
-Next, redirect the following APIs to madsim:
+If your dependency graph includes the following crates, replace them by our patched version:
 
-```rust
-use rand                -> use madsim::rand
+```toml
+[patch.crates-io]
+quanta = { git = "https://github.com/madsys-dev/quanta.git", rev = "a819877" }
+getrandom = { git = "https://github.com/madsys-dev/getrandom.git", rev = "cc95ee3" }
 ```
 
-When built normally, these APIs are identical to the original ones.
+When built normally, these crates are identical to the original ones.
 
-To test your code on the simulator, enable the config `madsim`:
+To run your code on the simulator, enable the config `madsim`:
 
 ```sh
 RUSTFLAGS="--cfg madsim" cargo test

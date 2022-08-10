@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2022-08-10
+
+### Added
+
+- madsim-tonic: Add missing methods of `Endpoint` and `Server`.
+
+### Fixed
+
+- madsim-tokio: `#[tokio::main]` no longer requires madsim crate.
+
+### Removed
+
+- madsim: Remove `collections` module since we can use std's directly.
+
 ## [0.2.0-alpha.7] - 2022-08-05
 
 ### Added
@@ -35,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- madsim-macros: Every simulation now runs on a new thread to ensure the determinism.
 - madsim-tonic: Update tonic to v0.8. Additional system protoc is required.
 
 

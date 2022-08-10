@@ -7,7 +7,6 @@ pub(crate) use self::runtime::context;
 #[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
 pub use madsim_macros::{main, test, tokio_main, tokio_test};
 
-pub mod collections;
 mod config;
 pub mod fs;
 pub mod net;
