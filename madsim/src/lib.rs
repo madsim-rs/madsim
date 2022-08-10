@@ -2,8 +2,7 @@
 //!
 //! ## Features
 //!
-//! - `rpc`: Enables RPC through network.
-//! - `logger`: Enables built-in logger.
+//! - `rpc`: Enables built-in RPC framework.
 //! - `macros`: Enables `#[madsim::main]` and `#[madsim::test]` macros.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
