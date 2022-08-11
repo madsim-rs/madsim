@@ -41,7 +41,7 @@ impl TcpListener {
         let mut last_err = None;
         for addr in lookup_host(addr).await? {
             net.rand_delay().await?;
-            match net.network.lock().unwrap().bind(node, addr, socket.clone()) {
+            match net.network.lock().bind(node, addr, socket.clone()) {
                 Ok(addr) => {
                     trace!("tcp listening on {}", addr);
                     return Ok(TcpListener {
@@ -86,7 +86,7 @@ impl TcpListener {
 impl Drop for TcpListener {
     fn drop(&mut self) {
         // avoid panic on panicking
-        if let Ok(mut network) = self.net.network.lock() {
+        if let Some(mut network) = self.net.network.try_lock() {
             network.close(self.node, self.addr.port());
         }
     }

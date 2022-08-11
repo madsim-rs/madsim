@@ -30,7 +30,7 @@ impl_downcast!(sync Simulator);
 /// Get the simulator.
 pub fn simulator<S: Simulator>() -> Arc<S> {
     crate::context::current(|h| {
-        let sims = h.sims.lock().unwrap();
+        let sims = h.sims.lock();
         sims[&TypeId::of::<S>()]
             .clone()
             .downcast_arc()

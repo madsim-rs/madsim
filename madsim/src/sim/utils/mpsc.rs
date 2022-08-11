@@ -3,9 +3,10 @@
 
 use crate::rand::GlobalRng;
 use rand::Rng;
+use spin::Mutex;
 use std::{
     fmt,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
 };
 
 /// Creates a new asynchronous channel, returning the sender/receiver halves.
@@ -55,7 +56,7 @@ impl<T> Sender<T> {
     /// Attempts to send a value on this channel, returning it back if it could not be sent.
     pub fn send(&self, value: T) -> Result<(), SendError<T>> {
         if let Some(inner) = self.inner.upgrade() {
-            if let Ok(mut queue) = inner.queue.lock() {
+            if let Some(mut queue) = inner.queue.try_lock() {
                 queue.push(value);
                 return Ok(());
             }
@@ -74,7 +75,7 @@ pub enum TryRecvError {
 impl<T> Receiver<T> {
     /// Attempts to return a pending value on this receiver without blocking.
     pub fn try_recv_random(&self, rng: &GlobalRng) -> Result<T, TryRecvError> {
-        let mut queue = self.inner.queue.lock().unwrap();
+        let mut queue = self.inner.queue.lock();
         if !queue.is_empty() {
             let idx = rng.with(|rng| rng.gen_range(0..queue.len()));
             Ok(queue.swap_remove(idx))
@@ -90,7 +91,7 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         // XXX: avoid panic on dropping runtime
         // drop futures while keeping the sender available
-        if let Ok(mut queue) = self.inner.queue.lock() {
+        if let Some(mut queue) = self.inner.queue.try_lock() {
             let q = std::mem::take(&mut *queue);
             drop(queue);
             drop(q);

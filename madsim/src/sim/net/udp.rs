@@ -19,7 +19,7 @@ impl UdpSocket {
     /// that are read via recv from the address specified in `addr`.
     pub async fn connect<A: ToSocketAddrs>(&self, addr: A) -> Result<()> {
         let addr = lookup_host(addr).await?.next().unwrap();
-        *self.ep.peer.lock().unwrap() = Some(addr);
+        *self.ep.peer.lock() = Some(addr);
         Ok(())
     }
 

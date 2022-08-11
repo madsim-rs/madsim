@@ -5,13 +5,10 @@
 use crate::rand::{GlobalRng, Rng};
 use futures::{select_biased, FutureExt};
 use naive_timer::Timer;
+use spin::Mutex;
 #[doc(no_inline)]
 pub use std::time::{Duration, Instant};
-use std::{
-    future::Future,
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
+use std::{future::Future, sync::Arc, time::SystemTime};
 
 pub mod error;
 mod interval;
@@ -46,7 +43,7 @@ impl TimeRuntime {
 
     /// Advances time to the closest timer event. Returns true if succeed.
     pub fn advance_to_next_event(&self) -> bool {
-        let mut timer = self.handle.timer.lock().unwrap();
+        let mut timer = self.handle.timer.lock();
         if let Some(mut time) = timer.next() {
             // WARN: in some platform such as M1 macOS,
             //       let t0: Instant;
@@ -141,7 +138,7 @@ impl TimeHandle {
         deadline: Instant,
         callback: impl FnOnce() + Send + Sync + 'static,
     ) {
-        let mut timer = self.timer.lock().unwrap();
+        let mut timer = self.timer.lock();
         timer.add(deadline - self.clock.base_instant(), |_| callback());
     }
 }
@@ -182,32 +179,32 @@ impl ClockHandle {
     }
 
     fn set_elapsed(&self, time: Duration) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.advance = time;
     }
 
     fn elapsed(&self) -> Duration {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner.advance
     }
 
     fn advance(&self, duration: Duration) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.advance += duration;
     }
 
     fn base_instant(&self) -> Instant {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner.base_instant
     }
 
     fn now_instant(&self) -> Instant {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner.base_instant + inner.advance
     }
 
     fn now_time(&self) -> SystemTime {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner.base_time + inner.advance
     }
 }

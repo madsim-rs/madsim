@@ -25,8 +25,9 @@ use rand::{
     prelude::{Distribution, SmallRng},
 };
 
+use spin::Mutex;
 use std::cell::Cell;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 // TODO: mock `rngs` module
 
@@ -81,7 +82,7 @@ impl GlobalRng {
 
     /// Call function on the inner RNG.
     pub(crate) fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
-        let mut lock = self.inner.lock().unwrap();
+        let mut lock = self.inner.lock();
         let ret = f(&mut lock.rng);
         // log or check
         if lock.log.is_some() || lock.check.is_some() {
@@ -107,22 +108,22 @@ impl GlobalRng {
     }
 
     pub(crate) fn seed(&self) -> u64 {
-        let lock = self.inner.lock().unwrap();
+        let lock = self.inner.lock();
         lock.seed
     }
 
     pub(crate) fn enable_check(&self, log: Log) {
-        let mut lock = self.inner.lock().unwrap();
+        let mut lock = self.inner.lock();
         lock.check = Some((log.0, 0));
     }
 
     pub(crate) fn enable_log(&self) {
-        let mut lock = self.inner.lock().unwrap();
+        let mut lock = self.inner.lock();
         lock.log = Some(Vec::new());
     }
 
     pub(crate) fn take_log(&self) -> Option<Log> {
-        let mut lock = self.inner.lock().unwrap();
+        let mut lock = self.inner.lock();
         lock.log
             .take()
             .or_else(|| lock.check.take().map(|(s, _)| s))
