@@ -18,7 +18,7 @@ impl Endpoint {
         net.rand_delay().await?;
 
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = (net.network.lock().unwrap()).bind(node, addr, mailbox.clone())?;
+        let addr = (net.network.lock()).bind(node, addr, mailbox.clone())?;
         Ok(Endpoint {
             net,
             mailbox,
@@ -41,7 +41,7 @@ impl Endpoint {
             SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))
         };
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = (net.network.lock().unwrap()).bind(node, addr, mailbox.clone())?;
+        let addr = (net.network.lock()).bind(node, addr, mailbox.clone())?;
         Ok(Endpoint {
             net,
             mailbox,
@@ -58,7 +58,7 @@ impl Endpoint {
 
     /// Returns the socket address of the remote peer this socket was connected to.
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
-        (self.peer.lock().unwrap())
+        (self.peer.lock())
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "not connected"))
     }
 
@@ -126,8 +126,7 @@ impl Endpoint {
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         trace!("send: {} {} -> {dst}, tag={tag}", self.node, self.addr);
         self.net.rand_delay().await?;
-        let (ip, mailbox, latency) = match self.net.network.lock().unwrap().try_send(self.node, dst)
-        {
+        let (ip, mailbox, latency) = match self.net.network.lock().try_send(self.node, dst) {
             Some((ip, socket, latency)) => (
                 ip,
                 socket
@@ -147,7 +146,7 @@ impl Endpoint {
         self.net
             .time
             .add_timer(self.net.time.now_instant() + latency, move || {
-                mailbox.lock().unwrap().deliver(msg);
+                mailbox.lock().deliver(msg);
             });
         Ok(())
     }
@@ -158,7 +157,7 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
-        let recver = self.mailbox.lock().unwrap().recv(tag);
+        let recver = self.mailbox.lock().recv(tag);
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
@@ -197,7 +196,7 @@ impl Endpoint {
 impl Drop for Endpoint {
     fn drop(&mut self) {
         // avoid panic on panicking
-        if let Ok(mut network) = self.net.network.lock() {
+        if let Some(mut network) = self.net.network.try_lock() {
             network.close(self.node, self.addr.port());
         }
     }

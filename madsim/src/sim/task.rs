@@ -7,6 +7,7 @@ use super::{
 };
 use async_task::{FallibleTask, Runnable};
 use rand::Rng;
+use spin::Mutex;
 use std::{
     collections::HashMap,
     fmt,
@@ -16,7 +17,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     task::{Context, Poll},
     time::Duration,
@@ -136,7 +137,7 @@ impl Executor {
                 continue;
             } else if info.paused.load(Ordering::SeqCst) {
                 // paused task: push to waiting list
-                let mut nodes = self.nodes.lock().unwrap();
+                let mut nodes = self.nodes.lock();
                 nodes.get_mut(&info.node).unwrap().paused.push(runnable);
                 continue;
             }
@@ -176,7 +177,7 @@ impl TaskHandle {
     /// Kill all tasks of the node.
     pub fn kill(&self, id: NodeId) {
         log::debug!("kill {}", id);
-        let mut nodes = self.nodes.lock().unwrap();
+        let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
         let new_info = Arc::new(TaskInfo {
@@ -194,7 +195,7 @@ impl TaskHandle {
     pub fn restart(&self, id: NodeId) {
         self.kill(id);
         log::debug!("restart {}", id);
-        let nodes = self.nodes.lock().unwrap();
+        let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
             init(&TaskNodeHandle {
@@ -207,7 +208,7 @@ impl TaskHandle {
     /// Pause all tasks of the node.
     pub fn pause(&self, id: NodeId) {
         log::debug!("pause {}", id);
-        let nodes = self.nodes.lock().unwrap();
+        let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
     }
@@ -215,7 +216,7 @@ impl TaskHandle {
     /// Resume the execution of the address.
     pub fn resume(&self, id: NodeId) {
         log::debug!("resume {}", id);
-        let mut nodes = self.nodes.lock().unwrap();
+        let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
 
@@ -253,13 +254,13 @@ impl TaskHandle {
             paused: vec![],
             init,
         };
-        self.nodes.lock().unwrap().insert(id, node);
+        self.nodes.lock().insert(id, node);
         handle
     }
 
     /// Get the node handle.
     pub fn get_node(&self, id: NodeId) -> Option<TaskNodeHandle> {
-        let nodes = self.nodes.lock().unwrap();
+        let nodes = self.nodes.lock();
         let info = nodes.get(&id)?.info.clone();
         Some(TaskNodeHandle {
             sender: self.sender.clone(),
@@ -377,13 +378,13 @@ pub struct JoinHandle<T> {
 impl<T> JoinHandle<T> {
     /// Abort the task associated with the handle.
     pub fn abort(&self) {
-        self.task.lock().unwrap().take();
+        self.task.lock().take();
     }
 
     /// Cancel the task when this handle is dropped.
     #[doc(hidden)]
     pub fn cancel_on_drop(self) -> FallibleTask<T> {
-        self.task.lock().unwrap().take().unwrap()
+        self.task.lock().take().unwrap()
     }
 }
 
@@ -394,7 +395,7 @@ impl<T> Future for JoinHandle<T> {
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        std::pin::Pin::new(self.task.lock().unwrap().as_mut().unwrap())
+        std::pin::Pin::new(self.task.lock().as_mut().unwrap())
             .poll(cx)
             .map(|res| {
                 res.ok_or(JoinError {
@@ -407,7 +408,7 @@ impl<T> Future for JoinHandle<T> {
 
 impl<T> Drop for JoinHandle<T> {
     fn drop(&mut self) {
-        if let Some(task) = self.task.lock().unwrap().take() {
+        if let Some(task) = self.task.lock().take() {
             task.detach();
         }
     }

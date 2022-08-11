@@ -36,11 +36,12 @@
 //! ```
 
 use log::*;
+use spin::Mutex;
 use std::{
     any::Any,
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 use tokio::sync::oneshot;
 
@@ -90,7 +91,7 @@ impl plugin::Simulator for NetSim {
     }
 
     fn create_node(&self, id: NodeId) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.insert_node(id);
     }
 
@@ -102,12 +103,12 @@ impl plugin::Simulator for NetSim {
 impl NetSim {
     /// Get the statistics.
     pub fn stat(&self) -> Stat {
-        self.network.lock().unwrap().stat().clone()
+        self.network.lock().stat().clone()
     }
 
     /// Update network configurations.
     pub fn update_config(&self, f: impl FnOnce(&mut Config)) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.update_config(f);
     }
 
@@ -115,38 +116,38 @@ impl NetSim {
     ///
     /// All connections will be closed.
     pub fn reset_node(&self, id: NodeId) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.reset_node(id);
     }
 
     /// Set IP address of a node.
     pub fn set_ip(&self, node: NodeId, ip: IpAddr) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.set_ip(node, ip);
     }
 
     /// Connect a node to the network.
     pub fn connect(&self, id: NodeId) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.unclog_node(id);
     }
 
     /// Disconnect a node from the network.
     pub fn disconnect(&self, id: NodeId) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.clog_node(id);
     }
 
     /// Connect a pair of nodes.
     pub fn connect2(&self, node1: NodeId, node2: NodeId) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.unclog_link(node1, node2);
         network.unclog_link(node2, node1);
     }
 
     /// Disconnect a pair of nodes.
     pub fn disconnect2(&self, node1: NodeId, node2: NodeId) {
-        let mut network = self.network.lock().unwrap();
+        let mut network = self.network.lock();
         network.clog_link(node1, node2);
         network.clog_link(node2, node1);
     }

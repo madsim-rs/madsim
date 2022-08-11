@@ -75,14 +75,12 @@ impl TcpStream {
     /// Connects to one address.
     async fn connect1(net: &Arc<NetSim>, node: NodeId, addr: SocketAddr) -> io::Result<TcpStream> {
         trace!("connecting to {}", addr);
-        let (ip, socket, latency) = (net.network.lock().unwrap())
-            .try_send(node, addr)
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::AddrNotAvailable,
-                    "there is no remote listener",
-                )
-            })?;
+        let (ip, socket, latency) = net.network.lock().try_send(node, addr).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                "there is no remote listener",
+            )
+        })?;
         let listener = socket.downcast_arc::<TcpListenerSocket>().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::AddrNotAvailable,
@@ -93,18 +91,12 @@ impl TcpStream {
         net.time.sleep(latency * 3).await;
 
         // bind sockets
-        let dst_node = (net.network.lock().unwrap())
-            .resolve_dest_node(node, addr)
-            .unwrap();
+        let dst_node = net.network.lock().resolve_dest_node(node, addr).unwrap();
         let local_socket = Arc::new(TcpStreamSocket);
         let peer_socket = Arc::new(TcpStreamSocket);
-        let local_addr =
-            (net.network.lock().unwrap()).bind(node, (ip, 0).into(), local_socket.clone())?;
-        let peer_addr = (net.network.lock().unwrap()).bind(
-            dst_node,
-            (addr.ip(), 0).into(),
-            peer_socket.clone(),
-        )?;
+        let local_addr = (net.network.lock()).bind(node, (ip, 0).into(), local_socket.clone())?;
+        let peer_addr =
+            (net.network.lock()).bind(dst_node, (addr.ip(), 0).into(), peer_socket.clone())?;
         let (d1, d2) = async_ringbuffer::Duplex::pair(0x10_0000);
         let local = TcpStream {
             net: net.clone(),
@@ -148,7 +140,7 @@ impl TcpStream {
 impl Drop for TcpStream {
     fn drop(&mut self) {
         // avoid panic on panicking
-        if let Ok(mut network) = self.net.network.lock() {
+        if let Some(mut network) = self.net.network.try_lock() {
             network.close(self.node, self.addr.port());
         }
     }
@@ -193,7 +185,7 @@ impl AsyncWrite for TcpStream {
             )));
         }
         // wait until link is available
-        if (self.net.network.lock().unwrap())
+        if (self.net.network.lock())
             .try_send(self.node, self.peer)
             .is_none()
         {

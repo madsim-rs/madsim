@@ -1,11 +1,12 @@
 //! Asynchronous file system.
 
 use log::*;
+use spin::{Mutex, RwLock};
 use std::{
     collections::HashMap,
     io::{Error, ErrorKind, Result},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::Arc,
 };
 
 use crate::{
@@ -29,7 +30,7 @@ impl Simulator for FsSim {
     }
 
     fn create_node(&self, id: NodeId) {
-        let mut handles = self.handles.lock().unwrap();
+        let mut handles = self.handles.lock();
         handles.insert(id, FsNodeHandle::new(id));
     }
 
@@ -41,7 +42,7 @@ impl Simulator for FsSim {
 impl FsSim {
     /// Return a handle of the specified node.
     fn get_node(&self, id: NodeId) -> FsNodeHandle {
-        let handles = self.handles.lock().unwrap();
+        let handles = self.handles.lock();
         handles[&id].clone()
     }
 
@@ -53,8 +54,8 @@ impl FsSim {
     /// Get the size of given file.
     pub fn get_file_size(&self, node: NodeId, path: impl AsRef<Path>) -> Result<u64> {
         let path = path.as_ref();
-        let handle = self.handles.lock().unwrap()[&node].clone();
-        let fs = handle.fs.lock().unwrap();
+        let handle = self.handles.lock()[&node].clone();
+        let fs = handle.fs.lock();
         let inode = fs.get(path).ok_or_else(|| {
             Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
         })?;
@@ -85,7 +86,7 @@ impl FsNodeHandle {
     async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
         trace!("fs({}): open at {:?}", self.node, path);
-        let fs = self.fs.lock().unwrap();
+        let fs = self.fs.lock();
         let inode = fs
             .get(path)
             .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path)))?
@@ -99,7 +100,7 @@ impl FsNodeHandle {
     async fn create(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
         trace!("fs({}): create at {:?}", self.node, path);
-        let mut fs = self.fs.lock().unwrap();
+        let mut fs = self.fs.lock();
         let inode = fs
             .entry(path.into())
             .and_modify(|inode| inode.truncate())
@@ -113,7 +114,7 @@ impl FsNodeHandle {
 
     async fn metadata(&self, path: impl AsRef<Path>) -> Result<Metadata> {
         let path = path.as_ref();
-        let fs = self.fs.lock().unwrap();
+        let fs = self.fs.lock();
         let inode = fs.get(path).ok_or_else(|| {
             Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
         })?;
@@ -135,12 +136,12 @@ impl INode {
     }
 
     fn truncate(&self) {
-        self.data.write().unwrap().clear();
+        self.data.write().clear();
     }
 
     fn metadata(&self) -> Metadata {
         Metadata {
-            len: self.data.read().unwrap().len() as u64,
+            len: self.data.read().len() as u64,
         }
     }
 }
@@ -174,7 +175,7 @@ impl File {
             offset,
             buf.len()
         );
-        let data = self.inode.data.read().unwrap();
+        let data = self.inode.data.read();
         let end = data.len().min(offset as usize + buf.len());
         let len = end - offset as usize;
         buf[..len].copy_from_slice(&data[offset as usize..end]);
@@ -196,7 +197,7 @@ impl File {
                 "the file is read only",
             ));
         }
-        let mut data = self.inode.data.write().unwrap();
+        let mut data = self.inode.data.write();
         let end = data.len().min(offset as usize + buf.len());
         let len = end - offset as usize;
         data[offset as usize..end].copy_from_slice(&buf[..len]);
@@ -211,7 +212,7 @@ impl File {
     /// Truncates or extends the underlying file, updating the size of this file to become `size`.
     pub async fn set_len(&self, size: u64) -> Result<()> {
         trace!("file({:?}): set_len={}", self.inode.path, size);
-        let mut data = self.inode.data.write().unwrap();
+        let mut data = self.inode.data.write();
         data.resize(size as usize, 0);
         // TODO: random delay
         Ok(())
@@ -234,7 +235,7 @@ impl File {
 pub async fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
     let handle = FsNodeHandle::current();
     let file = handle.open(path).await?;
-    let data = file.inode.data.read().unwrap().clone();
+    let data = file.inode.data.read().clone();
     // TODO: random delay
     Ok(data)
 }

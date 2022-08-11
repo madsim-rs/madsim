@@ -2,12 +2,13 @@
 
 use super::*;
 use crate::task::{JoinHandle, NodeId};
+use spin::Mutex;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
     future::Future,
     net::IpAddr,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -64,7 +65,7 @@ impl Runtime {
 
     /// Register a simulator.
     pub fn add_simulator<S: plugin::Simulator>(&self) {
-        let mut sims = self.handle.sims.lock().unwrap();
+        let mut sims = self.handle.sims.lock();
         let sim = Arc::new(S::new(
             &self.handle.rand,
             &self.handle.time,
@@ -238,7 +239,7 @@ impl Handle {
     /// - All data that has not been flushed to the disk will be lost.
     pub fn kill(&self, id: NodeId) {
         self.task.kill(id);
-        let sims = self.sims.lock().unwrap();
+        let sims = self.sims.lock();
         let values = sims.values();
         for sim in values {
             sim.reset_node(id);
@@ -248,7 +249,7 @@ impl Handle {
     /// Restart a node。
     pub fn restart(&self, id: NodeId) {
         self.task.restart(id);
-        let sims = self.sims.lock().unwrap();
+        let sims = self.sims.lock();
         let values = sims.values();
         for sim in values {
             sim.reset_node(id);
@@ -338,7 +339,7 @@ impl<'a> NodeBuilder<'a> {
             .handle
             .task
             .create_node(self.name, self.init, self.cores);
-        let sims = self.handle.sims.lock().unwrap();
+        let sims = self.handle.sims.lock();
         let values = sims.values();
         for sim in values {
             sim.create_node(task.id());
