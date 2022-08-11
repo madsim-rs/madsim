@@ -6,7 +6,7 @@ pub struct Endpoint {
     mailbox: Arc<Mutex<Mailbox>>,
     node: NodeId,
     addr: SocketAddr,
-    peer: Option<SocketAddr>,
+    pub(super) peer: Mutex<Option<SocketAddr>>,
 }
 
 impl Endpoint {
@@ -24,7 +24,7 @@ impl Endpoint {
             mailbox,
             node,
             addr,
-            peer: None,
+            peer: Mutex::new(None),
         })
     }
 
@@ -47,7 +47,7 @@ impl Endpoint {
             mailbox,
             node,
             addr,
-            peer: Some(peer),
+            peer: Mutex::new(Some(peer)),
         })
     }
 
@@ -58,7 +58,7 @@ impl Endpoint {
 
     /// Returns the socket address of the remote peer this socket was connected to.
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
-        self.peer
+        (self.peer.lock().unwrap())
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "not connected"))
     }
 

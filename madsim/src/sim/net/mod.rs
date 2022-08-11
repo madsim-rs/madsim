@@ -58,12 +58,14 @@ mod network;
 #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
 pub mod rpc;
 pub mod tcp;
+mod udp;
 
 pub use self::addr::{lookup_host, ToSocketAddrs};
 pub use self::endpoint::Endpoint;
 pub use self::network::{Config, Stat};
 use self::network::{Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
+pub use self::udp::UdpSocket;
 
 // #[cfg(unix)]
 // pub mod unix;
