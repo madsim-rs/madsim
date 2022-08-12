@@ -28,8 +28,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let response = client.lots_of_replies(request).await?;
     let mut stream = response.into_inner();
-    while let Some(reply) = stream.message().await? {
-        println!("{:?}", reply);
+    loop {
+        match stream.message().await {
+            Ok(Some(reply)) => println!("{:?}", reply),
+            Ok(None) => break,
+            Err(e) => {
+                println!("Error: {:?}", e);
+                break;
+            }
+        }
     }
     println!();
 
