@@ -14,11 +14,9 @@ impl Endpoint {
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
         let net = plugin::simulator::<NetSim>();
         let node = plugin::node();
-        let addr = lookup_host(addr).await?.next().unwrap();
-        net.rand_delay().await?;
 
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = (net.network.lock()).bind(node, addr, mailbox.clone())?;
+        let addr = net.bind(node, addr, mailbox.clone()).await?;
         Ok(Endpoint {
             net,
             mailbox,
@@ -30,25 +28,10 @@ impl Endpoint {
 
     /// Connects this [`Endpoint`] to a remote address.
     pub async fn connect(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        let net = plugin::simulator::<NetSim>();
-        let node = plugin::node();
         let peer = lookup_host(addr).await?.next().unwrap();
-        net.rand_delay().await?;
-
-        let addr = if peer.ip().is_loopback() {
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0))
-        } else {
-            SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))
-        };
-        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = (net.network.lock()).bind(node, addr, mailbox.clone())?;
-        Ok(Endpoint {
-            net,
-            mailbox,
-            node,
-            addr,
-            peer: Mutex::new(Some(peer)),
-        })
+        let ep = Self::bind("0.0.0.0:0").await?;
+        *ep.peer.lock() = Some(peer);
+        Ok(ep)
     }
 
     /// Returns the local socket address.
@@ -125,29 +108,9 @@ impl Endpoint {
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         trace!("send: {} {} -> {dst}, tag={tag}", self.node, self.addr);
-        self.net.rand_delay().await?;
-        let (ip, mailbox, latency) = match self.net.network.lock().try_send(self.node, dst) {
-            Some((ip, socket, latency)) => (
-                ip,
-                socket
-                    .downcast_arc::<Mutex<Mailbox>>()
-                    .ok()
-                    .expect("mismatch socket type"),
-                latency,
-            ),
-            None => return Ok(()),
-        };
-        let msg = Message {
-            tag,
-            data,
-            from: (ip, self.addr.port()).into(),
-        };
-        trace!("delay: {latency:?}");
         self.net
-            .time
-            .add_timer(self.net.time.now_instant() + latency, move || {
-                mailbox.lock().deliver(msg);
-            });
+            .send(self.node, self.addr.port(), dst, Box::new((tag, data)))
+            .await?;
         Ok(())
     }
 
@@ -219,7 +182,12 @@ struct Mailbox {
     msgs: Vec<Message>,
 }
 
-impl Socket for Mutex<Mailbox> {}
+impl Socket for Mutex<Mailbox> {
+    fn deliver(&self, from: SocketAddr, msg: Payload) {
+        let (tag, data) = *msg.downcast::<(u64, Payload)>().unwrap();
+        self.lock().deliver(Message { tag, data, from });
+    }
+}
 
 impl Mailbox {
     fn deliver(&mut self, msg: Message) {

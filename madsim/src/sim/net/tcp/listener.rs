@@ -2,7 +2,7 @@ use log::trace;
 use std::{io, net::SocketAddr, sync::Arc};
 
 use crate::{
-    net::{lookup_host, network::Socket, NetSim, TcpStream, ToSocketAddrs},
+    net::{network::Socket, NetSim, TcpStream, ToSocketAddrs},
     plugin,
     task::NodeId,
 };
@@ -36,28 +36,14 @@ impl TcpListener {
 
         let (tx, rx) = async_channel::unbounded();
         let socket = Arc::new(TcpListenerSocket { tx });
+        let addr = net.bind(node, addr, socket).await?;
 
-        // attempt to bind to each address
-        let mut last_err = None;
-        for addr in lookup_host(addr).await? {
-            net.rand_delay().await?;
-            match net.network.lock().bind(node, addr, socket.clone()) {
-                Ok(addr) => {
-                    trace!("tcp listening on {}", addr);
-                    return Ok(TcpListener {
-                        net: net.clone(),
-                        node,
-                        addr,
-                        rx,
-                    });
-                }
-                Err(e) => last_err = Some(e),
-            }
-        }
-
-        Err(last_err.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
-        }))
+        Ok(TcpListener {
+            net: net.clone(),
+            node,
+            addr,
+            rx,
+        })
     }
 
     /// Accepts a new incoming connection from this listener.

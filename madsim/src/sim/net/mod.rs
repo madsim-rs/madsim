@@ -40,7 +40,7 @@ use spin::Mutex;
 use std::{
     any::Any,
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
 };
 use tokio::sync::oneshot;
@@ -80,6 +80,9 @@ pub struct NetSim {
     rand: GlobalRng,
     time: TimeHandle,
 }
+
+/// Message sent to a network socket.
+pub type Payload = Box<dyn Any + Send + Sync>;
 
 impl plugin::Simulator for NetSim {
     fn new(rand: &GlobalRng, time: &TimeHandle, config: &crate::Config) -> Self {
@@ -157,6 +160,46 @@ impl NetSim {
         let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
         self.time.sleep(delay).await;
         // TODO: inject failure
+        Ok(())
+    }
+
+    /// Bind a socket to the address.
+    pub async fn bind(
+        &self,
+        node: NodeId,
+        addr: impl ToSocketAddrs,
+        socket: Arc<dyn Socket>,
+    ) -> io::Result<SocketAddr> {
+        // attempt to bind to each address
+        let mut last_err = None;
+        for addr in lookup_host(addr).await? {
+            self.rand_delay().await?;
+            match self.network.lock().bind(node, addr, socket.clone()) {
+                Ok(addr) => return Ok(addr),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
+        }))
+    }
+
+    /// Send a message to the destination.
+    pub async fn send(
+        &self,
+        node: NodeId,
+        port: u16,
+        dst: SocketAddr,
+        msg: Payload,
+    ) -> io::Result<()> {
+        if let Some((ip, socket, latency)) = self.network.lock().try_send(node, dst) {
+            trace!("delay: {latency:?}");
+            self.time
+                .add_timer(self.time.now_instant() + latency, move || {
+                    socket.deliver((ip, port).into(), msg);
+                });
+        };
+        self.rand_delay().await?;
         Ok(())
     }
 }

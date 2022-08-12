@@ -1,3 +1,4 @@
+use super::Payload;
 use crate::{rand::*, task::NodeId};
 use downcast_rs::{impl_downcast, DowncastSync};
 use log::*;
@@ -28,7 +29,7 @@ pub(crate) struct Network {
     clogged_link: HashSet<(NodeId, NodeId)>,
 }
 
-/// Network for a node.
+/// A node in the network.
 #[derive(Default)]
 struct Node {
     /// IP address of the node.
@@ -40,7 +41,10 @@ struct Node {
 }
 
 /// Upper-level protocol should implement its own socket type.
-pub trait Socket: Any + Send + Sync + DowncastSync {}
+pub trait Socket: Any + Send + Sync + DowncastSync {
+    /// Deliver a message from other socket.
+    fn deliver(&self, _addr: SocketAddr, _msg: Payload) {}
+}
 impl_downcast!(sync Socket);
 
 /// Network configurations.
