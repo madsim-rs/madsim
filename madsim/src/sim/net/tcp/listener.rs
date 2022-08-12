@@ -1,8 +1,8 @@
 use log::trace;
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{fmt, io, net::SocketAddr, sync::Arc};
 
 use crate::{
-    net::{network::Socket, NetSim, TcpStream, ToSocketAddrs},
+    net::{network::Socket, IpProtocol::Tcp, NetSim, TcpStream, ToSocketAddrs},
     plugin,
     task::NodeId,
 };
@@ -16,6 +16,14 @@ pub struct TcpListener {
     addr: SocketAddr,
     /// Incoming connections.
     rx: async_channel::Receiver<(TcpStream, SocketAddr)>,
+}
+
+impl fmt::Debug for TcpListener {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("TcpListener")
+            .field("addr", &self.addr)
+            .finish()
+    }
 }
 
 impl TcpListener {
@@ -36,7 +44,7 @@ impl TcpListener {
 
         let (tx, rx) = async_channel::unbounded();
         let socket = Arc::new(TcpListenerSocket { tx });
-        let addr = net.bind(node, addr, socket).await?;
+        let addr = net.bind(node, addr, Tcp, socket).await?;
 
         Ok(TcpListener {
             net: net.clone(),
@@ -73,7 +81,7 @@ impl Drop for TcpListener {
     fn drop(&mut self) {
         // avoid panic on panicking
         if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr.port());
+            network.close(self.node, self.addr, Tcp);
         }
     }
 }

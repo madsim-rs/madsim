@@ -64,7 +64,7 @@ mod udp;
 pub use self::addr::{lookup_host, ToSocketAddrs};
 pub use self::endpoint::Endpoint;
 pub use self::network::{Config, Stat};
-use self::network::{Network, Socket};
+use self::network::{IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
 pub use self::udp::UdpSocket;
 
@@ -168,19 +168,27 @@ impl NetSim {
         &self,
         node: NodeId,
         addr: impl ToSocketAddrs,
+        protocol: IpProtocol,
         socket: Arc<dyn Socket>,
     ) -> io::Result<SocketAddr> {
         // attempt to bind to each address
         let mut last_err = None;
         for addr in lookup_host(addr).await? {
             self.rand_delay().await?;
-            match self.network.lock().bind(node, addr, socket.clone()) {
+            match self
+                .network
+                .lock()
+                .bind(node, addr, protocol, socket.clone())
+            {
                 Ok(addr) => return Ok(addr),
                 Err(e) => last_err = Some(e),
             }
         }
         Err(last_err.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "could not resolve to any addresses",
+            )
         }))
     }
 
@@ -190,9 +198,10 @@ impl NetSim {
         node: NodeId,
         port: u16,
         dst: SocketAddr,
+        protocol: IpProtocol,
         msg: Payload,
     ) -> io::Result<()> {
-        if let Some((ip, socket, latency)) = self.network.lock().try_send(node, dst) {
+        if let Some((ip, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
             trace!("delay: {latency:?}");
             self.time
                 .add_timer(self.time.now_instant() + latency, move || {

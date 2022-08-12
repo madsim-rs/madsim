@@ -1,4 +1,4 @@
-use super::*;
+use super::{IpProtocol::Udp, *};
 
 /// An endpoint.
 pub struct Endpoint {
@@ -16,7 +16,7 @@ impl Endpoint {
         let node = plugin::node();
 
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = net.bind(node, addr, mailbox.clone()).await?;
+        let addr = net.bind(node, addr, Udp, mailbox.clone()).await?;
         Ok(Endpoint {
             net,
             mailbox,
@@ -109,7 +109,7 @@ impl Endpoint {
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
         trace!("send: {} {} -> {dst}, tag={tag}", self.node, self.addr);
         self.net
-            .send(self.node, self.addr.port(), dst, Box::new((tag, data)))
+            .send(self.node, self.addr.port(), dst, Udp, Box::new((tag, data)))
             .await?;
         Ok(())
     }
@@ -160,7 +160,7 @@ impl Drop for Endpoint {
     fn drop(&mut self) {
         // avoid panic on panicking
         if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr.port());
+            network.close(self.node, self.addr, Udp);
         }
     }
 }

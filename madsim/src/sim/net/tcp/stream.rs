@@ -1,6 +1,6 @@
 use super::TcpListenerSocket;
 use crate::{
-    net::{lookup_host, network::Socket, NetSim, ToSocketAddrs},
+    net::{lookup_host, network::Socket, IpProtocol::Tcp, NetSim, ToSocketAddrs},
     plugin,
     task::NodeId,
 };
@@ -68,35 +68,42 @@ impl TcpStream {
             }
         }
         Err(last_err.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "could not resolve to any addresses",
+            )
         }))
     }
 
     /// Connects to one address.
     async fn connect1(net: &Arc<NetSim>, node: NodeId, addr: SocketAddr) -> io::Result<TcpStream> {
         trace!("connecting to {}", addr);
-        let (ip, socket, latency) = net.network.lock().try_send(node, addr).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "there is no remote listener",
-            )
-        })?;
-        let listener = socket.downcast_arc::<TcpListenerSocket>().map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "destination is not a TCP socket",
-            )
-        })?;
+        let (ip, socket, latency) =
+            net.network
+                .lock()
+                .try_send(node, addr, Tcp)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::ConnectionRefused,
+                        "there is no remote listener",
+                    )
+                })?;
+        let listener = socket.downcast_arc::<TcpListenerSocket>().ok().unwrap();
         // delay for 1.5 RTT handshake
         net.time.sleep(latency * 3).await;
 
         // bind sockets
-        let dst_node = net.network.lock().resolve_dest_node(node, addr).unwrap();
+        let dst_node = net
+            .network
+            .lock()
+            .resolve_dest_node(node, addr, Tcp)
+            .unwrap();
         let local_socket = Arc::new(TcpStreamSocket);
         let peer_socket = Arc::new(TcpStreamSocket);
-        let local_addr = (net.network.lock()).bind(node, (ip, 0).into(), local_socket.clone())?;
+        let local_addr =
+            (net.network.lock()).bind(node, (ip, 0).into(), Tcp, local_socket.clone())?;
         let peer_addr =
-            (net.network.lock()).bind(dst_node, (addr.ip(), 0).into(), peer_socket.clone())?;
+            (net.network.lock()).bind(dst_node, (addr.ip(), 0).into(), Tcp, peer_socket.clone())?;
         let (d1, d2) = async_ringbuffer::Duplex::pair(0x10_0000);
         let local = TcpStream {
             net: net.clone(),
@@ -141,7 +148,7 @@ impl Drop for TcpStream {
     fn drop(&mut self) {
         // avoid panic on panicking
         if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr.port());
+            network.close(self.node, self.addr, Tcp);
         }
     }
 }
@@ -186,7 +193,7 @@ impl AsyncWrite for TcpStream {
         }
         // wait until link is available
         if (self.net.network.lock())
-            .try_send(self.node, self.peer)
+            .try_send(self.node, self.peer, Tcp)
             .is_none()
         {
             let mut sleep = self.net.time.sleep(Duration::from_secs(1));
