@@ -1,6 +1,9 @@
 use super::Payload;
-use crate::{rand::*, task::NodeId};
-use downcast_rs::{impl_downcast, DowncastSync};
+use crate::{
+    rand::*,
+    task::{JoinHandle, NodeId},
+};
+use async_task::FallibleTask;
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -38,6 +41,8 @@ struct Node {
     ip: Option<IpAddr>,
     /// Sockets in the node.
     sockets: HashMap<(SocketAddr, IpProtocol), Arc<dyn Socket>>,
+    /// Used to close channels when the node is reset.
+    tasks: Vec<FallibleTask<()>>,
 }
 
 #[non_exhaustive]
@@ -48,11 +53,10 @@ pub enum IpProtocol {
 }
 
 /// Upper-level protocol should implement its own socket type.
-pub trait Socket: Any + Send + Sync + DowncastSync {
+pub trait Socket: Any + Send + Sync {
     /// Deliver a message from other socket.
-    fn deliver(&self, _addr: SocketAddr, _msg: Payload) {}
+    fn deliver(&self, _src: SocketAddr, _dst: SocketAddr, _msg: Payload) {}
 }
-impl_downcast!(sync Socket);
 
 /// Network configurations.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
@@ -126,6 +130,7 @@ impl Network {
         let node = self.nodes.get_mut(&id).expect("node not found");
         // close all sockets
         node.sockets.clear();
+        node.tasks.clear();
     }
 
     pub fn set_ip(&mut self, id: NodeId, ip: IpAddr) {
@@ -284,5 +289,10 @@ impl Network {
             self.nodes.get(&node).expect("node not found").ip.unwrap()
         };
         Some((src_ip, ep.clone(), latency))
+    }
+
+    pub fn abort_task_on_reset(&mut self, node: NodeId, handle: JoinHandle<()>) {
+        let node = self.nodes.get_mut(&node).expect("node not found");
+        node.tasks.push(handle.cancel_on_drop());
     }
 }

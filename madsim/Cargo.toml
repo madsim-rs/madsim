@@ -35,12 +35,10 @@ spin = "0.9"
 ahash = "0.7"
 async-task = "4"
 async-channel = "1.6"
-async-ringbuffer = "0.5"
 downcast-rs = "1.2"
 libc = "0.2"
 naive-timer = "0.2"
 tokio = { version = "1", features = ["rt"] }
-tokio-util = { version = "0.7", features = ["compat"] }
 toml = "0.5"
 
 [target.'cfg(not(madsim))'.dependencies]

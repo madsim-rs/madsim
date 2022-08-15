@@ -7,7 +7,12 @@ use std::{
 
 use downcast_rs::{impl_downcast, DowncastSync};
 
-use crate::{rand::GlobalRng, task::NodeId, time::TimeHandle, Config};
+use crate::{
+    rand::GlobalRng,
+    task::{NodeId, TaskNodeHandle},
+    time::TimeHandle,
+    Config,
+};
 
 /// Simulator
 pub trait Simulator: Any + Send + Sync + DowncastSync {
@@ -17,6 +22,15 @@ pub trait Simulator: Any + Send + Sync + DowncastSync {
     fn new(rand: &GlobalRng, time: &TimeHandle, config: &Config) -> Self
     where
         Self: Sized;
+
+    // XXX: For compatibility. Merge to `new` in the next major version.
+    #[doc(hidden)]
+    fn new1(rand: &GlobalRng, time: &TimeHandle, _task: &TaskNodeHandle, config: &Config) -> Self
+    where
+        Self: Sized,
+    {
+        Self::new(rand, time, config)
+    }
 
     /// Create a node.
     fn create_node(&self, _id: NodeId) {}

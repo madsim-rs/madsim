@@ -70,6 +70,13 @@ impl Executor {
                 nodes: Arc::new(Mutex::new(HashMap::new())),
                 sender,
                 next_node_id: Arc::new(AtomicU64::new(1)),
+                main_info: Arc::new(TaskInfo {
+                    node: NodeId::zero(),
+                    name: "main".into(),
+                    cores: 1,
+                    paused: AtomicBool::new(false),
+                    killed: AtomicBool::new(false),
+                }),
             },
             time: TimeRuntime::new(&rand),
             rand,
@@ -92,13 +99,7 @@ impl Executor {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
-        let info = Arc::new(TaskInfo {
-            node: NodeId(0),
-            name: "main".into(),
-            cores: 1,
-            paused: AtomicBool::new(false),
-            killed: AtomicBool::new(false),
-        });
+        let info = self.handle.main_info.clone();
         let (runnable, mut task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
@@ -164,6 +165,8 @@ pub(crate) struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
+    /// Task info of the main node.
+    main_info: Arc<TaskInfo>,
 }
 
 struct Node {
@@ -260,8 +263,10 @@ impl TaskHandle {
 
     /// Get the node handle.
     pub fn get_node(&self, id: NodeId) -> Option<TaskNodeHandle> {
-        let nodes = self.nodes.lock();
-        let info = nodes.get(&id)?.info.clone();
+        let info = match id {
+            NodeId(0) => self.main_info.clone(),
+            _ => self.nodes.lock().get(&id)?.info.clone(),
+        };
         Some(TaskNodeHandle {
             sender: self.sender.clone(),
             info,
@@ -269,8 +274,9 @@ impl TaskHandle {
     }
 }
 
+/// A handle to spawn tasks on a node.
 #[derive(Clone)]
-pub(crate) struct TaskNodeHandle {
+pub struct TaskNodeHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     info: Arc<TaskInfo>,
 }
@@ -286,6 +292,7 @@ impl TaskNodeHandle {
         self.info.node
     }
 
+    /// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -294,6 +301,7 @@ impl TaskNodeHandle {
         self.spawn_local(future)
     }
 
+    /// Spawns a `!Send` future on the local task set.
     pub fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + 'static,
