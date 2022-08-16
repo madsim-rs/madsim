@@ -66,9 +66,10 @@ impl Runtime {
     /// Register a simulator.
     pub fn add_simulator<S: plugin::Simulator>(&self) {
         let mut sims = self.handle.sims.lock();
-        let sim = Arc::new(S::new(
+        let sim = Arc::new(S::new1(
             &self.handle.rand,
             &self.handle.time,
+            &self.handle.task.get_node(NodeId::zero()).unwrap(),
             &self.handle.config,
         ));
         // create node for supervisor

@@ -1,59 +1,35 @@
-use super::*;
+use super::{IpProtocol::Udp, *};
 
 /// An endpoint.
 pub struct Endpoint {
-    pub(super) net: Arc<NetSim>,
+    guard: BindGuard,
     mailbox: Arc<Mutex<Mailbox>>,
-    node: NodeId,
-    addr: SocketAddr,
     pub(super) peer: Mutex<Option<SocketAddr>>,
 }
 
 impl Endpoint {
     /// Creates a [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        let net = plugin::simulator::<NetSim>();
-        let node = plugin::node();
-        let addr = lookup_host(addr).await?.next().unwrap();
-        net.rand_delay().await?;
-
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = (net.network.lock()).bind(node, addr, mailbox.clone())?;
+        let guard = BindGuard::bind(addr, Udp, mailbox.clone()).await?;
         Ok(Endpoint {
-            net,
+            guard,
             mailbox,
-            node,
-            addr,
             peer: Mutex::new(None),
         })
     }
 
     /// Connects this [`Endpoint`] to a remote address.
     pub async fn connect(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        let net = plugin::simulator::<NetSim>();
-        let node = plugin::node();
         let peer = lookup_host(addr).await?.next().unwrap();
-        net.rand_delay().await?;
-
-        let addr = if peer.ip().is_loopback() {
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 0))
-        } else {
-            SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))
-        };
-        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let addr = (net.network.lock()).bind(node, addr, mailbox.clone())?;
-        Ok(Endpoint {
-            net,
-            mailbox,
-            node,
-            addr,
-            peer: Mutex::new(Some(peer)),
-        })
+        let ep = Self::bind("0.0.0.0:0").await?;
+        *ep.peer.lock() = Some(peer);
+        Ok(ep)
     }
 
     /// Returns the local socket address.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.addr)
+        Ok(self.guard.addr)
     }
 
     /// Returns the socket address of the remote peer this socket was connected to.
@@ -124,30 +100,17 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn send_to_raw(&self, dst: SocketAddr, tag: u64, data: Payload) -> io::Result<()> {
-        trace!("send: {} {} -> {dst}, tag={tag}", self.node, self.addr);
-        self.net.rand_delay().await?;
-        let (ip, mailbox, latency) = match self.net.network.lock().try_send(self.node, dst) {
-            Some((ip, socket, latency)) => (
-                ip,
-                socket
-                    .downcast_arc::<Mutex<Mailbox>>()
-                    .ok()
-                    .expect("mismatch socket type"),
-                latency,
-            ),
-            None => return Ok(()),
-        };
-        let msg = Message {
-            tag,
-            data,
-            from: (ip, self.addr.port()).into(),
-        };
-        trace!("delay: {latency:?}");
-        self.net
-            .time
-            .add_timer(self.net.time.now_instant() + latency, move || {
-                mailbox.lock().deliver(msg);
-            });
+        trace!("send: {} -> {dst}, tag={tag}", self.guard.addr);
+        self.guard
+            .net
+            .send(
+                self.guard.node,
+                self.guard.addr.port(),
+                dst,
+                Udp,
+                Box::new((tag, data)),
+            )
+            .await?;
         Ok(())
     }
 
@@ -161,9 +124,9 @@ impl Endpoint {
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
-        self.net.rand_delay().await?;
+        self.guard.net.rand_delay().await?;
 
-        trace!("recv: {} <- {}, tag={}", self.addr, msg.from, msg.tag);
+        trace!("recv: {} <- {}, tag={}", self.guard.addr, msg.from, msg.tag);
         Ok((msg.data, msg.from))
     }
 
@@ -193,15 +156,6 @@ impl Endpoint {
     }
 }
 
-impl Drop for Endpoint {
-    fn drop(&mut self) {
-        // avoid panic on panicking
-        if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr.port());
-        }
-    }
-}
-
 struct Message {
     tag: u64,
     data: Payload,
@@ -219,7 +173,12 @@ struct Mailbox {
     msgs: Vec<Message>,
 }
 
-impl Socket for Mutex<Mailbox> {}
+impl Socket for Mutex<Mailbox> {
+    fn deliver(&self, from: SocketAddr, _dst: SocketAddr, msg: Payload) {
+        let (tag, data) = *msg.downcast::<(u64, Payload)>().unwrap();
+        self.lock().deliver(Message { tag, data, from });
+    }
+}
 
 impl Mailbox {
     fn deliver(&mut self, msg: Message) {

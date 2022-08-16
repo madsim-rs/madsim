@@ -58,7 +58,7 @@ pub use self::stream::*;
 mod tests {
     use super::*;
     use crate::{net::NetSim, plugin, runtime::Runtime, time::timeout};
-    use std::{net::SocketAddr, sync::Arc, time::Duration};
+    use std::{io::ErrorKind, net::SocketAddr, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         sync::Barrier,
@@ -214,5 +214,47 @@ mod tests {
             f1.await.unwrap();
             f2.await.unwrap();
         });
+    }
+
+    #[test]
+    fn ip_resolve() {
+        let runtime = Runtime::new();
+        let node1 = runtime
+            .create_node()
+            .ip("10.0.0.1".parse().unwrap())
+            .build();
+
+        let f1 = node1.spawn(async move {
+            assert_eq!(
+                TcpListener::bind("10.0.0.2:10000")
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::AddrNotAvailable,
+            );
+
+            let _l1 = TcpListener::bind("10.0.0.1:10000").await.unwrap();
+            assert_eq!(
+                TcpStream::connect("127.0.0.1:10000")
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::ConnectionRefused,
+            );
+            assert_eq!(
+                TcpStream::connect("0.0.0.0:10000")
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::ConnectionRefused
+            );
+
+            let _l2 = TcpListener::bind("0.0.0.0:10000").await.unwrap();
+            TcpStream::connect("0.0.0.0:10000").await.unwrap();
+
+            let _l3 = TcpListener::bind("127.0.0.1:10000").await.unwrap();
+            TcpStream::connect("127.0.0.1:10000").await.unwrap();
+        });
+        runtime.block_on(f1).unwrap();
     }
 }

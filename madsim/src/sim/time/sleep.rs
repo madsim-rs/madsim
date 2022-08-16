@@ -49,7 +49,7 @@ impl Future for Sleep {
             return Poll::Ready(());
         }
         let waker = cx.waker().clone();
-        self.handle.add_timer(self.deadline, || waker.wake());
+        self.handle.add_timer_at(self.deadline, || waker.wake());
         Poll::Pending
     }
 }

@@ -40,15 +40,15 @@ use spin::Mutex;
 use std::{
     any::Any,
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     plugin,
     rand::{GlobalRng, Rng},
-    task::NodeId,
+    task::{NodeId, TaskNodeHandle},
     time::{Duration, TimeHandle},
 };
 
@@ -64,7 +64,7 @@ mod udp;
 pub use self::addr::{lookup_host, ToSocketAddrs};
 pub use self::endpoint::Endpoint;
 pub use self::network::{Config, Stat};
-use self::network::{Network, Socket};
+use self::network::{IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
 pub use self::udp::UdpSocket;
 
@@ -79,14 +79,28 @@ pub struct NetSim {
     network: Mutex<Network>,
     rand: GlobalRng,
     time: TimeHandle,
+    task: TaskNodeHandle,
 }
 
+/// Message sent to a network socket.
+pub type Payload = Box<dyn Any + Send + Sync>;
+
 impl plugin::Simulator for NetSim {
-    fn new(rand: &GlobalRng, time: &TimeHandle, config: &crate::Config) -> Self {
+    fn new(_rand: &GlobalRng, _time: &TimeHandle, _config: &crate::Config) -> Self {
+        unreachable!()
+    }
+
+    fn new1(
+        rand: &GlobalRng,
+        time: &TimeHandle,
+        task: &TaskNodeHandle,
+        config: &crate::Config,
+    ) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
             rand: rand.clone(),
             time: time.clone(),
+            task: task.clone(),
         }
     }
 
@@ -158,5 +172,119 @@ impl NetSim {
         self.time.sleep(delay).await;
         // TODO: inject failure
         Ok(())
+    }
+
+    /// Send a message to the destination.
+    pub(crate) async fn send(
+        &self,
+        node: NodeId,
+        port: u16,
+        dst: SocketAddr,
+        protocol: IpProtocol,
+        msg: Payload,
+    ) -> io::Result<()> {
+        if let Some((ip, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
+            trace!("delay: {latency:?}");
+            self.time.add_timer(latency, move || {
+                socket.deliver((ip, port).into(), dst, msg);
+            });
+        };
+        self.rand_delay().await?;
+        Ok(())
+    }
+
+    /// Create a reliable, ordered channel between two endpoints.
+    pub(crate) fn channel<T: Send + 'static>(
+        self: &Arc<Self>,
+        node: NodeId,
+        dst: SocketAddr,
+    ) -> (mpsc::UnboundedSender<T>, mpsc::UnboundedReceiver<T>) {
+        let (tx1, mut rx1) = mpsc::unbounded_channel::<T>();
+        let (tx2, rx2) = mpsc::unbounded_channel::<T>();
+        let net = self.clone();
+        let handle = self.task.spawn(async move {
+            while let Some(msg) = rx1.recv().await {
+                // wait for link available
+                let mut wait = Duration::from_millis(1);
+                loop {
+                    let res = net.network.lock().try_send(node, dst, IpProtocol::Tcp);
+                    match res {
+                        Some((_, _, latency)) => {
+                            net.time.sleep(latency).await;
+                            break;
+                        }
+                        None => {
+                            net.time.sleep(wait).await;
+                            // backoff
+                            wait = (wait * 2).min(Duration::from_secs(10));
+                        }
+                    }
+                }
+                // receiver is closed. propagate the close to the sender.
+                if tx2.send(msg).is_err() {
+                    return;
+                }
+            }
+            // sender is closed. propagate the close to the receiver.
+        });
+        self.network.lock().abort_task_on_reset(node, handle);
+        (tx1, rx2)
+    }
+}
+
+/// An RAII structure used to release the bound port.
+pub(crate) struct BindGuard {
+    net: Arc<NetSim>,
+    node: NodeId,
+    /// Bound address.
+    addr: SocketAddr,
+    protocol: IpProtocol,
+}
+
+impl BindGuard {
+    /// Bind a socket to the address.
+    pub async fn bind(
+        addr: impl ToSocketAddrs,
+        protocol: IpProtocol,
+        socket: Arc<dyn Socket>,
+    ) -> io::Result<Self> {
+        let net = plugin::simulator::<NetSim>();
+        let node = plugin::node();
+
+        // attempt to bind to each address
+        let mut last_err = None;
+        for addr in lookup_host(addr).await? {
+            net.rand_delay().await?;
+            match net
+                .network
+                .lock()
+                .bind(node, addr, protocol, socket.clone())
+            {
+                Ok(addr) => {
+                    return Ok(BindGuard {
+                        net: net.clone(),
+                        node,
+                        addr,
+                        protocol,
+                    })
+                }
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "could not resolve to any addresses",
+            )
+        }))
+    }
+}
+
+impl Drop for BindGuard {
+    fn drop(&mut self) {
+        // avoid panic on panicking
+        if let Some(mut network) = self.net.network.try_lock() {
+            network.close(self.node, self.addr, self.protocol);
+        }
     }
 }

@@ -4,10 +4,7 @@
 use crate::rand::GlobalRng;
 use rand::Rng;
 use spin::Mutex;
-use std::{
-    fmt,
-    sync::{Arc, Weak},
-};
+use std::{fmt, sync::Arc};
 
 /// Creates a new asynchronous channel, returning the sender/receiver halves.
 pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
@@ -15,7 +12,7 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
         queue: Mutex::new(Vec::new()),
     });
     let sender = Sender {
-        inner: Arc::downgrade(&inner),
+        inner: Arc::clone(&inner),
     };
     let recver = Receiver { inner };
     (sender, recver)
@@ -23,7 +20,8 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
 
 /// The sending-half of Rust’s asynchronous [`channel`] type.
 pub struct Sender<T> {
-    inner: Weak<Inner<T>>,
+    // use Arc instead of Weak to allow send when the receiver is dropped
+    inner: Arc<Inner<T>>,
 }
 
 /// The receiving half of Rust’s [`channel`] type.
@@ -55,11 +53,9 @@ pub struct SendError<T>(pub T);
 impl<T> Sender<T> {
     /// Attempts to send a value on this channel, returning it back if it could not be sent.
     pub fn send(&self, value: T) -> Result<(), SendError<T>> {
-        if let Some(inner) = self.inner.upgrade() {
-            if let Some(mut queue) = inner.queue.try_lock() {
-                queue.push(value);
-                return Ok(());
-            }
+        if let Some(mut queue) = self.inner.queue.try_lock() {
+            queue.push(value);
+            return Ok(());
         }
         Err(SendError(value))
     }
@@ -83,18 +79,6 @@ impl<T> Receiver<T> {
             Err(TryRecvError::Disconnected)
         } else {
             Err(TryRecvError::Empty)
-        }
-    }
-}
-
-impl<T> Drop for Receiver<T> {
-    fn drop(&mut self) {
-        // XXX: avoid panic on dropping runtime
-        // drop futures while keeping the sender available
-        if let Some(mut queue) = self.inner.queue.try_lock() {
-            let q = std::mem::take(&mut *queue);
-            drop(queue);
-            drop(q);
         }
     }
 }

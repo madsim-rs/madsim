@@ -61,6 +61,7 @@
 //! ```
 
 use super::*;
+use crate::rand::random;
 #[doc(no_inline)]
 pub use bytes::Bytes;
 use futures::FutureExt;
@@ -117,7 +118,7 @@ impl Endpoint {
         data: &[u8],
     ) -> io::Result<(R::Response, Bytes)> {
         let req_tag = R::ID;
-        let rsp_tag = self.net.rand.with(|rng| rng.gen::<u64>());
+        let rsp_tag = random::<u64>();
         let data = Bytes::copy_from_slice(data);
         self.send_to_raw(dst, req_tag, Box::new((rsp_tag, request, data)))
             .await?;

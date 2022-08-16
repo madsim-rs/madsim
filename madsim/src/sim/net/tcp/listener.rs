@@ -1,8 +1,8 @@
-use log::trace;
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{fmt, io, net::SocketAddr, sync::Arc};
+use tokio::sync::oneshot;
 
 use crate::{
-    net::{lookup_host, network::Socket, NetSim, TcpStream, ToSocketAddrs},
+    net::{network::Socket, BindGuard, IpProtocol::Tcp, Payload, TcpStream, ToSocketAddrs},
     plugin,
     task::NodeId,
 };
@@ -10,12 +10,17 @@ use crate::{
 /// A TCP socket server, listening for connections.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct TcpListener {
-    net: Arc<NetSim>,
-    node: NodeId,
-    /// Local address.
-    addr: SocketAddr,
+    guard: Arc<BindGuard>,
     /// Incoming connections.
     rx: async_channel::Receiver<(TcpStream, SocketAddr)>,
+}
+
+impl fmt::Debug for TcpListener {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("TcpListener")
+            .field("addr", &self.guard.addr)
+            .finish()
+    }
 }
 
 impl TcpListener {
@@ -31,33 +36,15 @@ impl TcpListener {
     ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
-        let net = plugin::simulator::<NetSim>();
-        let node = plugin::node();
-
+        // TODO: simulate backlog
         let (tx, rx) = async_channel::unbounded();
-        let socket = Arc::new(TcpListenerSocket { tx });
+        let node = plugin::node();
+        let guard = BindGuard::bind(addr, Tcp, Arc::new(TcpListenerSocket { tx, node })).await?;
 
-        // attempt to bind to each address
-        let mut last_err = None;
-        for addr in lookup_host(addr).await? {
-            net.rand_delay().await?;
-            match net.network.lock().bind(node, addr, socket.clone()) {
-                Ok(addr) => {
-                    trace!("tcp listening on {}", addr);
-                    return Ok(TcpListener {
-                        net: net.clone(),
-                        node,
-                        addr,
-                        rx,
-                    });
-                }
-                Err(e) => last_err = Some(e),
-            }
-        }
-
-        Err(last_err.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
-        }))
+        Ok(TcpListener {
+            guard: Arc::new(guard),
+            rx,
+        })
     }
 
     /// Accepts a new incoming connection from this listener.
@@ -68,33 +55,31 @@ impl TcpListener {
     ///
     /// [`TcpStream`]: struct@crate::net::TcpStream
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let sim = plugin::simulator::<NetSim>();
-        sim.rand_delay().await?;
+        self.guard.net.rand_delay().await?;
 
-        let (stream, addr) = (self.rx.recv().await)
+        let (mut stream, addr) = (self.rx.recv().await)
             .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
-        trace!("accept tcp connection from {}", addr);
+        stream.guard = Some(self.guard.clone());
         Ok((stream, addr))
     }
 
     /// Returns the local socket address.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.addr)
-    }
-}
-
-impl Drop for TcpListener {
-    fn drop(&mut self) {
-        // avoid panic on panicking
-        if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr.port());
-        }
+        Ok(self.guard.addr)
     }
 }
 
 /// Socket registered in the [`Network`].
-pub(super) struct TcpListenerSocket {
-    pub tx: async_channel::Sender<(TcpStream, SocketAddr)>,
+struct TcpListenerSocket {
+    tx: async_channel::Sender<(TcpStream, SocketAddr)>,
+    node: NodeId,
 }
 
-impl Socket for TcpListenerSocket {}
+impl Socket for TcpListenerSocket {
+    fn deliver(&self, src: SocketAddr, dst: SocketAddr, msg: Payload) {
+        let (src_node, tx): (NodeId, oneshot::Sender<TcpStream>) = *msg.downcast().unwrap();
+        let (peer, local) = TcpStream::pair(src_node, self.node, src, dst);
+        let _ = tx.send(peer);
+        let _ = self.tx.try_send((local, src));
+    }
+}

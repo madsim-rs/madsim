@@ -1,38 +1,33 @@
-use super::TcpListenerSocket;
 use crate::{
-    net::{lookup_host, network::Socket, NetSim, ToSocketAddrs},
+    net::{lookup_host, network::Socket, BindGuard, IpProtocol::Tcp, NetSim, ToSocketAddrs},
     plugin,
     task::NodeId,
 };
+use bytes::{Buf, Bytes, BytesMut};
 use log::*;
 use std::{
-    fmt,
-    future::Future,
-    io,
+    fmt, io,
     net::SocketAddr,
     pin::Pin,
-    sync::{Arc, Weak},
+    sync::Arc,
     task::{Context, Poll},
-    time::Duration,
 };
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    sync::{mpsc, oneshot},
+};
 
 /// A TCP stream between a local and a remote socket.
 pub struct TcpStream {
-    net: Arc<NetSim>,
-    node: NodeId,
+    pub(super) guard: Option<Arc<BindGuard>>,
     addr: SocketAddr,
     peer: SocketAddr,
     /// Buffer write data to be flushed.
-    write_buf: Vec<u8>,
-    /// Data that can be read.
-    data: async_ringbuffer::Duplex,
-    /// To indicate connection closed.
-    peer_socket: Weak<TcpStreamSocket>,
+    write_buf: BytesMut,
+    read_buf: Bytes,
+    tx: mpsc::UnboundedSender<Bytes>,
+    rx: mpsc::UnboundedReceiver<Bytes>,
 }
-
-// TODO: make sure it is safe
-unsafe impl Send for TcpStream {}
 
 impl fmt::Debug for TcpStream {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -68,56 +63,59 @@ impl TcpStream {
             }
         }
         Err(last_err.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::AddrNotAvailable, "no available addr to bind")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "could not resolve to any addresses",
+            )
         }))
     }
 
     /// Connects to one address.
     async fn connect1(net: &Arc<NetSim>, node: NodeId, addr: SocketAddr) -> io::Result<TcpStream> {
         trace!("connecting to {}", addr);
-        let (ip, socket, latency) = net.network.lock().try_send(node, addr).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "there is no remote listener",
-            )
-        })?;
-        let listener = socket.downcast_arc::<TcpListenerSocket>().map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::AddrNotAvailable,
-                "destination is not a TCP socket",
-            )
-        })?;
-        // delay for 1.5 RTT handshake
-        net.time.sleep(latency * 3).await;
+        // send a request to listener and wait for TcpStream
+        // FIXME: the port it uses should not be exclusive
+        let guard = BindGuard::bind("0.0.0.0:0", Tcp, Arc::new(TcpStreamSocket)).await?;
+        let (tx, rx) = oneshot::channel::<TcpStream>();
+        net.send(node, guard.addr.port(), addr, Tcp, Box::new((node, tx)))
+            .await?;
+        let mut stream = rx
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
+        stream.guard = Some(Arc::new(guard));
+        Ok(stream)
+    }
 
-        // bind sockets
-        let dst_node = net.network.lock().resolve_dest_node(node, addr).unwrap();
-        let local_socket = Arc::new(TcpStreamSocket);
-        let peer_socket = Arc::new(TcpStreamSocket);
-        let local_addr = (net.network.lock()).bind(node, (ip, 0).into(), local_socket.clone())?;
-        let peer_addr =
-            (net.network.lock()).bind(dst_node, (addr.ip(), 0).into(), peer_socket.clone())?;
-        let (d1, d2) = async_ringbuffer::Duplex::pair(0x10_0000);
-        let local = TcpStream {
-            net: net.clone(),
-            node,
-            addr: local_addr,
-            peer: peer_addr,
-            write_buf: vec![],
-            data: d1,
-            peer_socket: Arc::downgrade(&peer_socket),
+    /// Creates a pair of [`TcpStream`].
+    pub(super) fn pair(
+        node1: NodeId,
+        node2: NodeId,
+        addr1: SocketAddr,
+        addr2: SocketAddr,
+    ) -> (TcpStream, TcpStream) {
+        trace!("new tcp connection {} <-> {}", addr1, addr2);
+        let net = plugin::simulator::<NetSim>();
+        let (tx1, rx1) = net.channel(node1, addr2);
+        let (tx2, rx2) = net.channel(node2, addr1);
+        let s1 = TcpStream {
+            guard: None,
+            addr: addr1,
+            peer: addr2,
+            write_buf: Default::default(),
+            read_buf: Default::default(),
+            tx: tx1,
+            rx: rx2,
         };
-        let peer = TcpStream {
-            net: net.clone(),
-            node: dst_node,
-            addr: peer_addr,
-            peer: local_addr,
-            write_buf: vec![],
-            data: d2,
-            peer_socket: Arc::downgrade(&local_socket),
+        let s2 = TcpStream {
+            guard: None,
+            addr: addr2,
+            peer: addr1,
+            write_buf: Default::default(),
+            read_buf: Default::default(),
+            tx: tx2,
+            rx: rx1,
         };
-        listener.tx.try_send((peer, local_addr)).unwrap();
-        Ok(local)
+        (s1, s2)
     }
 
     /// Sets the value of the `TCP_NODELAY` option on this socket.
@@ -137,30 +135,30 @@ impl TcpStream {
     }
 }
 
-impl Drop for TcpStream {
-    fn drop(&mut self) {
-        // avoid panic on panicking
-        if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr.port());
-        }
-    }
-}
-
 impl AsyncRead for TcpStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        use tokio_util::compat::FuturesAsyncReadCompatExt;
-        match Pin::new(&mut (&mut self.data).compat()).poll_read(cx, buf) {
-            Poll::Pending if self.peer_socket.strong_count() == 0 => {
-                // ref: https://man7.org/linux/man-pages/man2/recv.2.html
-                // > When a stream socket peer has performed an orderly shutdown, the
-                // > return value will be 0 (the traditional "end-of-file" return).
-                Poll::Ready(Ok(()))
+        // read the buffer if not empty
+        if !self.read_buf.is_empty() {
+            let len = self.read_buf.len().min(buf.remaining());
+            buf.put_slice(&self.read_buf[..len]);
+            self.read_buf.advance(len);
+            return Poll::Ready(Ok(()));
+        }
+        // otherwise wait on channel
+        match self.rx.poll_recv(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Some(data)) => {
+                self.read_buf = data;
+                self.poll_read(cx, buf)
             }
-            x => x,
+            // ref: https://man7.org/linux/man-pages/man2/recv.2.html
+            // > When a stream socket peer has performed an orderly shutdown, the
+            // > return value will be 0 (the traditional "end-of-file" return).
+            Poll::Ready(None) => Poll::Ready(Ok(())),
         }
     }
 }
@@ -176,29 +174,12 @@ impl AsyncWrite for TcpStream {
         Poll::Ready(Ok(buf.len()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // connection reset?
-        if self.peer_socket.strong_count() == 0 {
-            return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                "connection closed",
-            )));
-        }
-        // wait until link is available
-        if (self.net.network.lock())
-            .try_send(self.node, self.peer)
-            .is_none()
-        {
-            let mut sleep = self.net.time.sleep(Duration::from_secs(1));
-            futures::ready!(Pin::new(&mut sleep).poll(cx));
-        }
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // send data
-        let this = self.get_mut();
-        use tokio_util::compat::FuturesAsyncWriteCompatExt;
-        let len = futures::ready!(
-            Pin::new(&mut (&mut this.data).compat_write()).poll_write(cx, &this.write_buf)
-        )?;
-        this.write_buf.drain(..len);
+        let data = self.write_buf.split().freeze();
+        self.tx
+            .send(data)
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
         Poll::Ready(Ok(()))
     }
 

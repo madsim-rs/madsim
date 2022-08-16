@@ -1,5 +1,9 @@
-use crate::{rand::*, task::NodeId};
-use downcast_rs::{impl_downcast, DowncastSync};
+use super::Payload;
+use crate::{
+    rand::*,
+    task::{JoinHandle, NodeId},
+};
+use async_task::FallibleTask;
 use log::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -28,7 +32,7 @@ pub(crate) struct Network {
     clogged_link: HashSet<(NodeId, NodeId)>,
 }
 
-/// Network for a node.
+/// A node in the network.
 #[derive(Default)]
 struct Node {
     /// IP address of the node.
@@ -36,12 +40,23 @@ struct Node {
     /// NOTE: now a node can have at most one IP address.
     ip: Option<IpAddr>,
     /// Sockets in the node.
-    sockets: HashMap<u16, (IpAddr, Arc<dyn Socket>)>,
+    sockets: HashMap<(SocketAddr, IpProtocol), Arc<dyn Socket>>,
+    /// Used to close channels when the node is reset.
+    tasks: Vec<FallibleTask<()>>,
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IpProtocol {
+    Tcp,
+    Udp,
 }
 
 /// Upper-level protocol should implement its own socket type.
-pub trait Socket: Any + Send + Sync + DowncastSync {}
-impl_downcast!(sync Socket);
+pub trait Socket: Any + Send + Sync {
+    /// Deliver a message from other socket.
+    fn deliver(&self, _src: SocketAddr, _dst: SocketAddr, _msg: Payload) {}
+}
 
 /// Network configurations.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
@@ -115,6 +130,7 @@ impl Network {
         let node = self.nodes.get_mut(&id).expect("node not found");
         // close all sockets
         node.sockets.clear();
+        node.tasks.clear();
     }
 
     pub fn set_ip(&mut self, id: NodeId, ip: IpAddr) {
@@ -168,6 +184,7 @@ impl Network {
         &mut self,
         node_id: NodeId,
         mut addr: SocketAddr,
+        protocol: IpProtocol,
         socket: Arc<dyn Socket>,
     ) -> io::Result<SocketAddr> {
         let origin_addr = addr;
@@ -186,14 +203,18 @@ impl Network {
         // resolve port if unspecified
         if addr.port() == 0 {
             let port = (1..=u16::MAX)
-                .find(|port| !node.sockets.contains_key(port))
+                .find(|&port| {
+                    !node
+                        .sockets
+                        .contains_key(&((addr.ip(), port).into(), protocol))
+                })
                 .ok_or_else(|| {
                     io::Error::new(io::ErrorKind::AddrInUse, "no available ephemeral port")
                 })?;
             addr.set_port(port);
         }
         // insert socket
-        match node.sockets.entry(addr.port()) {
+        match node.sockets.entry((addr, protocol)) {
             Entry::Occupied(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::AddrInUse,
@@ -201,7 +222,7 @@ impl Network {
                 ))
             }
             Entry::Vacant(o) => {
-                o.insert((addr.ip(), socket));
+                o.insert(socket);
             }
         }
         debug!("bind: {node_id} {origin_addr} -> {addr}");
@@ -209,10 +230,10 @@ impl Network {
     }
 
     /// Close a socket.
-    pub fn close(&mut self, node: NodeId, port: u16) {
-        debug!("close: {node} port={port}");
+    pub fn close(&mut self, node: NodeId, addr: SocketAddr, protocol: IpProtocol) {
+        debug!("close: {node} {addr} {protocol:?}");
         let node = self.nodes.get_mut(&node).expect("node not found");
-        node.sockets.remove(&port);
+        node.sockets.remove(&(addr, protocol));
     }
 
     /// Returns the latency of sending a packet. If packet loss, returns `None`.
@@ -221,15 +242,22 @@ impl Network {
             None
         } else {
             self.stat.msg_count += 1;
+            // TODO: special value for loopback
             Some(self.rand.gen_range(self.config.send_latency.clone()))
         }
     }
 
     /// Resolve destination node from IP address.
-    pub fn resolve_dest_node(&self, node: NodeId, dst: SocketAddr) -> Option<NodeId> {
-        if dst.ip().is_loopback() {
+    pub fn resolve_dest_node(
+        &self,
+        node: NodeId,
+        dst: SocketAddr,
+        protocol: IpProtocol,
+    ) -> Option<NodeId> {
+        let node0 = self.nodes.get(&node).expect("node not found");
+        if dst.ip().is_loopback() || node0.sockets.contains_key(&(dst, protocol)) {
             Some(node)
-        } else if self.nodes.get(&node).expect("node not found").ip.is_none() {
+        } else if node0.ip.is_none() {
             warn!("ip not set: {node}");
             None
         } else if let Some(x) = self.addr_to_node.get(&dst.ip()) {
@@ -248,15 +276,23 @@ impl Network {
         &mut self,
         node: NodeId,
         dst: SocketAddr,
+        protocol: IpProtocol,
     ) -> Option<(IpAddr, Arc<dyn Socket>, Duration)> {
-        let dst_node = self.resolve_dest_node(node, dst)?;
+        let dst_node = self.resolve_dest_node(node, dst, protocol)?;
         let latency = self.test_link(node, dst_node)?;
-        let (bound_ip, ep) = self.nodes.get(&dst_node)?.sockets.get(&dst.port())?;
-        if bound_ip.is_loopback() && node != dst_node {
-            return None;
-        }
-        let src_ip = (self.nodes.get(&node).expect("node not found").ip)
-            .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        let sockets = &self.nodes.get(&dst_node)?.sockets;
+        let ep = (sockets.get(&(dst, protocol)))
+            .or_else(|| sockets.get(&((Ipv4Addr::UNSPECIFIED, dst.port()).into(), protocol)))?;
+        let src_ip = if dst.ip().is_loopback() {
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        } else {
+            self.nodes.get(&node).expect("node not found").ip.unwrap()
+        };
         Some((src_ip, ep.clone(), latency))
+    }
+
+    pub fn abort_task_on_reset(&mut self, node: NodeId, handle: JoinHandle<()>) {
+        let node = self.nodes.get_mut(&node).expect("node not found");
+        node.tasks.push(handle.cancel_on_drop());
     }
 }
