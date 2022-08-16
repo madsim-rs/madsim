@@ -95,8 +95,8 @@ impl TcpStream {
     ) -> (TcpStream, TcpStream) {
         trace!("new tcp connection {} <-> {}", addr1, addr2);
         let net = plugin::simulator::<NetSim>();
-        let (tx1, rx1) = net.channel(node1, addr2);
-        let (tx2, rx2) = net.channel(node2, addr1);
+        let (tx1, rx1) = net.channel(node1, addr2, Tcp);
+        let (tx2, rx2) = net.channel(node2, addr1, Tcp);
         let s1 = TcpStream {
             guard: None,
             addr: addr1,

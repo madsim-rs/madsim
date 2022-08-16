@@ -198,6 +198,7 @@ impl NetSim {
         self: &Arc<Self>,
         node: NodeId,
         dst: SocketAddr,
+        protocol: IpProtocol,
     ) -> (mpsc::UnboundedSender<T>, mpsc::UnboundedReceiver<T>) {
         let (tx1, mut rx1) = mpsc::unbounded_channel::<T>();
         let (tx2, rx2) = mpsc::unbounded_channel::<T>();
@@ -207,7 +208,7 @@ impl NetSim {
                 // wait for link available
                 let mut wait = Duration::from_millis(1);
                 loop {
-                    let res = net.network.lock().try_send(node, dst, IpProtocol::Tcp);
+                    let res = net.network.lock().try_send(node, dst, protocol);
                     match res {
                         Some((_, _, latency)) => {
                             net.time.sleep(latency).await;

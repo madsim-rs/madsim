@@ -3,19 +3,27 @@ use super::{IpProtocol::Udp, *};
 /// An endpoint.
 pub struct Endpoint {
     guard: BindGuard,
-    mailbox: Arc<Mutex<Mailbox>>,
+    socket: Arc<EndpointSocket>,
     pub(super) peer: Mutex<Option<SocketAddr>>,
+    /// Incoming connections.
+    conn_rx: async_channel::Receiver<(Sender, Receiver)>,
 }
 
 impl Endpoint {
     /// Creates a [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let guard = BindGuard::bind(addr, Udp, mailbox.clone()).await?;
+        let (conn_tx, conn_rx) = async_channel::unbounded();
+        let socket = Arc::new(EndpointSocket {
+            mailbox: Mutex::new(Mailbox::default()),
+            conn_tx,
+            node: plugin::node(),
+        });
+        let guard = BindGuard::bind(addr, Udp, socket.clone()).await?;
         Ok(Endpoint {
             guard,
-            mailbox,
+            socket,
             peer: Mutex::new(None),
+            conn_rx,
         })
     }
 
@@ -120,7 +128,7 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
-        let recver = self.mailbox.lock().recv(tag);
+        let recver = self.socket.mailbox.lock().recv(tag);
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
@@ -154,6 +162,64 @@ impl Endpoint {
         );
         Ok(msg)
     }
+
+    /// Setup a reliable connection to another Endpoint.
+    #[doc(hidden)]
+    pub async fn connect1(&self, addr: SocketAddr) -> io::Result<(Sender, Receiver)> {
+        self.guard.net.rand_delay().await?;
+
+        let (conn_tx, conn_rx) = oneshot::channel::<(Sender, Receiver)>();
+        self.guard
+            .net
+            .send(
+                self.guard.node,
+                self.guard.addr.port(),
+                addr,
+                Udp,
+                Box::new(conn_tx),
+            )
+            .await?;
+        let (tx, rx) = conn_rx
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
+        Ok((tx, rx))
+    }
+
+    /// Accept a new connection from other Endpoint.
+    #[doc(hidden)]
+    pub async fn accept1(&self) -> io::Result<(Sender, Receiver)> {
+        self.guard.net.rand_delay().await?;
+
+        (self.conn_rx.recv().await).map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))
+    }
+}
+
+#[doc(hidden)]
+pub struct Sender {
+    tx: mpsc::UnboundedSender<Payload>,
+}
+
+#[doc(hidden)]
+pub struct Receiver {
+    rx: mpsc::UnboundedReceiver<Payload>,
+}
+
+impl Sender {
+    #[doc(hidden)]
+    pub async fn send(&self, value: Payload) -> io::Result<()> {
+        (self.tx.send(value))
+            .map_err(|_| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
+    }
+}
+
+impl Receiver {
+    #[doc(hidden)]
+    pub async fn recv(&mut self) -> io::Result<Payload> {
+        (self.rx.recv().await).ok_or(io::Error::new(
+            io::ErrorKind::ConnectionReset,
+            "connection reset",
+        ))
+    }
 }
 
 struct Message {
@@ -173,10 +239,37 @@ struct Mailbox {
     msgs: Vec<Message>,
 }
 
-impl Socket for Mutex<Mailbox> {
-    fn deliver(&self, from: SocketAddr, _dst: SocketAddr, msg: Payload) {
-        let (tag, data) = *msg.downcast::<(u64, Payload)>().unwrap();
-        self.lock().deliver(Message { tag, data, from });
+struct EndpointSocket {
+    mailbox: Mutex<Mailbox>,
+    conn_tx: async_channel::Sender<(Sender, Receiver)>,
+    node: NodeId,
+}
+
+impl Socket for EndpointSocket {
+    fn deliver(&self, src: SocketAddr, dst: SocketAddr, msg: Payload) {
+        // tag send
+        let msg = match msg.downcast::<(u64, Payload)>() {
+            Ok(msg) => {
+                let (tag, data) = *msg;
+                self.mailbox.lock().deliver(Message {
+                    tag,
+                    data,
+                    from: src,
+                });
+                return;
+            }
+            Err(msg) => msg,
+        };
+        // connection
+        let (src_node, tx): (NodeId, oneshot::Sender<(Sender, Receiver)>) =
+            *msg.downcast().unwrap();
+        let net = plugin::simulator::<NetSim>();
+        let (tx1, rx1) = net.channel(src_node, dst, Udp);
+        let (tx2, rx2) = net.channel(self.node, src, Udp);
+        let _ = tx.send((Sender { tx: tx1 }, Receiver { rx: rx2 }));
+        let _ = self
+            .conn_tx
+            .try_send((Sender { tx: tx2 }, Receiver { rx: rx1 }));
     }
 }
 
