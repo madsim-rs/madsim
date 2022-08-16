@@ -1,10 +1,7 @@
 //! Server implementation and builder.
 
 use super::Error;
-use crate::{
-    codec::StreamEnd,
-    codegen::{BoxMessage, BoxMessageStream},
-};
+use crate::codegen::{BoxMessage, BoxMessageStream};
 use async_stream::try_stream;
 use futures::{future::poll_fn, select_biased, FutureExt, StreamExt};
 use madsim::net::Endpoint;
@@ -13,7 +10,6 @@ use std::{
     convert::Infallible,
     future::{pending, Future},
     net::SocketAddr,
-    sync::Arc,
     time::Duration,
 };
 #[cfg(feature = "tls")]
@@ -215,45 +211,30 @@ impl<L> Router<L> {
         addr: SocketAddr,
         signal: impl Future<Output = ()>,
     ) -> Result<(), Error> {
-        let ep = Arc::new(Endpoint::bind(addr).await.map_err(Error::from_source)?);
+        let ep = Endpoint::bind(addr).await.map_err(Error::from_source)?;
         let mut signal = Box::pin(signal).fuse();
         loop {
             // receive a request
-            let (msg, from) = select_biased! {
-                ret = ep.recv_from_raw(0).fuse() => ret.map_err(Error::from_source)?,
+            let (tx, mut rx, from) = select_biased! {
+                ret = ep.accept1().fuse() => ret.map_err(Error::from_source)?,
                 _ = &mut signal => return Ok(()),
             };
-            // connection request
-            let msg = match msg.downcast::<u64>() {
-                Err(msg) => msg,
-                Ok(tag) => {
-                    log::debug!("accept client: {from}");
-                    let ep = ep.clone();
-                    // ACK
-                    madsim::task::spawn(async move {
-                        let _ = ep.send_to_raw(from, *tag, Box::new(())).await;
-                    });
-                    continue;
-                }
+            let msg = match rx.recv().await {
+                Ok(msg) => msg,
+                Err(_) => continue, // maybe handshake or error
             };
-            // RPC request
-            let (mut tag, path, msg, client_stream, server_stream) = *msg
-                .downcast::<(u64, PathAndQuery, BoxMessage, bool, bool)>()
+            let (path, msg) = *msg
+                .downcast::<(PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
             log::debug!("request: {path} <- {from}");
 
-            let requests: BoxMessageStream = if !client_stream {
+            let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
                 // single request
                 futures::stream::once(async move { Ok(msg) }).boxed()
             } else {
                 // request stream
-                let ep = ep.clone();
                 try_stream! {
-                    for tag in tag.. {
-                        let (msg, _) = ep.recv_from_raw(tag).await?;
-                        if msg.downcast_ref::<StreamEnd>().is_some() {
-                            return;
-                        }
+                    while let Ok(msg) = rx.recv().await {
                         yield msg;
                     }
                 }
@@ -266,21 +247,12 @@ impl<L> Router<L> {
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
             let rsp_future = svc.call((from, path, requests));
-            let ep = ep.clone();
             madsim::task::spawn(async move {
                 let mut stream = rsp_future.await.unwrap();
                 // send the response
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>
-                    ep.send_to_raw(from, tag, Box::new(rsp))
-                        .await
-                        .expect("failed to send response");
-                    tag += 1;
-                }
-                if server_stream {
-                    ep.send_to_raw(from, tag, Box::new(StreamEnd))
-                        .await
-                        .expect("failed to send response");
+                    tx.send(Box::new(rsp)).await.unwrap();
                 }
             });
         }

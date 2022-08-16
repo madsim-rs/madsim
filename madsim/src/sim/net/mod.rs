@@ -62,7 +62,7 @@ pub mod tcp;
 mod udp;
 
 pub use self::addr::{lookup_host, ToSocketAddrs};
-pub use self::endpoint::Endpoint;
+pub use self::endpoint::{Endpoint, Receiver, Sender};
 pub use self::network::{Config, Stat};
 use self::network::{IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};

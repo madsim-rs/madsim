@@ -5,7 +5,6 @@ use madsim::task::JoinHandle;
 use std::{
     fmt,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 use tonic::codegen::BoxStream;
@@ -21,8 +20,7 @@ impl<T: Send + 'static> Streaming<T> {
     /// The elements will be received from the endpoint starting with the given tag.
     /// If this is a bi-directional streaming RPC, `request_sending_task` is required.
     pub(crate) fn new(
-        ep: Arc<madsim::net::Endpoint>,
-        tag: u64,
+        mut rx: madsim::net::Receiver,
         request_sending_task: Option<JoinHandle<()>>,
     ) -> Self {
         Streaming {
@@ -31,11 +29,7 @@ impl<T: Send + 'static> Streaming<T> {
                 // This is used to cancel the task when the stream is dropped.
                 let _task = request_sending_task.map(|t| t.cancel_on_drop());
                 // receive messages
-                for tag in tag.. {
-                    let (msg, _) = ep.recv_from_raw(tag).await?;
-                    if msg.downcast_ref::<StreamEnd>().is_some() {
-                        return;
-                    }
+                while let Ok(msg) = rx.recv().await {
                     let msg = *msg.downcast::<Result<BoxMessage, Status>>().unwrap();
                     yield *msg?.downcast::<T>().unwrap();
                 }
@@ -52,9 +46,6 @@ impl<T: Send + 'static> Streaming<T> {
         Streaming { stream }
     }
 }
-
-/// A marker type that indicates the stream is end.
-pub(crate) struct StreamEnd;
 
 impl<T> Streaming<T> {
     /// Fetch the next message from this stream.

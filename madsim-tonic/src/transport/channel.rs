@@ -56,13 +56,8 @@ impl Endpoint {
             .map_err(Error::from_source)?;
 
         // handshake
-        let tag = madsim::rand::random::<u64>();
-        ep.send_raw(0, Box::new(tag))
+        ep.connect1((addr, port).into())
             .await
-            .map_err(Error::from_source)?;
-        madsim::time::timeout(Duration::from_secs(1), ep.recv_raw(tag))
-            .await
-            .map_err(Error::from_source)?
             .map_err(Error::from_source)?;
 
         Ok(Channel { ep: Arc::new(ep) })

@@ -6,7 +6,7 @@ pub struct Endpoint {
     socket: Arc<EndpointSocket>,
     pub(super) peer: Mutex<Option<SocketAddr>>,
     /// Incoming connections.
-    conn_rx: async_channel::Receiver<(Sender, Receiver)>,
+    conn_rx: async_channel::Receiver<(Sender, Receiver, SocketAddr)>,
 }
 
 impl Endpoint {
@@ -176,7 +176,7 @@ impl Endpoint {
                 self.guard.addr.port(),
                 addr,
                 Udp,
-                Box::new(conn_tx),
+                Box::new((plugin::node(), conn_tx)),
             )
             .await?;
         let (tx, rx) = conn_rx
@@ -187,7 +187,7 @@ impl Endpoint {
 
     /// Accept a new connection from other Endpoint.
     #[doc(hidden)]
-    pub async fn accept1(&self) -> io::Result<(Sender, Receiver)> {
+    pub async fn accept1(&self) -> io::Result<(Sender, Receiver, SocketAddr)> {
         self.guard.net.rand_delay().await?;
 
         (self.conn_rx.recv().await).map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))
@@ -241,7 +241,7 @@ struct Mailbox {
 
 struct EndpointSocket {
     mailbox: Mutex<Mailbox>,
-    conn_tx: async_channel::Sender<(Sender, Receiver)>,
+    conn_tx: async_channel::Sender<(Sender, Receiver, SocketAddr)>,
     node: NodeId,
 }
 
@@ -269,7 +269,7 @@ impl Socket for EndpointSocket {
         let _ = tx.send((Sender { tx: tx1 }, Receiver { rx: rx2 }));
         let _ = self
             .conn_tx
-            .try_send((Sender { tx: tx2 }, Receiver { rx: rx1 }));
+            .try_send((Sender { tx: tx2 }, Receiver { rx: rx1 }, src));
     }
 }
 
