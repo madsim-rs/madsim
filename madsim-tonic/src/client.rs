@@ -1,10 +1,9 @@
 //! Generic client implementation.
 
 use futures::{pin_mut, Stream, StreamExt};
-use madsim::rand::random;
 use tonic::codegen::http::uri::PathAndQuery;
 
-use crate::{codec::StreamEnd, codegen::BoxMessage, Request, Response, Status, Streaming};
+use crate::{codegen::BoxMessage, Request, Response, Status, Streaming};
 
 #[derive(Debug, Clone)]
 pub struct Grpc<T> {
@@ -35,13 +34,13 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        // generate a random tag for response
-        let rsp_tag = random::<u64>();
+        let addr = self.inner.ep.peer_addr().unwrap();
+        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send request
-        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage, false, false));
-        self.inner.ep.send_raw(0, data).await?;
+        tx.send(Box::new((path, Box::new(request) as BoxMessage)))
+            .await?;
         // receive response
-        let rsp = self.inner.ep.recv_raw(rsp_tag).await?;
+        let rsp = rx.recv().await?;
         let rsp = *rsp
             .downcast::<Result<BoxMessage, Status>>()
             .expect("message type mismatch");
@@ -62,12 +61,12 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        // generate a random tag for request and responses
-        let tag = random::<u64>();
+        let addr = self.inner.ep.peer_addr().unwrap();
+        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send requests
-        self.send_request_stream(request, tag, path, false).await?;
+        self.send_request_stream(request, tx, path).await?;
         // receive response
-        let rsp = self.inner.ep.recv_raw(tag).await?;
+        let rsp = rx.recv().await?;
         let rsp = *rsp
             .downcast::<Result<BoxMessage, Status>>()
             .expect("message type mismatch");
@@ -88,17 +87,13 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        // generate a random tag for responses
-        let rsp_tag = random::<u64>();
+        let addr = self.inner.ep.peer_addr().unwrap();
+        let (tx, rx) = self.inner.ep.connect1(addr).await?;
         // send request
-        let data = Box::new((rsp_tag, path, Box::new(request) as BoxMessage, false, true));
-        self.inner.ep.send_raw(0, data).await?;
+        tx.send(Box::new((path, Box::new(request) as BoxMessage)))
+            .await?;
         // receive responses
-        Ok(Response::new(Streaming::new(
-            self.inner.ep.clone(),
-            rsp_tag,
-            None,
-        )))
+        Ok(Response::new(Streaming::new(rx, None)))
     }
 
     /// Send a bi-directional streaming gRPC request.
@@ -112,48 +107,36 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        // generate a random tag for requests and responses
-        let tag = random::<u64>();
+        let addr = self.inner.ep.peer_addr().unwrap();
+        let (tx, rx) = self.inner.ep.connect1(addr).await?;
         // send requests in a background task
         let this = self.clone();
         let task = madsim::task::spawn(async move {
-            this.send_request_stream(request, tag, path, true)
-                .await
-                .unwrap();
+            this.send_request_stream(request, tx, path).await.unwrap();
         });
         // receive responses
-        Ok(Response::new(Streaming::new(
-            self.inner.ep.clone(),
-            tag,
-            Some(task),
-        )))
+        Ok(Response::new(Streaming::new(rx, Some(task))))
     }
 
     async fn send_request_stream<M1>(
         &self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,
-        mut tag: u64,
+        tx: madsim::net::Sender,
         path: PathAndQuery,
-        server_stream: bool,
     ) -> Result<(), Status>
     where
         M1: Send + Sync + 'static,
     {
         // TODO: send `Request` metadata
         // send stream start message
-        let data = Box::new((tag, path, Box::new(()) as BoxMessage, true, server_stream));
-        self.inner.ep.send_raw(0, data).await?;
-        // send requests with increasing tag
+        tx.send(Box::new((path, Box::new(()) as BoxMessage)))
+            .await?;
+        // send requests
         let stream = request.into_inner();
         pin_mut!(stream);
         while let Some(request) = stream.next().await {
-            let data = Box::new(request);
-            self.inner.ep.send_raw(tag, data).await?;
-            tag += 1;
+            tx.send(Box::new(request) as BoxMessage).await?;
         }
-        // send stream end message
-        let data = Box::new(StreamEnd);
-        self.inner.ep.send_raw(tag, data).await?;
         Ok(())
     }
 }

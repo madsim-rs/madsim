@@ -2,20 +2,27 @@ use super::{IpProtocol::Udp, *};
 
 /// An endpoint.
 pub struct Endpoint {
-    guard: BindGuard,
-    mailbox: Arc<Mutex<Mailbox>>,
+    guard: Arc<BindGuard>,
+    socket: Arc<EndpointSocket>,
     pub(super) peer: Mutex<Option<SocketAddr>>,
+    /// Incoming connections.
+    conn_rx: async_channel::Receiver<(PayloadSender, PayloadReceiver, SocketAddr)>,
 }
 
 impl Endpoint {
     /// Creates a [`Endpoint`] from the given address.
     pub async fn bind(addr: impl ToSocketAddrs) -> io::Result<Self> {
-        let mailbox = Arc::new(Mutex::new(Mailbox::default()));
-        let guard = BindGuard::bind(addr, Udp, mailbox.clone()).await?;
+        let (conn_tx, conn_rx) = async_channel::unbounded();
+        let socket = Arc::new(EndpointSocket {
+            mailbox: Mutex::new(Mailbox::default()),
+            conn_tx,
+        });
+        let guard = Arc::new(BindGuard::bind(addr, Udp, socket.clone()).await?);
         Ok(Endpoint {
             guard,
-            mailbox,
+            socket,
             peer: Mutex::new(None),
+            conn_rx,
         })
     }
 
@@ -120,7 +127,7 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
-        let recver = self.mailbox.lock().recv(tag);
+        let recver = self.socket.mailbox.lock().recv(tag);
         let msg = recver
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
@@ -154,6 +161,73 @@ impl Endpoint {
         );
         Ok(msg)
     }
+
+    /// Setup a reliable connection to another Endpoint.
+    #[doc(hidden)]
+    pub async fn connect1(&self, addr: SocketAddr) -> io::Result<(Sender, Receiver)> {
+        let (tx, rx, _) = self
+            .guard
+            .net
+            .connect1(self.guard.node, self.guard.addr.port(), addr, Udp)
+            .await?;
+        let sender = Sender {
+            _guard: self.guard.clone(),
+            tx,
+        };
+        let recver = Receiver {
+            _guard: self.guard.clone(),
+            rx,
+        };
+        Ok((sender, recver))
+    }
+
+    /// Accept a new connection from other Endpoint.
+    #[doc(hidden)]
+    pub async fn accept1(&self) -> io::Result<(Sender, Receiver, SocketAddr)> {
+        self.guard.net.rand_delay().await?;
+
+        let (tx, rx, addr) = (self.conn_rx.recv().await)
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
+        let sender = Sender {
+            _guard: self.guard.clone(),
+            tx,
+        };
+        let recver = Receiver {
+            _guard: self.guard.clone(),
+            rx,
+        };
+        Ok((sender, recver, addr))
+    }
+}
+
+#[doc(hidden)]
+pub struct Sender {
+    _guard: Arc<BindGuard>,
+    tx: PayloadSender,
+}
+
+#[doc(hidden)]
+pub struct Receiver {
+    _guard: Arc<BindGuard>,
+    rx: PayloadReceiver,
+}
+
+impl Sender {
+    #[doc(hidden)]
+    pub async fn send(&self, value: Payload) -> io::Result<()> {
+        (self.tx.send(value))
+            .map_err(|_| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
+    }
+}
+
+impl Receiver {
+    #[doc(hidden)]
+    pub async fn recv(&mut self) -> io::Result<Payload> {
+        (self.rx.recv().await).ok_or(io::Error::new(
+            io::ErrorKind::ConnectionReset,
+            "connection reset",
+        ))
+    }
 }
 
 struct Message {
@@ -173,10 +247,29 @@ struct Mailbox {
     msgs: Vec<Message>,
 }
 
-impl Socket for Mutex<Mailbox> {
-    fn deliver(&self, from: SocketAddr, _dst: SocketAddr, msg: Payload) {
+struct EndpointSocket {
+    mailbox: Mutex<Mailbox>,
+    conn_tx: async_channel::Sender<(PayloadSender, PayloadReceiver, SocketAddr)>,
+}
+
+impl Socket for EndpointSocket {
+    fn deliver(&self, src: SocketAddr, _dst: SocketAddr, msg: Payload) {
         let (tag, data) = *msg.downcast::<(u64, Payload)>().unwrap();
-        self.lock().deliver(Message { tag, data, from });
+        self.mailbox.lock().deliver(Message {
+            tag,
+            data,
+            from: src,
+        });
+    }
+
+    fn new_connection(
+        &self,
+        src: SocketAddr,
+        _dst: SocketAddr,
+        tx: PayloadSender,
+        rx: PayloadReceiver,
+    ) {
+        let _ = self.conn_tx.try_send((tx, rx, src));
     }
 }
 

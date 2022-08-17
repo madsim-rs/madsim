@@ -129,7 +129,11 @@ mod tests {
     use super::hello_world::another_greeter_client::AnotherGreeterClient;
     use super::hello_world::greeter_client::GreeterClient;
     use async_stream::stream;
-    use madsim::{runtime::Handle, time::sleep};
+    use madsim::{
+        rand::{thread_rng, Rng},
+        runtime::Handle,
+        time::sleep,
+    };
     use std::net::SocketAddr;
 
     use super::*;
@@ -210,24 +214,13 @@ mod tests {
             assert_eq!(error.code(), tonic::Code::Unknown);
         });
 
-        let new_stream = || {
-            stream! {
-                for i in 0..3 {
-                    yield HelloRequest {
-                        name: format!("Tonic{i}"),
-                    };
-                    sleep(Duration::from_secs(1)).await;
-                }
-            }
-        };
-
         // client stream
         let task4 = node4.spawn(async move {
             sleep(Duration::from_secs(1)).await;
             let mut client = GreeterClient::connect("http://10.0.0.1:50051")
                 .await
                 .unwrap();
-            let response = client.lots_of_greetings(new_stream()).await.unwrap();
+            let response = client.lots_of_greetings(hello_stream()).await.unwrap();
             assert_eq!(
                 response.into_inner().message,
                 "Hello Tonic0 Tonic1 Tonic2! (10.0.0.5)"
@@ -240,7 +233,7 @@ mod tests {
             let mut client = GreeterClient::connect("http://10.0.0.1:50051")
                 .await
                 .unwrap();
-            let response = client.bidi_hello(new_stream()).await.unwrap();
+            let response = client.bidi_hello(hello_stream()).await.unwrap();
             let mut stream = response.into_inner();
             let mut i = 0;
             while let Some(reply) = stream.message().await.unwrap() {
@@ -257,6 +250,17 @@ mod tests {
         task5.await.unwrap();
     }
 
+    fn hello_stream() -> impl Stream<Item = HelloRequest> {
+        stream! {
+            for i in 0..3 {
+                yield HelloRequest {
+                    name: format!("Tonic{i}"),
+                };
+                sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
     #[madsim::test]
     async fn invalid_address() {
         let handle = Handle::current();
@@ -269,5 +273,58 @@ mod tests {
                 .unwrap_err();
         });
         task1.await.unwrap();
+    }
+
+    // crash client and see whether server works as well
+    #[madsim::test]
+    async fn client_crash() {
+        let handle = Handle::current();
+        let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+        let ip1 = "10.0.0.2".parse().unwrap();
+        let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
+        node0.spawn(async move {
+            Server::builder()
+                .add_service(GreeterServer::new(MyGreeter::default()))
+                .serve(addr0)
+                .await
+                .unwrap();
+        });
+        sleep(Duration::from_secs(1)).await;
+
+        let node1 = handle
+            .create_node()
+            .name("client1")
+            .ip(ip1)
+            .init(|| async move {
+                let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                    .await
+                    .unwrap();
+                loop {
+                    // initiate a bidi stream
+                    let response = client.bidi_hello(hello_stream()).await.unwrap();
+                    let mut stream = response.into_inner();
+                    sleep(Duration::from_secs(1)).await;
+
+                    // unary
+                    let request = tonic::Request::new(HelloRequest {
+                        name: "Tonic".into(),
+                    });
+                    let response = client.say_hello(request).await.unwrap();
+                    assert_eq!(response.into_inner().message, "Hello Tonic! (10.0.0.2)");
+
+                    let mut i = 0;
+                    while let Some(reply) = stream.message().await.unwrap() {
+                        assert_eq!(reply.message, format!("Hello Tonic{i}! (10.0.0.2)"));
+                        i += 1;
+                    }
+                    assert_eq!(i, 3);
+                }
+            })
+            .build();
+
+        for _ in 0..10 {
+            sleep(thread_rng().gen_range(Duration::default()..Duration::from_secs(5))).await;
+            handle.restart(node1.id());
+        }
     }
 }
