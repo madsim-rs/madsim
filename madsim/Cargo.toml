@@ -30,6 +30,7 @@ madsim-macros = { version = "0.2", path = "../madsim-macros", optional = true }
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
 spin = "0.9"
+tracing = "0.1"
 
 [target.'cfg(madsim)'.dependencies]
 ahash = "0.7"

@@ -4,7 +4,6 @@ use crate::{
     task::{JoinHandle, NodeId},
 };
 use async_task::FallibleTask;
-use log::*;
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
@@ -16,6 +15,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use tracing::*;
 
 /// A simulated network.
 ///

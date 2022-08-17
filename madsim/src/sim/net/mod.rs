@@ -35,7 +35,6 @@
 //! runtime.block_on(f);
 //! ```
 
-use log::*;
 use spin::Mutex;
 use std::{
     any::Any,
@@ -44,6 +43,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::{mpsc, oneshot};
+use tracing::*;
 
 use crate::{
     plugin,

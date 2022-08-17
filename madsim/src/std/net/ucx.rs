@@ -2,7 +2,6 @@
 
 use async_ucx::ucp;
 use bytes::Bytes;
-use log::*;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -13,6 +12,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::{mpsc, oneshot};
+use tracing::*;
 
 lazy_static::lazy_static! {
     static ref CONTEXT: Arc<ucp::Context> = ucp::Context::new().expect("failed to initialize UCX context");

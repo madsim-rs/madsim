@@ -1,6 +1,5 @@
 //! Asynchronous file system.
 
-use log::*;
 use spin::{Mutex, RwLock};
 use std::{
     collections::HashMap,
@@ -8,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tracing::*;
 
 use crate::{
     plugin::{node, simulator, Simulator},

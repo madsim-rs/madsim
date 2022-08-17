@@ -22,6 +22,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+use tracing::*;
 
 pub use tokio::task::yield_now;
 
@@ -179,7 +180,7 @@ struct Node {
 impl TaskHandle {
     /// Kill all tasks of the node.
     pub fn kill(&self, id: NodeId) {
-        log::debug!("kill {}", id);
+        debug!("kill {}", id);
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
@@ -197,7 +198,7 @@ impl TaskHandle {
     /// Kill all tasks of the node and restart the initial task.
     pub fn restart(&self, id: NodeId) {
         self.kill(id);
-        log::debug!("restart {}", id);
+        debug!("restart {}", id);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
@@ -210,7 +211,7 @@ impl TaskHandle {
 
     /// Pause all tasks of the node.
     pub fn pause(&self, id: NodeId) {
-        log::debug!("pause {}", id);
+        debug!("pause {}", id);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
@@ -218,7 +219,7 @@ impl TaskHandle {
 
     /// Resume the execution of the address.
     pub fn resume(&self, id: NodeId) {
-        log::debug!("resume {}", id);
+        debug!("resume {}", id);
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
@@ -237,7 +238,7 @@ impl TaskHandle {
         cores: Option<usize>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
-        log::debug!("create {}", id);
+        debug!("create {}", id);
         let info = Arc::new(TaskInfo {
             node: id,
             name: name.unwrap_or_else(|| format!("node-{}", id.0)),
@@ -308,7 +309,7 @@ impl TaskNodeHandle {
         F::Output: 'static,
     {
         let id = Id::new();
-        log::trace!("spawn task {}", id);
+        trace!("spawn task {}", id);
 
         let sender = self.sender.clone();
         let info = self.info.clone();
@@ -316,7 +317,7 @@ impl TaskNodeHandle {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
-                log::trace!("wake task {}", id);
+                trace!("wake task {}", id);
                 let _ = sender.send((runnable, info.clone()));
             })
         };

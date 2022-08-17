@@ -4,7 +4,6 @@ use crate::{
     task::NodeId,
 };
 use bytes::{Buf, Bytes, BytesMut};
-use log::*;
 use std::{
     fmt, io,
     net::SocketAddr,
@@ -13,6 +12,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tracing::*;
 
 /// A TCP stream between a local and a remote socket.
 pub struct TcpStream {

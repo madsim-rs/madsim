@@ -3,7 +3,6 @@
 use crate::task;
 use bytes::{Buf, Bytes};
 use futures::StreamExt;
-use log::*;
 use std::{
     collections::{hash_map::Entry, HashMap},
     io::{self, IoSlice},
@@ -16,6 +15,7 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
+use tracing::*;
 
 /// An endpoint.
 pub struct Endpoint {
