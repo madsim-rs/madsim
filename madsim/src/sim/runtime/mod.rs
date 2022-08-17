@@ -114,7 +114,7 @@ impl Runtime {
     ///
     /// ```should_panic
     /// use madsim::runtime::Runtime;
-    /// use futures::future::pending;
+    /// use std::future::pending;
     ///
     /// Runtime::new().block_on(pending::<()>());
     /// ```

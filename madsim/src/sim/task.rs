@@ -670,7 +670,7 @@ mod tests {
                     }));
                 }
                 drop(tx);
-                futures::future::join_all(tasks).await;
+                futures_util::future::join_all(tasks).await;
                 rx.into_iter().collect::<Vec<_>>()
             });
             seqs.insert(seq);

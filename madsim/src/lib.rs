@@ -25,5 +25,5 @@ pub use _std::*;
 // Includes re-exports used by macros.
 #[doc(hidden)]
 pub mod export {
-    pub use futures;
+    pub use futures_util as futures;
 }

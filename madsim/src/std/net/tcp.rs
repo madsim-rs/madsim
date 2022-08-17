@@ -2,7 +2,7 @@
 
 use crate::task;
 use bytes::{Buf, Bytes};
-use futures::StreamExt;
+use futures_util::StreamExt;
 use std::{
     collections::{hash_map::Entry, HashMap},
     io::{self, IoSlice},
