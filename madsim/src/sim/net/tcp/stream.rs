@@ -1,7 +1,6 @@
 use crate::{
     net::{IpProtocol::Tcp, *},
     plugin,
-    task::NodeId,
 };
 use bytes::{Buf, Bytes, BytesMut};
 use std::{
@@ -46,15 +45,12 @@ impl TcpStream {
     /// connection attempt (the last address) is returned.
     ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
+    #[instrument]
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<TcpStream> {
-        let net = plugin::simulator::<NetSim>();
-        let node = plugin::node();
         let mut last_err = None;
 
         for addr in lookup_host(addr).await? {
-            // a relay before resolve an address
-            net.rand_delay().await?;
-            match Self::connect1(&net, node, addr).await {
+            match Self::connect_one(addr).await {
                 Ok(stream) => return Ok(stream),
                 Err(e) => last_err = Some(e),
             }
@@ -68,12 +64,17 @@ impl TcpStream {
     }
 
     /// Connects to one address.
-    async fn connect1(net: &Arc<NetSim>, node: NodeId, addr: SocketAddr) -> io::Result<TcpStream> {
-        trace!("connecting to {}", addr);
+    #[instrument]
+    async fn connect_one(addr: SocketAddr) -> io::Result<TcpStream> {
+        let net = plugin::simulator::<NetSim>();
+        net.rand_delay().await?;
+
         // send a request to listener and wait for TcpStream
         // FIXME: the port it uses should not be exclusive
         let guard = BindGuard::bind("0.0.0.0:0", Tcp, Arc::new(TcpStreamSocket)).await?;
-        let (tx, rx, local_addr) = net.connect1(node, guard.addr.port(), addr, Tcp).await?;
+        let (tx, rx, local_addr) = net
+            .connect1(plugin::node(), guard.addr.port(), addr, Tcp)
+            .await?;
         let stream = TcpStream {
             guard: Some(Arc::new(guard)),
             addr: local_addr,

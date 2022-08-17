@@ -47,7 +47,7 @@ pub async fn lookup_host(host: impl ToSocketAddrs) -> io::Result<impl Iterator<I
 ///
 /// This trait is sealed and is intended to be opaque. The details of the trait
 /// will change. Stabilization is pending enhancements to the Rust language.
-pub trait ToSocketAddrs: sealed::ToSocketAddrsPriv {}
+pub trait ToSocketAddrs: sealed::ToSocketAddrsPriv + std::fmt::Debug {}
 
 type ReadyFuture<T> = future::Ready<io::Result<T>>;
 

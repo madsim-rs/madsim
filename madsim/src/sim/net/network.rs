@@ -131,12 +131,12 @@ impl Network {
     }
 
     pub fn insert_node(&mut self, id: NodeId) {
-        debug!("insert: {id}");
+        debug!(?id, "insert_node");
         self.nodes.insert(id, Default::default());
     }
 
     pub fn reset_node(&mut self, id: NodeId) {
-        debug!("reset: {id}");
+        debug!(?id, "reset_node");
         let node = self.nodes.get_mut(&id).expect("node not found");
         // close all sockets
         node.sockets.clear();
@@ -144,7 +144,7 @@ impl Network {
     }
 
     pub fn set_ip(&mut self, id: NodeId, ip: IpAddr) {
-        debug!("set-ip: {id}: {ip}");
+        debug!(?id, ?ip, "set_node_ip");
         let node = self.nodes.get_mut(&id).expect("node not found");
         if let Some(old_ip) = node.ip.replace(ip) {
             self.addr_to_node.remove(&old_ip);
@@ -158,27 +158,27 @@ impl Network {
 
     pub fn clog_node(&mut self, id: NodeId) {
         assert!(self.nodes.contains_key(&id));
-        debug!("clog: {id}");
+        debug!(?id, "clog_node");
         self.clogged_node.insert(id);
     }
 
     pub fn unclog_node(&mut self, id: NodeId) {
         assert!(self.nodes.contains_key(&id));
-        debug!("unclog: {id}");
+        debug!(?id, "unclog_node");
         self.clogged_node.remove(&id);
     }
 
     pub fn clog_link(&mut self, src: NodeId, dst: NodeId) {
         assert!(self.nodes.contains_key(&src));
         assert!(self.nodes.contains_key(&dst));
-        debug!("clog: {src} -> {dst}");
+        debug!(?src, ?dst, "clog_link");
         self.clogged_link.insert((src, dst));
     }
 
     pub fn unclog_link(&mut self, src: NodeId, dst: NodeId) {
         assert!(self.nodes.contains_key(&src));
         assert!(self.nodes.contains_key(&dst));
-        debug!("unclog: {src} -> {dst}");
+        debug!(?src, ?dst, "unclog_link");
         self.clogged_link.remove(&(src, dst));
     }
 
@@ -197,7 +197,6 @@ impl Network {
         protocol: IpProtocol,
         socket: Arc<dyn Socket>,
     ) -> io::Result<SocketAddr> {
-        let origin_addr = addr;
         let node = self.nodes.get_mut(&node_id).expect("node not found");
         // check IP address
         if !addr.ip().is_unspecified()
@@ -235,13 +234,13 @@ impl Network {
                 o.insert(socket);
             }
         }
-        debug!("bind: {node_id} {origin_addr} -> {addr}");
+        debug!(node = ?node_id, ?addr, "bind");
         Ok(addr)
     }
 
     /// Close a socket.
     pub fn close(&mut self, node: NodeId, addr: SocketAddr, protocol: IpProtocol) {
-        debug!("close: {node} {addr} {protocol:?}");
+        debug!(?node, ?addr, ?protocol, "close");
         let node = self.nodes.get_mut(&node).expect("node not found");
         node.sockets.remove(&(addr, protocol));
     }

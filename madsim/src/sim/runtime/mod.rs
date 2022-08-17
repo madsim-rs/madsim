@@ -378,43 +378,7 @@ impl NodeHandle {
 
 /// Initialize logger.
 pub fn init_logger() {
-    use env_logger::fmt::Color;
-    use std::io::Write;
     use std::sync::Once;
     static LOGGER_INIT: Once = Once::new();
-    LOGGER_INIT.call_once(|| {
-        let start = std::env::var("MADSIM_LOG_TIME_START")
-            .ok()
-            .map(|s| Duration::from_secs_f64(s.parse::<f64>().unwrap()));
-        let mut builder = env_logger::Builder::from_default_env();
-        builder.format(move |buf, record| {
-            // filter time
-            if let Some(time) = crate::time::TimeHandle::try_current() {
-                if matches!(start, Some(t0) if time.elapsed() < t0) {
-                    return write!(buf, "");
-                }
-            }
-            let mut style = buf.style();
-            style.set_color(Color::Black).set_intense(true);
-            let mut level_style = buf.style();
-            level_style.set_color(match record.level() {
-                log::Level::Error => Color::Red,
-                log::Level::Warn => Color::Yellow,
-                log::Level::Info => Color::Green,
-                log::Level::Debug => Color::Blue,
-                log::Level::Trace => Color::Cyan,
-            });
-            write!(buf, "{}", style.value('['))?;
-            if let Some(time) = crate::time::TimeHandle::try_current() {
-                write!(buf, "{:.9}s", time.elapsed().as_secs_f64())?;
-            }
-            write!(buf, " {:>5}", level_style.value(record.level()))?;
-            if let Some(task) = crate::context::try_current_task() {
-                write!(buf, " {}", task.name)?;
-            }
-            write!(buf, " {:>10}", style.value(record.target()))?;
-            writeln!(buf, "{} {}", style.value(']'), record.args())
-        });
-        builder.init();
-    });
+    LOGGER_INIT.call_once(tracing_subscriber::fmt::init);
 }

@@ -10,6 +10,7 @@ use std::{
     convert::Infallible,
     future::{pending, Future},
     net::SocketAddr,
+    pin::Pin,
     time::Duration,
 };
 #[cfg(feature = "tls")]
@@ -215,7 +216,7 @@ impl<L> Router<L> {
         let mut signal = Box::pin(signal).fuse();
         loop {
             // receive a request
-            let (tx, mut rx, from) = select_biased! {
+            let (tx, mut rx, addr) = select_biased! {
                 ret = ep.accept1().fuse() => ret.map_err(Error::from_source)?,
                 _ = &mut signal => return Ok(()),
             };
@@ -226,7 +227,7 @@ impl<L> Router<L> {
             let (path, msg) = *msg
                 .downcast::<(PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
-            tracing::debug!("request: {path} <- {from}");
+            let span = tracing::debug_span!("rpc handler", ?addr, ?path);
 
             let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
                 // single request
@@ -246,9 +247,14 @@ impl<L> Router<L> {
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let rsp_future = svc.call((from, path, requests));
+            let mut rsp_future = svc.call((addr, path, requests));
             madsim::task::spawn(async move {
-                let mut stream = rsp_future.await.unwrap();
+                let mut stream = poll_fn(|cx| {
+                    let _enter = span.enter();
+                    Pin::new(&mut rsp_future).poll(cx)
+                })
+                .await
+                .unwrap();
                 // send the response
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>

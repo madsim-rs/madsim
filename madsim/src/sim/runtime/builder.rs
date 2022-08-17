@@ -134,7 +134,9 @@ impl Builder {
                 }
             })
             .buffer_unordered(self.jobs as usize);
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let mut return_value = None;
         while let Some((seed, res)) = rt.block_on(stream.next()) {
             match res {
