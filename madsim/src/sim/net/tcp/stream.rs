@@ -1,5 +1,5 @@
 use crate::{
-    net::{lookup_host, network::Socket, BindGuard, IpProtocol::Tcp, NetSim, ToSocketAddrs},
+    net::{IpProtocol::Tcp, *},
     plugin,
     task::NodeId,
 };
@@ -12,21 +12,18 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
-    sync::{mpsc, oneshot},
-};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 /// A TCP stream between a local and a remote socket.
 pub struct TcpStream {
     pub(super) guard: Option<Arc<BindGuard>>,
-    addr: SocketAddr,
-    peer: SocketAddr,
+    pub(super) addr: SocketAddr,
+    pub(super) peer: SocketAddr,
     /// Buffer write data to be flushed.
-    write_buf: BytesMut,
-    read_buf: Bytes,
-    tx: mpsc::UnboundedSender<Bytes>,
-    rx: mpsc::UnboundedReceiver<Bytes>,
+    pub(super) write_buf: BytesMut,
+    pub(super) read_buf: Bytes,
+    pub(super) tx: PayloadSender,
+    pub(super) rx: PayloadReceiver,
 }
 
 impl fmt::Debug for TcpStream {
@@ -76,46 +73,17 @@ impl TcpStream {
         // send a request to listener and wait for TcpStream
         // FIXME: the port it uses should not be exclusive
         let guard = BindGuard::bind("0.0.0.0:0", Tcp, Arc::new(TcpStreamSocket)).await?;
-        let (tx, rx) = oneshot::channel::<TcpStream>();
-        net.send(node, guard.addr.port(), addr, Tcp, Box::new((node, tx)))
-            .await?;
-        let mut stream = rx
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
-        stream.guard = Some(Arc::new(guard));
+        let (tx, rx, local_addr) = net.connect1(node, guard.addr.port(), addr, Tcp).await?;
+        let stream = TcpStream {
+            guard: Some(Arc::new(guard)),
+            addr: local_addr,
+            peer: addr,
+            write_buf: Default::default(),
+            read_buf: Default::default(),
+            tx,
+            rx,
+        };
         Ok(stream)
-    }
-
-    /// Creates a pair of [`TcpStream`].
-    pub(super) fn pair(
-        node1: NodeId,
-        node2: NodeId,
-        addr1: SocketAddr,
-        addr2: SocketAddr,
-    ) -> (TcpStream, TcpStream) {
-        trace!("new tcp connection {} <-> {}", addr1, addr2);
-        let net = plugin::simulator::<NetSim>();
-        let (tx1, rx1) = net.channel(node1, addr2, Tcp);
-        let (tx2, rx2) = net.channel(node2, addr1, Tcp);
-        let s1 = TcpStream {
-            guard: None,
-            addr: addr1,
-            peer: addr2,
-            write_buf: Default::default(),
-            read_buf: Default::default(),
-            tx: tx1,
-            rx: rx2,
-        };
-        let s2 = TcpStream {
-            guard: None,
-            addr: addr2,
-            peer: addr1,
-            write_buf: Default::default(),
-            read_buf: Default::default(),
-            tx: tx2,
-            rx: rx1,
-        };
-        (s1, s2)
     }
 
     /// Sets the value of the `TCP_NODELAY` option on this socket.
@@ -152,7 +120,7 @@ impl AsyncRead for TcpStream {
         match self.rx.poll_recv(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(data)) => {
-                self.read_buf = data;
+                self.read_buf = *data.downcast::<Bytes>().unwrap();
                 self.poll_read(cx, buf)
             }
             // ref: https://man7.org/linux/man-pages/man2/recv.2.html
@@ -178,7 +146,7 @@ impl AsyncWrite for TcpStream {
         // send data
         let data = self.write_buf.split().freeze();
         self.tx
-            .send(data)
+            .send(Box::new(data))
             .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
         Poll::Ready(Ok(()))
     }

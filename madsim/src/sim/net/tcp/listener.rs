@@ -1,18 +1,13 @@
 use std::{fmt, io, net::SocketAddr, sync::Arc};
-use tokio::sync::oneshot;
 
-use crate::{
-    net::{network::Socket, BindGuard, IpProtocol::Tcp, Payload, TcpStream, ToSocketAddrs},
-    plugin,
-    task::NodeId,
-};
+use crate::net::{IpProtocol::Tcp, *};
 
 /// A TCP socket server, listening for connections.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct TcpListener {
     guard: Arc<BindGuard>,
     /// Incoming connections.
-    rx: async_channel::Receiver<(TcpStream, SocketAddr)>,
+    rx: async_channel::Receiver<TcpStream>,
 }
 
 impl fmt::Debug for TcpListener {
@@ -38,8 +33,7 @@ impl TcpListener {
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
         // TODO: simulate backlog
         let (tx, rx) = async_channel::unbounded();
-        let node = plugin::node();
-        let guard = BindGuard::bind(addr, Tcp, Arc::new(TcpListenerSocket { tx, node })).await?;
+        let guard = BindGuard::bind(addr, Tcp, Arc::new(TcpListenerSocket { tx })).await?;
 
         Ok(TcpListener {
             guard: Arc::new(guard),
@@ -57,10 +51,13 @@ impl TcpListener {
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         self.guard.net.rand_delay().await?;
 
-        let (mut stream, addr) = (self.rx.recv().await)
+        let mut stream = (self.rx.recv().await)
             .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
+        let peer_addr = stream.peer;
+        trace!("accept tcp from {}", peer_addr);
+
         stream.guard = Some(self.guard.clone());
-        Ok((stream, addr))
+        Ok((stream, peer_addr))
     }
 
     /// Returns the local socket address.
@@ -71,15 +68,26 @@ impl TcpListener {
 
 /// Socket registered in the [`Network`].
 struct TcpListenerSocket {
-    tx: async_channel::Sender<(TcpStream, SocketAddr)>,
-    node: NodeId,
+    tx: async_channel::Sender<TcpStream>,
 }
 
 impl Socket for TcpListenerSocket {
-    fn deliver(&self, src: SocketAddr, dst: SocketAddr, msg: Payload) {
-        let (src_node, tx): (NodeId, oneshot::Sender<TcpStream>) = *msg.downcast().unwrap();
-        let (peer, local) = TcpStream::pair(src_node, self.node, src, dst);
-        let _ = tx.send(peer);
-        let _ = self.tx.try_send((local, src));
+    fn new_connection(
+        &self,
+        peer: SocketAddr,
+        addr: SocketAddr,
+        tx: PayloadSender,
+        rx: PayloadReceiver,
+    ) {
+        let stream = TcpStream {
+            guard: None,
+            addr,
+            peer,
+            write_buf: Default::default(),
+            read_buf: Default::default(),
+            tx,
+            rx,
+        };
+        let _ = self.tx.try_send(stream);
     }
 }

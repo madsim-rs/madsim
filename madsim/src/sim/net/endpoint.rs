@@ -2,11 +2,11 @@ use super::{IpProtocol::Udp, *};
 
 /// An endpoint.
 pub struct Endpoint {
-    guard: BindGuard,
+    guard: Arc<BindGuard>,
     socket: Arc<EndpointSocket>,
     pub(super) peer: Mutex<Option<SocketAddr>>,
     /// Incoming connections.
-    conn_rx: async_channel::Receiver<(Sender, Receiver, SocketAddr)>,
+    conn_rx: async_channel::Receiver<(PayloadSender, PayloadReceiver, SocketAddr)>,
 }
 
 impl Endpoint {
@@ -16,9 +16,8 @@ impl Endpoint {
         let socket = Arc::new(EndpointSocket {
             mailbox: Mutex::new(Mailbox::default()),
             conn_tx,
-            node: plugin::node(),
         });
-        let guard = BindGuard::bind(addr, Udp, socket.clone()).await?;
+        let guard = Arc::new(BindGuard::bind(addr, Udp, socket.clone()).await?);
         Ok(Endpoint {
             guard,
             socket,
@@ -166,23 +165,20 @@ impl Endpoint {
     /// Setup a reliable connection to another Endpoint.
     #[doc(hidden)]
     pub async fn connect1(&self, addr: SocketAddr) -> io::Result<(Sender, Receiver)> {
-        self.guard.net.rand_delay().await?;
-
-        let (conn_tx, conn_rx) = oneshot::channel::<(Sender, Receiver)>();
-        self.guard
+        let (tx, rx, _) = self
+            .guard
             .net
-            .send(
-                self.guard.node,
-                self.guard.addr.port(),
-                addr,
-                Udp,
-                Box::new((plugin::node(), conn_tx)),
-            )
+            .connect1(self.guard.node, self.guard.addr.port(), addr, Udp)
             .await?;
-        let (tx, rx) = conn_rx
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
-        Ok((tx, rx))
+        let sender = Sender {
+            _guard: self.guard.clone(),
+            tx,
+        };
+        let recver = Receiver {
+            _guard: self.guard.clone(),
+            rx,
+        };
+        Ok((sender, recver))
     }
 
     /// Accept a new connection from other Endpoint.
@@ -190,18 +186,30 @@ impl Endpoint {
     pub async fn accept1(&self) -> io::Result<(Sender, Receiver, SocketAddr)> {
         self.guard.net.rand_delay().await?;
 
-        (self.conn_rx.recv().await).map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))
+        let (tx, rx, addr) = (self.conn_rx.recv().await)
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
+        let sender = Sender {
+            _guard: self.guard.clone(),
+            tx,
+        };
+        let recver = Receiver {
+            _guard: self.guard.clone(),
+            rx,
+        };
+        Ok((sender, recver, addr))
     }
 }
 
 #[doc(hidden)]
 pub struct Sender {
-    tx: mpsc::UnboundedSender<Payload>,
+    _guard: Arc<BindGuard>,
+    tx: PayloadSender,
 }
 
 #[doc(hidden)]
 pub struct Receiver {
-    rx: mpsc::UnboundedReceiver<Payload>,
+    _guard: Arc<BindGuard>,
+    rx: PayloadReceiver,
 }
 
 impl Sender {
@@ -241,35 +249,27 @@ struct Mailbox {
 
 struct EndpointSocket {
     mailbox: Mutex<Mailbox>,
-    conn_tx: async_channel::Sender<(Sender, Receiver, SocketAddr)>,
-    node: NodeId,
+    conn_tx: async_channel::Sender<(PayloadSender, PayloadReceiver, SocketAddr)>,
 }
 
 impl Socket for EndpointSocket {
-    fn deliver(&self, src: SocketAddr, dst: SocketAddr, msg: Payload) {
-        // tag send
-        let msg = match msg.downcast::<(u64, Payload)>() {
-            Ok(msg) => {
-                let (tag, data) = *msg;
-                self.mailbox.lock().deliver(Message {
-                    tag,
-                    data,
-                    from: src,
-                });
-                return;
-            }
-            Err(msg) => msg,
-        };
-        // connection
-        let (src_node, tx): (NodeId, oneshot::Sender<(Sender, Receiver)>) =
-            *msg.downcast().unwrap();
-        let net = plugin::simulator::<NetSim>();
-        let (tx1, rx1) = net.channel(src_node, dst, Udp);
-        let (tx2, rx2) = net.channel(self.node, src, Udp);
-        let _ = tx.send((Sender { tx: tx1 }, Receiver { rx: rx2 }));
-        let _ = self
-            .conn_tx
-            .try_send((Sender { tx: tx2 }, Receiver { rx: rx1 }, src));
+    fn deliver(&self, src: SocketAddr, _dst: SocketAddr, msg: Payload) {
+        let (tag, data) = *msg.downcast::<(u64, Payload)>().unwrap();
+        self.mailbox.lock().deliver(Message {
+            tag,
+            data,
+            from: src,
+        });
+    }
+
+    fn new_connection(
+        &self,
+        src: SocketAddr,
+        _dst: SocketAddr,
+        tx: PayloadSender,
+        rx: PayloadReceiver,
+    ) {
+        let _ = self.conn_tx.try_send((tx, rx, src));
     }
 }
 

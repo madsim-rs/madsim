@@ -1,4 +1,4 @@
-use super::Payload;
+use super::{Payload, PayloadReceiver, PayloadSender};
 use crate::{
     rand::*,
     task::{JoinHandle, NodeId},
@@ -56,6 +56,16 @@ pub enum IpProtocol {
 pub trait Socket: Any + Send + Sync {
     /// Deliver a message from other socket.
     fn deliver(&self, _src: SocketAddr, _dst: SocketAddr, _msg: Payload) {}
+
+    /// A new connection request.
+    fn new_connection(
+        &self,
+        _src: SocketAddr,
+        _dst: SocketAddr,
+        _tx: PayloadSender,
+        _rx: PayloadReceiver,
+    ) {
+    }
 }
 
 /// Network configurations.
@@ -277,7 +287,7 @@ impl Network {
         node: NodeId,
         dst: SocketAddr,
         protocol: IpProtocol,
-    ) -> Option<(IpAddr, Arc<dyn Socket>, Duration)> {
+    ) -> Option<(IpAddr, NodeId, Arc<dyn Socket>, Duration)> {
         let dst_node = self.resolve_dest_node(node, dst, protocol)?;
         let latency = self.test_link(node, dst_node)?;
         let sockets = &self.nodes.get(&dst_node)?.sockets;
@@ -288,7 +298,7 @@ impl Network {
         } else {
             self.nodes.get(&node).expect("node not found").ip.unwrap()
         };
-        Some((src_ip, ep.clone(), latency))
+        Some((src_ip, dst_node, ep.clone(), latency))
     }
 
     pub fn abort_task_on_reset(&mut self, node: NodeId, handle: JoinHandle<()>) {

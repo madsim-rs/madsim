@@ -85,6 +85,9 @@ pub struct NetSim {
 /// Message sent to a network socket.
 pub type Payload = Box<dyn Any + Send + Sync>;
 
+type PayloadSender = mpsc::UnboundedSender<Payload>;
+type PayloadReceiver = mpsc::UnboundedReceiver<Payload>;
+
 impl plugin::Simulator for NetSim {
     fn new(_rand: &GlobalRng, _time: &TimeHandle, _config: &crate::Config) -> Self {
         unreachable!()
@@ -183,18 +186,43 @@ impl NetSim {
         protocol: IpProtocol,
         msg: Payload,
     ) -> io::Result<()> {
-        if let Some((ip, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
+        self.rand_delay().await?;
+        if let Some((ip, _, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
             trace!("delay: {latency:?}");
             self.time.add_timer(latency, move || {
                 socket.deliver((ip, port).into(), dst, msg);
             });
-        };
-        self.rand_delay().await?;
+        }
         Ok(())
     }
 
+    /// Opens a new connection to destination.
+    // TODO: rename
+    pub(crate) async fn connect1(
+        self: &Arc<Self>,
+        node: NodeId,
+        port: u16,
+        dst: SocketAddr,
+        protocol: IpProtocol,
+    ) -> io::Result<(PayloadSender, PayloadReceiver, SocketAddr)> {
+        self.rand_delay().await?;
+        let (ip, dst_node, socket, latency) = (self.network.lock().try_send(node, dst, protocol))
+            .ok_or(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            "connection refused",
+        ))?;
+        let src = (ip, port).into();
+        let (tx1, rx1) = self.channel(node, dst, protocol);
+        let (tx2, rx2) = self.channel(dst_node, src, protocol);
+        trace!("delay: {latency:?}");
+        self.time.add_timer(latency, move || {
+            socket.new_connection(src, dst, tx2, rx1);
+        });
+        Ok((tx1, rx2, src))
+    }
+
     /// Create a reliable, ordered channel between two endpoints.
-    pub(crate) fn channel<T: Send + 'static>(
+    fn channel<T: Send + 'static>(
         self: &Arc<Self>,
         node: NodeId,
         dst: SocketAddr,
@@ -210,7 +238,7 @@ impl NetSim {
                 loop {
                     let res = net.network.lock().try_send(node, dst, protocol);
                     match res {
-                        Some((_, _, latency)) => {
+                        Some((_, _, _, latency)) => {
                             net.time.sleep(latency).await;
                             break;
                         }

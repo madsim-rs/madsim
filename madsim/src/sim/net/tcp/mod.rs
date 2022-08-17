@@ -178,42 +178,31 @@ mod tests {
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
         let node1 = runtime.create_node().ip(addr1.ip()).build();
         let node2 = runtime.create_node().ip(addr2.ip()).build();
-        let barrier = Arc::new(Barrier::new(3));
+        let barrier = Arc::new(Barrier::new(2));
         let barrier_ = barrier.clone();
-        let barrier__ = barrier.clone();
 
-        let f1 = node1.spawn(async move {
+        node1.spawn(async move {
             let listener = TcpListener::bind(addr1).await.unwrap();
             barrier.wait().await;
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let (_stream, _) = listener.accept().await.unwrap();
             barrier.wait().await;
-            barrier.wait().await;
-
-            stream.write(b"hello world").await.unwrap();
-            stream.flush().await.expect_err("write should fail");
+            futures::future::pending::<()>().await;
         });
 
         let f2 = node2.spawn(async move {
             barrier_.wait().await;
             let mut stream = TcpStream::connect(addr1).await.unwrap();
             barrier_.wait().await;
-            barrier_.wait().await;
+
+            let net = plugin::simulator::<NetSim>();
+            net.reset_node(node1.id());
 
             let mut buf = [0; 20];
             let len = stream.read(&mut buf).await.expect("read should return EOF");
             assert_eq!(len, 0);
         });
 
-        runtime.block_on(async move {
-            barrier__.wait().await;
-            barrier__.wait().await;
-            let net = plugin::simulator::<NetSim>();
-            net.reset_node(node1.id());
-            barrier__.wait().await;
-
-            f1.await.unwrap();
-            f2.await.unwrap();
-        });
+        runtime.block_on(f2).unwrap();
     }
 
     #[test]
