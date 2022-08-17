@@ -2,7 +2,7 @@
 
 [![Crate](https://img.shields.io/crates/v/madsim.svg)](https://crates.io/crates/madsim)
 [![Docs](https://docs.rs/madsim/badge.svg)](https://docs.rs/madsim)
-[![CI](https://github.com/madsys-dev/madsim/workflows/CI/badge.svg?branch=main)](https://github.com/madsys-dev/madsim/actions)
+[![CI](https://github.com/madsim-rs/madsim/workflows/CI/badge.svg?branch=main)](https://github.com/madsim-rs/madsim/actions)
 
 Magical Deterministic Simulator for distributed systems.
 
@@ -46,8 +46,8 @@ If your dependency graph includes the following crates, replace them by our patc
 
 ```toml
 [patch.crates-io]
-quanta = { git = "https://github.com/madsys-dev/quanta.git", rev = "a819877" }
-getrandom = { git = "https://github.com/madsys-dev/getrandom.git", rev = "cc95ee3" }
+quanta = { git = "https://github.com/madsim-rs/quanta.git", rev = "a819877" }
+getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "cc95ee3" }
 ```
 
 When built normally, these crates are identical to the original ones.
@@ -84,7 +84,7 @@ Your test will be run at least twice with the same seed. If any non-determinism
 
 ## Related Projects
 
-* [MadRaft](https://github.com/madsys-dev/madraft): The labs of Raft consensus algorithm derived from MIT 6.824 and PingCAP Talent Plan.
+* [MadRaft](https://github.com/madsim-rs/madraft): The labs of Raft consensus algorithm derived from MIT 6.824 and PingCAP Talent Plan.
 
 ## License
 
