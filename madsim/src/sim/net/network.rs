@@ -131,12 +131,12 @@ impl Network {
     }
 
     pub fn insert_node(&mut self, id: NodeId) {
-        debug!(?id, "insert_node");
+        debug!(%id, "insert_node");
         self.nodes.insert(id, Default::default());
     }
 
     pub fn reset_node(&mut self, id: NodeId) {
-        debug!(?id, "reset_node");
+        debug!(%id, "reset_node");
         let node = self.nodes.get_mut(&id).expect("node not found");
         // close all sockets
         node.sockets.clear();
@@ -144,7 +144,7 @@ impl Network {
     }
 
     pub fn set_ip(&mut self, id: NodeId, ip: IpAddr) {
-        debug!(?id, ?ip, "set_node_ip");
+        debug!(%id, ?ip, "set_node_ip");
         let node = self.nodes.get_mut(&id).expect("node not found");
         if let Some(old_ip) = node.ip.replace(ip) {
             self.addr_to_node.remove(&old_ip);
@@ -158,13 +158,13 @@ impl Network {
 
     pub fn clog_node(&mut self, id: NodeId) {
         assert!(self.nodes.contains_key(&id));
-        debug!(?id, "clog_node");
+        debug!(%id, "clog_node");
         self.clogged_node.insert(id);
     }
 
     pub fn unclog_node(&mut self, id: NodeId) {
         assert!(self.nodes.contains_key(&id));
-        debug!(?id, "unclog_node");
+        debug!(%id, "unclog_node");
         self.clogged_node.remove(&id);
     }
 
@@ -234,13 +234,13 @@ impl Network {
                 o.insert(socket);
             }
         }
-        debug!(node = ?node_id, ?addr, "bind");
+        debug!(node = %node_id, ?addr, "bind");
         Ok(addr)
     }
 
     /// Close a socket.
     pub fn close(&mut self, node: NodeId, addr: SocketAddr, protocol: IpProtocol) {
-        debug!(?node, ?addr, ?protocol, "close");
+        debug!(%node, ?addr, ?protocol, "close");
         let node = self.nodes.get_mut(&node).expect("node not found");
         node.sockets.remove(&(addr, protocol));
     }

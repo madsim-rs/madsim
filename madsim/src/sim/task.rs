@@ -41,7 +41,7 @@ pub struct NodeId(u64);
 
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Node({})", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -60,6 +60,8 @@ pub(crate) struct TaskInfo {
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
     killed: AtomicBool,
+    /// The span of this node.
+    span: Span,
 }
 
 impl Executor {
@@ -77,6 +79,7 @@ impl Executor {
                     cores: 1,
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
+                    span: error_span!("node", id = %NodeId::zero(), name = "main"),
                 }),
             },
             time: TimeRuntime::new(&rand),
@@ -144,8 +147,10 @@ impl Executor {
                 continue;
             }
             // run the task
+            let _enter = info.span.clone().entered();
             let _guard = crate::context::enter_task(info);
             runnable.run();
+
             // advance time: 50-100ns
             let dur = Duration::from_nanos(self.rand.with(|rng| rng.gen_range(50..100)));
             self.time.advance(dur);
@@ -180,7 +185,7 @@ struct Node {
 impl TaskHandle {
     /// Kill all tasks of the node.
     pub fn kill(&self, id: NodeId) {
-        debug!(?id, "kill");
+        debug!(node = %id, "kill");
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
@@ -190,6 +195,7 @@ impl TaskHandle {
             cores: 1,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
+            span: error_span!(parent: None, "node", %id, name = &node.info.name),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
@@ -198,7 +204,7 @@ impl TaskHandle {
     /// Kill all tasks of the node and restart the initial task.
     pub fn restart(&self, id: NodeId) {
         self.kill(id);
-        debug!(?id, "restart");
+        debug!(node = %id, "restart");
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
@@ -211,7 +217,7 @@ impl TaskHandle {
 
     /// Pause all tasks of the node.
     pub fn pause(&self, id: NodeId) {
-        debug!(?id, "pause");
+        debug!(node = %id, "pause");
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
@@ -219,7 +225,7 @@ impl TaskHandle {
 
     /// Resume the execution of the address.
     pub fn resume(&self, id: NodeId) {
-        debug!(?id, "resume");
+        debug!(node = %id, "resume");
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
@@ -238,10 +244,12 @@ impl TaskHandle {
         cores: Option<usize>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
-        debug!(?id, "create");
+        debug!(node = %id, "create");
+        let name = name.unwrap_or_else(|| format!("node-{}", id.0));
         let info = Arc::new(TaskInfo {
+            span: error_span!(parent: None, "node", %id, name),
             node: id,
-            name: name.unwrap_or_else(|| format!("node-{}", id.0)),
+            name,
             cores: cores.unwrap_or(1),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
@@ -309,7 +317,7 @@ impl TaskNodeHandle {
         F::Output: 'static,
     {
         let id = Id::new();
-        trace!(?id, "spawn task");
+        trace!(%id, "spawn task");
 
         let sender = self.sender.clone();
         let info = self.info.clone();
@@ -317,7 +325,7 @@ impl TaskNodeHandle {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
-                trace!(?id, "wake task");
+                trace!(%id, "wake task");
                 let _ = sender.send((runnable, info.clone()));
             })
         };

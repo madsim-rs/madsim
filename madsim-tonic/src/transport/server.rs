@@ -10,7 +10,6 @@ use std::{
     convert::Infallible,
     future::{pending, Future},
     net::SocketAddr,
-    pin::Pin,
     time::Duration,
 };
 #[cfg(feature = "tls")]
@@ -23,6 +22,7 @@ use tower::{
     layer::util::{Identity, Stack},
     ServiceBuilder,
 };
+use tracing::Instrument;
 
 /// A default batteries included `transport` server.
 #[derive(Clone, Debug)]
@@ -247,14 +247,9 @@ impl<L> Router<L> {
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let mut rsp_future = svc.call((addr, path, requests));
+            let rsp_future = svc.call((addr, path, requests));
             madsim::task::spawn(async move {
-                let mut stream = poll_fn(|cx| {
-                    let _enter = span.enter();
-                    Pin::new(&mut rsp_future).poll(cx)
-                })
-                .await
-                .unwrap();
+                let mut stream = rsp_future.instrument(span).await.unwrap();
                 // send the response
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>

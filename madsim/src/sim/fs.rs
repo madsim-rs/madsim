@@ -32,7 +32,7 @@ impl Simulator for FsSim {
 
     fn create_node(&self, id: NodeId) {
         let mut handles = self.handles.lock();
-        handles.insert(id, FsNodeHandle::new(id));
+        handles.insert(id, FsNodeHandle::new());
     }
 
     fn reset_node(&self, id: NodeId) {
@@ -67,15 +67,12 @@ impl FsSim {
 /// File system simulator for a node.
 #[derive(Clone)]
 struct FsNodeHandle {
-    node: NodeId,
     fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
 
 impl FsNodeHandle {
-    fn new(node: NodeId) -> Self {
-        trace!(?node, "create fs");
+    fn new() -> Self {
         FsNodeHandle {
-            node,
             fs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -86,7 +83,7 @@ impl FsNodeHandle {
 
     async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
-        trace!(node = ?self.node, ?path, "open file");
+        trace!(?path, "open file");
         let fs = self.fs.lock();
         let inode = fs
             .get(path)
@@ -100,7 +97,7 @@ impl FsNodeHandle {
 
     async fn create(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
-        trace!(node = ?self.node, ?path, "create file");
+        trace!(?path, "create file");
         let mut fs = self.fs.lock();
         let inode = fs
             .entry(path.into())
