@@ -27,8 +27,8 @@ DEALINGS IN THE SOFTWARE.
  */
 
 use crate::time::{sleep_until, Duration, Instant, Sleep};
-use futures::future::poll_fn;
-use futures::ready;
+use futures_util::future::poll_fn;
+use futures_util::ready;
 
 use std::pin::Pin;
 use std::task::{Context, Poll};

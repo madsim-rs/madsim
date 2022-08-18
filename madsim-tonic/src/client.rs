@@ -2,6 +2,7 @@
 
 use futures::{pin_mut, Stream, StreamExt};
 use tonic::codegen::http::uri::PathAndQuery;
+use tracing::instrument;
 
 use crate::{codegen::BoxMessage, Request, Response, Status, Streaming};
 
@@ -24,6 +25,7 @@ impl Grpc<crate::transport::Channel> {
     }
 
     /// Send a single unary gRPC request.
+    #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn unary<M1, M2, C>(
         &mut self,
         request: Request<M1>,
@@ -51,6 +53,7 @@ impl Grpc<crate::transport::Channel> {
     }
 
     /// Send a client side streaming gRPC request.
+    #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn client_streaming<M1, M2, C>(
         &mut self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,
@@ -77,6 +80,7 @@ impl Grpc<crate::transport::Channel> {
     }
 
     /// Send a server side streaming gRPC request.
+    #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn server_streaming<M1, M2, C>(
         &mut self,
         request: Request<M1>,
@@ -97,6 +101,7 @@ impl Grpc<crate::transport::Channel> {
     }
 
     /// Send a bi-directional streaming gRPC request.
+    #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn streaming<M1, M2, C>(
         &mut self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,

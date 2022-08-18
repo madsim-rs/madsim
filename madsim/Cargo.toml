@@ -22,14 +22,14 @@ erpc = ["rpc"] # "mad_rpc"
 [dependencies]
 bincode = { version = "1", optional = true }
 bytes = "1"
-env_logger = "0.9"
-futures = "0.3"
+futures-util = "0.3"
 lazy_static = "1.4"
-log = "0.4"
 madsim-macros = { version = "0.2", path = "../madsim-macros", optional = true }
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
 spin = "0.9"
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [target.'cfg(madsim)'.dependencies]
 ahash = "0.7"
@@ -38,7 +38,7 @@ async-channel = "1.6"
 downcast-rs = "1.2"
 libc = "0.2"
 naive-timer = "0.2"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 toml = "0.5"
 
 [target.'cfg(not(madsim))'.dependencies]

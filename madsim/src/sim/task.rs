@@ -22,6 +22,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+use tracing::*;
 
 pub use tokio::task::yield_now;
 
@@ -40,7 +41,7 @@ pub struct NodeId(u64);
 
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Node({})", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -51,7 +52,14 @@ impl NodeId {
 }
 
 pub(crate) struct TaskInfo {
-    pub node: NodeId,
+    pub id: Id,
+    pub node: Arc<NodeInfo>,
+    /// The span of this task.
+    span: Span,
+}
+
+pub(crate) struct NodeInfo {
+    pub id: NodeId,
     pub name: String,
     /// The number of CPU cores.
     pub cores: usize,
@@ -59,6 +67,19 @@ pub(crate) struct TaskInfo {
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
     killed: AtomicBool,
+    /// The span of this node.
+    span: Span,
+}
+
+impl NodeInfo {
+    fn new_task(self: &Arc<Self>) -> Arc<TaskInfo> {
+        let id = Id::new();
+        Arc::new(TaskInfo {
+            id,
+            node: self.clone(),
+            span: error_span!(parent: &self.span, "task", %id),
+        })
+    }
 }
 
 impl Executor {
@@ -70,12 +91,13 @@ impl Executor {
                 nodes: Arc::new(Mutex::new(HashMap::new())),
                 sender,
                 next_node_id: Arc::new(AtomicU64::new(1)),
-                main_info: Arc::new(TaskInfo {
-                    node: NodeId::zero(),
+                main_info: Arc::new(NodeInfo {
+                    id: NodeId::zero(),
                     name: "main".into(),
                     cores: 1,
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
+                    span: error_span!("node", id = %NodeId::zero(), name = "main"),
                 }),
             },
             time: TimeRuntime::new(&rand),
@@ -99,7 +121,7 @@ impl Executor {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
-        let info = self.handle.main_info.clone();
+        let info = self.handle.main_info.new_task();
         let (runnable, mut task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
@@ -133,18 +155,24 @@ impl Executor {
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
         while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
-            if info.killed.load(Ordering::SeqCst) {
+            if info.node.killed.load(Ordering::SeqCst) {
                 // killed task: ignore
                 continue;
-            } else if info.paused.load(Ordering::SeqCst) {
+            } else if info.node.paused.load(Ordering::SeqCst) {
                 // paused task: push to waiting list
                 let mut nodes = self.nodes.lock();
-                nodes.get_mut(&info.node).unwrap().paused.push(runnable);
+                nodes
+                    .get_mut(&info.node.id)
+                    .unwrap()
+                    .paused
+                    .push((runnable, info));
                 continue;
             }
             // run the task
+            let _enter = info.span.clone().entered();
             let _guard = crate::context::enter_task(info);
             runnable.run();
+
             // advance time: 50-100ns
             let dur = Duration::from_nanos(self.rand.with(|rng| rng.gen_range(50..100)));
             self.time.advance(dur);
@@ -165,13 +193,13 @@ pub(crate) struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
-    /// Task info of the main node.
-    main_info: Arc<TaskInfo>,
+    /// Info of the main node.
+    main_info: Arc<NodeInfo>,
 }
 
 struct Node {
-    info: Arc<TaskInfo>,
-    paused: Vec<Runnable>,
+    info: Arc<NodeInfo>,
+    paused: Vec<(Runnable, Arc<TaskInfo>)>,
     /// A function to spawn the initial task.
     init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
 }
@@ -179,16 +207,17 @@ struct Node {
 impl TaskHandle {
     /// Kill all tasks of the node.
     pub fn kill(&self, id: NodeId) {
-        log::debug!("kill {}", id);
+        debug!(node = %id, "kill");
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
-        let new_info = Arc::new(TaskInfo {
-            node: id,
+        let new_info = Arc::new(NodeInfo {
+            id,
             name: node.info.name.clone(),
             cores: 1,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
+            span: error_span!(parent: None, "node", %id, name = &node.info.name),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
@@ -197,7 +226,7 @@ impl TaskHandle {
     /// Kill all tasks of the node and restart the initial task.
     pub fn restart(&self, id: NodeId) {
         self.kill(id);
-        log::debug!("restart {}", id);
+        debug!(node = %id, "restart");
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
@@ -210,7 +239,7 @@ impl TaskHandle {
 
     /// Pause all tasks of the node.
     pub fn pause(&self, id: NodeId) {
-        log::debug!("pause {}", id);
+        debug!(node = %id, "pause");
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
@@ -218,14 +247,14 @@ impl TaskHandle {
 
     /// Resume the execution of the address.
     pub fn resume(&self, id: NodeId) {
-        log::debug!("resume {}", id);
+        debug!(node = %id, "resume");
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
 
         // take paused tasks from waiting list and push them to ready queue
-        for runnable in node.paused.drain(..) {
-            self.sender.send((runnable, node.info.clone())).unwrap();
+        for (runnable, info) in node.paused.drain(..) {
+            self.sender.send((runnable, info)).unwrap();
         }
     }
 
@@ -237,10 +266,12 @@ impl TaskHandle {
         cores: Option<usize>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
-        log::debug!("create {}", id);
-        let info = Arc::new(TaskInfo {
-            node: id,
-            name: name.unwrap_or_else(|| format!("node-{}", id.0)),
+        debug!(node = %id, "create");
+        let name = name.unwrap_or_else(|| format!("node-{}", id.0));
+        let info = Arc::new(NodeInfo {
+            span: error_span!(parent: None, "node", %id, name),
+            id,
+            name,
             cores: cores.unwrap_or(1),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
@@ -278,18 +309,21 @@ impl TaskHandle {
 #[derive(Clone)]
 pub struct TaskNodeHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
-    info: Arc<TaskInfo>,
+    info: Arc<NodeInfo>,
 }
 
 impl TaskNodeHandle {
     fn current() -> Self {
         let info = crate::context::current_task();
         let sender = crate::context::current(|h| h.task.sender.clone());
-        TaskNodeHandle { sender, info }
+        TaskNodeHandle {
+            sender,
+            info: info.node.clone(),
+        }
     }
 
     pub(crate) fn id(&self) -> NodeId {
-        self.info.node
+        self.info.id
     }
 
     /// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
@@ -307,16 +341,16 @@ impl TaskNodeHandle {
         F: Future + 'static,
         F::Output: 'static,
     {
-        let id = Id::new();
-        log::trace!("spawn task {}", id);
-
         let sender = self.sender.clone();
-        let info = self.info.clone();
+        let info = self.info.new_task();
+        let id = info.id;
+        trace!(%id, "spawn task");
+
         let (runnable, task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
-                log::trace!("wake task {}", id);
+                trace!(%id, "wake task");
                 let _ = sender.send((runnable, info.clone()));
             })
         };
@@ -482,8 +516,8 @@ unsafe extern "C" fn sched_getaffinity(
 ) -> libc::c_int {
     if let Some(info) = crate::context::try_current_task() {
         assert_eq!(cpusetsize, std::mem::size_of::<libc::cpu_set_t>());
-        assert!(cpusetsize * 8 >= info.cores as _);
-        for i in 0..info.cores {
+        assert!(cpusetsize * 8 >= info.node.cores as _);
+        for i in 0..info.node.cores {
             libc::CPU_SET(i, &mut *cpuset);
         }
         return 0;
@@ -510,7 +544,7 @@ unsafe extern "C" fn sched_getaffinity(
 unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
     if name == libc::_SC_NPROCESSORS_ONLN {
         if let Some(info) = crate::context::try_current_task() {
-            return info.cores as _;
+            return info.node.cores as _;
         }
     }
     lazy_static::lazy_static! {
@@ -669,7 +703,7 @@ mod tests {
                     }));
                 }
                 drop(tx);
-                futures::future::join_all(tasks).await;
+                futures_util::future::join_all(tasks).await;
                 rx.into_iter().collect::<Vec<_>>()
             });
             seqs.insert(seq);

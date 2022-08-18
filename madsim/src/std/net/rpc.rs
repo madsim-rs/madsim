@@ -58,7 +58,7 @@ use super::*;
 use bytes::Buf;
 #[doc(no_inline)]
 pub use bytes::Bytes;
-use futures::FutureExt;
+use futures_util::FutureExt;
 use rand::Rng;
 #[doc(no_inline)]
 pub use serde::{de::DeserializeOwned, Deserialize, Serialize};

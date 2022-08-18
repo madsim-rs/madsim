@@ -3,7 +3,7 @@
 //!
 
 use crate::rand::{GlobalRng, Rng};
-use futures::{select_biased, FutureExt};
+use futures_util::{select_biased, FutureExt};
 use naive_timer::Timer;
 use spin::Mutex;
 #[doc(no_inline)]

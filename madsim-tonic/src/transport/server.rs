@@ -22,6 +22,7 @@ use tower::{
     layer::util::{Identity, Stack},
     ServiceBuilder,
 };
+use tracing::*;
 
 /// A default batteries included `transport` server.
 #[derive(Clone, Debug)]
@@ -68,7 +69,7 @@ impl<L> Server<L> {
 
     /// Set the Tower Layer all services will be wrapped in.
     pub fn layer<NewLayer>(self, new_layer: NewLayer) -> Server<Stack<NewLayer, L>> {
-        log::warn!("layer is unimplemented and ignored");
+        tracing::warn!("layer is unimplemented and ignored");
         Server {
             builder: self.builder.layer(new_layer),
         }
@@ -206,6 +207,7 @@ impl<L> Router<L> {
 
     /// Consume this [`Server`] creating a future that will execute the server
     /// on default executor. And shutdown when the provided signal is received.
+    #[instrument(name = "server", skip(self, signal))]
     pub async fn serve_with_shutdown(
         mut self,
         addr: SocketAddr,
@@ -215,7 +217,7 @@ impl<L> Router<L> {
         let mut signal = Box::pin(signal).fuse();
         loop {
             // receive a request
-            let (tx, mut rx, from) = select_biased! {
+            let (tx, mut rx, addr) = select_biased! {
                 ret = ep.accept1().fuse() => ret.map_err(Error::from_source)?,
                 _ = &mut signal => return Ok(()),
             };
@@ -226,7 +228,8 @@ impl<L> Router<L> {
             let (path, msg) = *msg
                 .downcast::<(PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
-            log::debug!("request: {path} <- {from}");
+            let span = debug_span!("request", ?addr, ?path);
+            debug!(parent: &span, "received request");
 
             let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
                 // single request
@@ -246,9 +249,9 @@ impl<L> Router<L> {
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let rsp_future = svc.call((from, path, requests));
+            let rsp_future = svc.call((addr, path, requests));
             madsim::task::spawn(async move {
-                let mut stream = rsp_future.await.unwrap();
+                let mut stream = rsp_future.instrument(span).await.unwrap();
                 // send the response
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>

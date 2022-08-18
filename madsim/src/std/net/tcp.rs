@@ -2,8 +2,7 @@
 
 use crate::task;
 use bytes::{Buf, Bytes};
-use futures::StreamExt;
-use log::*;
+use futures_util::StreamExt;
 use std::{
     collections::{hash_map::Entry, HashMap},
     io::{self, IoSlice},
@@ -16,6 +15,7 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
+use tracing::*;
 
 /// An endpoint.
 pub struct Endpoint {
@@ -130,7 +130,7 @@ impl Inner {
                     Err(_) => break,
                 };
                 let tag = frame.get_u64();
-                debug!("recv: {addr} <- {peer}, tag={tag}, len={}", frame.len());
+                debug!(?addr, ?peer, tag, len = frame.len(), "recv");
                 if let Some(inner) = inner.upgrade() {
                     inner.mailbox.lock().unwrap().deliver(RecvMsg {
                         tag,
@@ -144,7 +144,7 @@ impl Inner {
             // NOTE: now the tcp connection is closed by remote.
             //       We need to abort the sender task to close the connection cleanly.
             sender_task.abort();
-            debug!("close connection: {addr} -> {peer}");
+            debug!(?addr, ?peer, "close connection");
             if let Some(inner) = inner.upgrade() {
                 inner.sender.write().unwrap().remove(&peer);
             }

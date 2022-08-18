@@ -64,7 +64,7 @@ use super::*;
 use crate::rand::random;
 #[doc(no_inline)]
 pub use bytes::Bytes;
-use futures::FutureExt;
+use futures_util::FutureExt;
 #[doc(no_inline)]
 pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{any::Any, future::Future};

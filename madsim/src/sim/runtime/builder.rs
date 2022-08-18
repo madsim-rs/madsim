@@ -1,5 +1,5 @@
 use super::{Config, Runtime};
-use futures::StreamExt;
+use futures_util::{stream, StreamExt};
 use std::future::Future;
 use std::time::{Duration, SystemTime};
 
@@ -115,7 +115,7 @@ impl Builder {
         if self.check {
             return Runtime::check_determinism(self.seed, self.config, f);
         }
-        let stream = futures::stream::iter(self.seed..self.seed + self.count)
+        let mut stream = stream::iter(self.seed..self.seed + self.count)
             .map(|seed| {
                 let config = self.config.clone();
                 async move {
@@ -134,8 +134,11 @@ impl Builder {
                 }
             })
             .buffer_unordered(self.jobs as usize);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let mut return_value = None;
-        for (seed, res) in futures::executor::block_on_stream(stream) {
+        while let Some((seed, res)) = rt.block_on(stream.next()) {
             match res {
                 Ok(ret) => return_value = Some(ret),
                 Err(e) => super::panic_with_info(seed, self.config.hash(), e),

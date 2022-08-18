@@ -186,7 +186,7 @@ mod tests {
             barrier.wait().await;
             let (_stream, _) = listener.accept().await.unwrap();
             barrier.wait().await;
-            futures::future::pending::<()>().await;
+            std::future::pending::<()>().await;
         });
 
         let f2 = node2.spawn(async move {

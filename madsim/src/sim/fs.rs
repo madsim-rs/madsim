@@ -1,13 +1,14 @@
 //! Asynchronous file system.
 
-use log::*;
 use spin::{Mutex, RwLock};
 use std::{
     collections::HashMap,
+    fmt,
     io::{Error, ErrorKind, Result},
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tracing::*;
 
 use crate::{
     plugin::{node, simulator, Simulator},
@@ -31,7 +32,7 @@ impl Simulator for FsSim {
 
     fn create_node(&self, id: NodeId) {
         let mut handles = self.handles.lock();
-        handles.insert(id, FsNodeHandle::new(id));
+        handles.insert(id, FsNodeHandle::new());
     }
 
     fn reset_node(&self, id: NodeId) {
@@ -66,15 +67,12 @@ impl FsSim {
 /// File system simulator for a node.
 #[derive(Clone)]
 struct FsNodeHandle {
-    node: NodeId,
     fs: Arc<Mutex<HashMap<PathBuf, Arc<INode>>>>,
 }
 
 impl FsNodeHandle {
-    fn new(node: NodeId) -> Self {
-        trace!("fs: new at {}", node);
+    fn new() -> Self {
         FsNodeHandle {
-            node,
             fs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -85,7 +83,7 @@ impl FsNodeHandle {
 
     async fn open(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
-        trace!("fs({}): open at {:?}", self.node, path);
+        trace!(?path, "open file");
         let fs = self.fs.lock();
         let inode = fs
             .get(path)
@@ -99,7 +97,7 @@ impl FsNodeHandle {
 
     async fn create(&self, path: impl AsRef<Path>) -> Result<File> {
         let path = path.as_ref();
-        trace!("fs({}): create at {:?}", self.node, path);
+        trace!(?path, "create file");
         let mut fs = self.fs.lock();
         let inode = fs
             .entry(path.into())
@@ -152,6 +150,14 @@ pub struct File {
     can_write: bool,
 }
 
+impl fmt::Debug for File {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("File")
+            .field("path", &self.inode.path)
+            .finish()
+    }
+}
+
 impl File {
     /// Attempts to open a file in read-only mode.
     pub async fn open(path: impl AsRef<Path>) -> Result<File> {
@@ -168,13 +174,8 @@ impl File {
     }
 
     /// Reads a number of bytes starting from a given offset.
+    #[instrument(skip(buf), fields(len = buf.len()))]
     pub async fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize> {
-        trace!(
-            "file({:?}): read_at: offset={}, len={}",
-            self.inode.path,
-            offset,
-            buf.len()
-        );
         let data = self.inode.data.read();
         let end = data.len().min(offset as usize + buf.len());
         let len = end - offset as usize;
@@ -184,13 +185,8 @@ impl File {
     }
 
     /// Attempts to write an entire buffer starting from a given offset.
+    #[instrument(skip(buf), fields(len = buf.len()))]
     pub async fn write_all_at(&self, buf: &[u8], offset: u64) -> Result<()> {
-        trace!(
-            "file({:?}): write_all_at: offset={}, len={}",
-            self.inode.path,
-            offset,
-            buf.len()
-        );
         if !self.can_write {
             return Err(Error::new(
                 ErrorKind::PermissionDenied,
@@ -210,8 +206,8 @@ impl File {
     }
 
     /// Truncates or extends the underlying file, updating the size of this file to become `size`.
+    #[instrument]
     pub async fn set_len(&self, size: u64) -> Result<()> {
-        trace!("file({:?}): set_len={}", self.inode.path, size);
         let mut data = self.inode.data.write();
         data.resize(size as usize, 0);
         // TODO: random delay
@@ -219,13 +215,14 @@ impl File {
     }
 
     /// Attempts to sync all OS-internal metadata to disk.
+    #[instrument]
     pub async fn sync_all(&self) -> Result<()> {
-        trace!("file({:?}): sync_all", self.inode.path);
         // TODO: random delay
         Ok(())
     }
 
     /// Queries metadata about the underlying file.
+    #[instrument]
     pub async fn metadata(&self) -> Result<Metadata> {
         Ok(self.inode.metadata())
     }

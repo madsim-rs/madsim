@@ -1,4 +1,5 @@
 use std::{fmt, io, net::SocketAddr, sync::Arc};
+use tracing::instrument;
 
 use crate::net::{IpProtocol::Tcp, *};
 
@@ -30,6 +31,7 @@ impl TcpListener {
     /// the last attempt (the last address) is returned.
     ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
+    #[instrument]
     pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
         // TODO: simulate backlog
         let (tx, rx) = async_channel::unbounded();
@@ -48,13 +50,14 @@ impl TcpListener {
     /// address will be returned.
     ///
     /// [`TcpStream`]: struct@crate::net::TcpStream
+    #[instrument]
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         self.guard.net.rand_delay().await?;
 
         let mut stream = (self.rx.recv().await)
             .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
         let peer_addr = stream.peer;
-        trace!("accept tcp from {}", peer_addr);
+        trace!(?peer_addr, "accept tcp connection");
 
         stream.guard = Some(self.guard.clone());
         Ok((stream, peer_addr))

@@ -64,7 +64,7 @@ impl GlobalRng {
         // XXX: call this function to make sure it won't be gc.
         unsafe { getentropy(std::ptr::null_mut(), 0) };
         if !init_std_random_state(seed) {
-            log::warn!(
+            tracing::warn!(
                 "failed to initialize std random state, std HashMap will not be deterministic"
             );
         }

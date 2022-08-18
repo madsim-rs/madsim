@@ -35,7 +35,6 @@
 //! runtime.block_on(f);
 //! ```
 
-use log::*;
 use spin::Mutex;
 use std::{
     any::Any,
@@ -44,6 +43,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::{mpsc, oneshot};
+use tracing::*;
 
 use crate::{
     plugin,
@@ -188,7 +188,7 @@ impl NetSim {
     ) -> io::Result<()> {
         self.rand_delay().await?;
         if let Some((ip, _, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
-            trace!("delay: {latency:?}");
+            trace!(?latency, "delay");
             self.time.add_timer(latency, move || {
                 socket.deliver((ip, port).into(), dst, msg);
             });
@@ -214,7 +214,7 @@ impl NetSim {
         let src = (ip, port).into();
         let (tx1, rx1) = self.channel(node, dst, protocol);
         let (tx2, rx2) = self.channel(dst_node, src, protocol);
-        trace!("delay: {latency:?}");
+        trace!(?latency, "delay");
         self.time.add_timer(latency, move || {
             socket.new_connection(src, dst, tx2, rx1);
         });

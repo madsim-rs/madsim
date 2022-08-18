@@ -21,6 +21,6 @@ tonic = "0.8"
 [target.'cfg(madsim)'.dependencies]
 async-stream = "0.3"
 futures = "0.3"
-log = "0.4"
 madsim = { version = "0.2", path = "../madsim" }
 tower = "0.4"
+tracing = "0.1"
