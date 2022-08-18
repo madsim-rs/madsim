@@ -52,7 +52,14 @@ impl NodeId {
 }
 
 pub(crate) struct TaskInfo {
-    pub node: NodeId,
+    pub id: Id,
+    pub node: Arc<NodeInfo>,
+    /// The span of this task.
+    span: Span,
+}
+
+pub(crate) struct NodeInfo {
+    pub id: NodeId,
     pub name: String,
     /// The number of CPU cores.
     pub cores: usize,
@@ -64,6 +71,17 @@ pub(crate) struct TaskInfo {
     span: Span,
 }
 
+impl NodeInfo {
+    fn new_task(self: &Arc<Self>) -> Arc<TaskInfo> {
+        let id = Id::new();
+        Arc::new(TaskInfo {
+            id,
+            node: self.clone(),
+            span: error_span!(parent: &self.span, "task", %id),
+        })
+    }
+}
+
 impl Executor {
     pub fn new(rand: GlobalRng) -> Self {
         let (sender, queue) = mpsc::channel();
@@ -73,8 +91,8 @@ impl Executor {
                 nodes: Arc::new(Mutex::new(HashMap::new())),
                 sender,
                 next_node_id: Arc::new(AtomicU64::new(1)),
-                main_info: Arc::new(TaskInfo {
-                    node: NodeId::zero(),
+                main_info: Arc::new(NodeInfo {
+                    id: NodeId::zero(),
                     name: "main".into(),
                     cores: 1,
                     paused: AtomicBool::new(false),
@@ -103,7 +121,7 @@ impl Executor {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
-        let info = self.handle.main_info.clone();
+        let info = self.handle.main_info.new_task();
         let (runnable, mut task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
@@ -137,13 +155,17 @@ impl Executor {
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
         while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
-            if info.killed.load(Ordering::SeqCst) {
+            if info.node.killed.load(Ordering::SeqCst) {
                 // killed task: ignore
                 continue;
-            } else if info.paused.load(Ordering::SeqCst) {
+            } else if info.node.paused.load(Ordering::SeqCst) {
                 // paused task: push to waiting list
                 let mut nodes = self.nodes.lock();
-                nodes.get_mut(&info.node).unwrap().paused.push(runnable);
+                nodes
+                    .get_mut(&info.node.id)
+                    .unwrap()
+                    .paused
+                    .push((runnable, info));
                 continue;
             }
             // run the task
@@ -171,13 +193,13 @@ pub(crate) struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
-    /// Task info of the main node.
-    main_info: Arc<TaskInfo>,
+    /// Info of the main node.
+    main_info: Arc<NodeInfo>,
 }
 
 struct Node {
-    info: Arc<TaskInfo>,
-    paused: Vec<Runnable>,
+    info: Arc<NodeInfo>,
+    paused: Vec<(Runnable, Arc<TaskInfo>)>,
     /// A function to spawn the initial task.
     init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
 }
@@ -189,8 +211,8 @@ impl TaskHandle {
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
-        let new_info = Arc::new(TaskInfo {
-            node: id,
+        let new_info = Arc::new(NodeInfo {
+            id,
             name: node.info.name.clone(),
             cores: 1,
             paused: AtomicBool::new(false),
@@ -231,8 +253,8 @@ impl TaskHandle {
         node.info.paused.store(false, Ordering::SeqCst);
 
         // take paused tasks from waiting list and push them to ready queue
-        for runnable in node.paused.drain(..) {
-            self.sender.send((runnable, node.info.clone())).unwrap();
+        for (runnable, info) in node.paused.drain(..) {
+            self.sender.send((runnable, info)).unwrap();
         }
     }
 
@@ -246,9 +268,9 @@ impl TaskHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
         debug!(node = %id, "create");
         let name = name.unwrap_or_else(|| format!("node-{}", id.0));
-        let info = Arc::new(TaskInfo {
+        let info = Arc::new(NodeInfo {
             span: error_span!(parent: None, "node", %id, name),
-            node: id,
+            id,
             name,
             cores: cores.unwrap_or(1),
             paused: AtomicBool::new(false),
@@ -287,18 +309,21 @@ impl TaskHandle {
 #[derive(Clone)]
 pub struct TaskNodeHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
-    info: Arc<TaskInfo>,
+    info: Arc<NodeInfo>,
 }
 
 impl TaskNodeHandle {
     fn current() -> Self {
         let info = crate::context::current_task();
         let sender = crate::context::current(|h| h.task.sender.clone());
-        TaskNodeHandle { sender, info }
+        TaskNodeHandle {
+            sender,
+            info: info.node.clone(),
+        }
     }
 
     pub(crate) fn id(&self) -> NodeId {
-        self.info.node
+        self.info.id
     }
 
     /// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
@@ -316,11 +341,11 @@ impl TaskNodeHandle {
         F: Future + 'static,
         F::Output: 'static,
     {
-        let id = Id::new();
+        let sender = self.sender.clone();
+        let info = self.info.new_task();
+        let id = info.id;
         trace!(%id, "spawn task");
 
-        let sender = self.sender.clone();
-        let info = self.info.clone();
         let (runnable, task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
@@ -491,8 +516,8 @@ unsafe extern "C" fn sched_getaffinity(
 ) -> libc::c_int {
     if let Some(info) = crate::context::try_current_task() {
         assert_eq!(cpusetsize, std::mem::size_of::<libc::cpu_set_t>());
-        assert!(cpusetsize * 8 >= info.cores as _);
-        for i in 0..info.cores {
+        assert!(cpusetsize * 8 >= info.node.cores as _);
+        for i in 0..info.node.cores {
             libc::CPU_SET(i, &mut *cpuset);
         }
         return 0;
@@ -519,7 +544,7 @@ unsafe extern "C" fn sched_getaffinity(
 unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
     if name == libc::_SC_NPROCESSORS_ONLN {
         if let Some(info) = crate::context::try_current_task() {
-            return info.cores as _;
+            return info.node.cores as _;
         }
     }
     lazy_static::lazy_static! {
