@@ -22,7 +22,7 @@ use tower::{
     layer::util::{Identity, Stack},
     ServiceBuilder,
 };
-use tracing::Instrument;
+use tracing::*;
 
 /// A default batteries included `transport` server.
 #[derive(Clone, Debug)]
@@ -207,6 +207,7 @@ impl<L> Router<L> {
 
     /// Consume this [`Server`] creating a future that will execute the server
     /// on default executor. And shutdown when the provided signal is received.
+    #[instrument(name = "server", skip(self, signal))]
     pub async fn serve_with_shutdown(
         mut self,
         addr: SocketAddr,
@@ -227,7 +228,8 @@ impl<L> Router<L> {
             let (path, msg) = *msg
                 .downcast::<(PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
-            let span = tracing::debug_span!("rpc handler", ?addr, ?path);
+            let span = debug_span!("request", ?addr, ?path);
+            debug!(parent: &span, "received request");
 
             let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
                 // single request
