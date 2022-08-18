@@ -1,41 +1,34 @@
 //! Server implementation and builder.
 
-use super::Error;
+use super::{Error, NamedService};
 use crate::codegen::{BoxMessage, BoxMessageStream};
+use crate::tower::layer::util::{Identity, Stack};
 use async_stream::try_stream;
-use futures::{future::poll_fn, select_biased, FutureExt, StreamExt};
+use futures_util::{future::poll_fn, select_biased, FutureExt, StreamExt};
 use madsim::net::Endpoint;
 use std::{
     collections::HashMap,
     convert::Infallible,
     future::{pending, Future},
+    marker::PhantomData,
     net::SocketAddr,
     time::Duration,
 };
+use tonic::codegen::{http::uri::PathAndQuery, BoxFuture, Service};
 #[cfg(feature = "tls")]
 use tonic::transport::ServerTlsConfig;
-use tonic::{
-    codegen::{http::uri::PathAndQuery, BoxFuture, Service},
-    transport::NamedService,
-};
-use tower::{
-    layer::util::{Identity, Stack},
-    ServiceBuilder,
-};
 use tracing::*;
 
 /// A default batteries included `transport` server.
 #[derive(Clone, Debug)]
 pub struct Server<L = Identity> {
-    builder: ServiceBuilder<L>,
+    _mark: PhantomData<L>,
 }
 
 #[allow(clippy::derivable_impls)]
 impl Default for Server {
     fn default() -> Self {
-        Self {
-            builder: Default::default(),
-        }
+        Self { _mark: PhantomData }
     }
 }
 
@@ -68,11 +61,9 @@ impl<L> Server<L> {
     }
 
     /// Set the Tower Layer all services will be wrapped in.
-    pub fn layer<NewLayer>(self, new_layer: NewLayer) -> Server<Stack<NewLayer, L>> {
+    pub fn layer<NewLayer>(self, _new_layer: NewLayer) -> Server<Stack<NewLayer, L>> {
         tracing::warn!("layer is unimplemented and ignored");
-        Server {
-            builder: self.builder.layer(new_layer),
-        }
+        Server { _mark: PhantomData }
     }
 
     /// Configure TLS for this server.
@@ -233,7 +224,7 @@ impl<L> Router<L> {
 
             let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
                 // single request
-                futures::stream::once(async move { Ok(msg) }).boxed()
+                futures_util::stream::once(async move { Ok(msg) }).boxed()
             } else {
                 // request stream
                 try_stream! {

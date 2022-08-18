@@ -1,6 +1,6 @@
 use crate::{codegen::BoxMessage, Status};
 use async_stream::try_stream;
-use futures::{Stream, StreamExt};
+use futures_util::{Stream, StreamExt};
 use madsim::task::JoinHandle;
 use std::{
     fmt,
