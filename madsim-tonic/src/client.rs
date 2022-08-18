@@ -1,6 +1,6 @@
 //! Generic client implementation.
 
-use futures::{pin_mut, Stream, StreamExt};
+use futures_util::{pin_mut, Stream, StreamExt};
 use tonic::codegen::http::uri::PathAndQuery;
 use tracing::instrument;
 

@@ -15,12 +15,12 @@ license = "Apache-2.0"
 [features]
 tls = ["tonic/tls"]
 
-[dependencies]
+[target.'cfg(not(madsim))'.dependencies]
 tonic = "0.8"
 
 [target.'cfg(madsim)'.dependencies]
 async-stream = "0.3"
-futures = "0.3"
+futures-util = "0.3"
 madsim = { version = "0.2", path = "../madsim" }
-tower = "0.4"
 tracing = "0.1"
+tonic = { version = "0.8", default-features = false, features = ["codegen"] }

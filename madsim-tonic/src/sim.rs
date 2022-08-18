@@ -12,6 +12,7 @@ macro_rules! include_proto {
 
 pub mod client;
 pub mod codec;
+pub(crate) mod tower;
 pub mod transport;
 
 /// Codegen exports used by `madsim-tonic-build`.
@@ -19,7 +20,7 @@ pub mod codegen {
     use std::any::Any;
     pub use std::net::SocketAddr;
 
-    pub use futures;
+    pub use futures_util as futures;
     pub use tonic::codegen::*;
 
     /// A type-erased message.
