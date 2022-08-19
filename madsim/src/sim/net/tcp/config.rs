@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// tcp configurations.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 pub struct TcpConfig {}
 
 #[allow(clippy::derive_hash_xor_eq)]

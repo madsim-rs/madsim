@@ -284,7 +284,7 @@ pub struct NodeBuilder<'a> {
     name: Option<String>,
     ip: Option<IpAddr>,
     cores: Option<usize>,
-    init: Option<Arc<dyn Fn(&task::TaskNodeHandle)>>,
+    init: Option<task::InitFn>,
 }
 
 impl<'a> NodeBuilder<'a> {

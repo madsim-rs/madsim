@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2022-08-19
+
+### Added
+
+- madsim: Add basic `net::UdpSocket`.
+
+### Changed
+
+- madsim: Refactor network simulator with a new connection primitive.
+- madsim: Migrate logging facility to `tracing`. Replace `env_logger` with `tracing-subscriber`.
+- madsim: Migrate std lock to spin lock.
+- tonic: Reduce dependencies in simulation build.
+
+### Fixed
+
+- madsim: Fix the address of `TcpStream` accepted from `TcpListener`.
+- madsim: Fix the socket address space. A TCP and a UDP sockets can have the same address in a node.
+- tonic: Close the stream when the connection is broken.
+
 ## [0.2.0] - 2022-08-10
 
 ### Added

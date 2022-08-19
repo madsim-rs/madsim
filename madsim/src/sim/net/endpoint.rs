@@ -223,10 +223,8 @@ impl Sender {
 impl Receiver {
     #[doc(hidden)]
     pub async fn recv(&mut self) -> io::Result<Payload> {
-        (self.rx.recv().await).ok_or(io::Error::new(
-            io::ErrorKind::ConnectionReset,
-            "connection reset",
-        ))
+        (self.rx.recv().await)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
     }
 }
 

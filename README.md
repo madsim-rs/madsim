@@ -2,7 +2,7 @@
 
 [![Crate](https://img.shields.io/crates/v/madsim.svg)](https://crates.io/crates/madsim)
 [![Docs](https://docs.rs/madsim/badge.svg)](https://docs.rs/madsim)
-[![CI](https://github.com/madsys-dev/madsim/workflows/CI/badge.svg?branch=main)](https://github.com/madsys-dev/madsim/actions)
+[![CI](https://github.com/madsim-rs/madsim/workflows/CI/badge.svg?branch=main)](https://github.com/madsim-rs/madsim/actions)
 
 Magical Deterministic Simulator for distributed systems.
 
@@ -46,8 +46,8 @@ If your dependency graph includes the following crates, replace them by our patc
 
 ```toml
 [patch.crates-io]
-quanta = { git = "https://github.com/madsys-dev/quanta.git", rev = "a819877" }
-getrandom = { git = "https://github.com/madsys-dev/getrandom.git", rev = "cc95ee3" }
+quanta = { git = "https://github.com/madsim-rs/quanta.git", rev = "a819877" }
+getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "cc95ee3" }
 ```
 
 When built normally, these crates are identical to the original ones.
@@ -61,18 +61,11 @@ RUSTFLAGS="--cfg madsim" cargo test
 Now you have gotten rid of tokio/tonic and you are in the simulation world!
 
 We provide a set of APIs to control the simulator. You can use them to kill a process, disconnect the network, inject failures, etc.
-Check out the [documentation](https://docs.rs/madsim) and search for the `sim` feature to learn more usages.
+Check out the [documentation](https://docs.rs/madsim) and search for the `madsim` feature to learn more usages.
 
 ### Ensure determinism
 
 Developers should eliminate any randomness in the application code. That's not easy.
-
-Here are some tips to avoid randomness:
-
-* Use [`futures::select_biased`][select_biased] instead of [`futures::select`][select] macro.
-
-[select_biased]: https://docs.rs/futures/0.3.21/futures/macro.select_biased.html
-[select]: https://docs.rs/futures/0.3.21/futures/macro.select.html
 
 To make sure your code is deterministic, run your test with the following environment variable:
 
@@ -84,7 +77,7 @@ Your test will be run at least twice with the same seed. If any non-determinism
 
 ## Related Projects
 
-* [MadRaft](https://github.com/madsys-dev/madraft): The labs of Raft consensus algorithm derived from MIT 6.824 and PingCAP Talent Plan.
+* [MadRaft](https://github.com/madsim-rs/madraft): The labs of Raft consensus algorithm derived from MIT 6.824 and PingCAP Talent Plan.
 
 ## License
 

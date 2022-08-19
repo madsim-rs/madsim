@@ -1,12 +1,12 @@
 [package]
 name = "madsim"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
 readme = "../README.md"
-homepage = "https://github.com/madsys-dev/madsim"
-repository = "https://github.com/madsys-dev/madsim"
+homepage = "https://github.com/madsim-rs/madsim"
+repository = "https://github.com/madsim-rs/madsim"
 license = "Apache-2.0"
 keywords = ["distributed-systems", "async", "deterministic", "simulation"]
 categories = ["asynchronous", "simulation"]

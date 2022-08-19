@@ -201,8 +201,10 @@ struct Node {
     info: Arc<NodeInfo>,
     paused: Vec<(Runnable, Arc<TaskInfo>)>,
     /// A function to spawn the initial task.
-    init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
+    init: Option<InitFn>,
 }
+
+pub(crate) type InitFn = Arc<dyn Fn(&TaskNodeHandle)>;
 
 impl TaskHandle {
     /// Kill all tasks of the node.
@@ -262,7 +264,7 @@ impl TaskHandle {
     pub fn create_node(
         &self,
         name: Option<String>,
-        init: Option<Arc<dyn Fn(&TaskNodeHandle)>>,
+        init: Option<InitFn>,
         cores: Option<usize>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
