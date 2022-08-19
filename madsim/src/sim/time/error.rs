@@ -3,7 +3,7 @@
 use std::fmt;
 
 /// Error returned by `timeout`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Elapsed;
 
 impl fmt::Display for Elapsed {

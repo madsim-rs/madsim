@@ -207,10 +207,9 @@ impl NetSim {
     ) -> io::Result<(PayloadSender, PayloadReceiver, SocketAddr)> {
         self.rand_delay().await?;
         let (ip, dst_node, socket, latency) = (self.network.lock().try_send(node, dst, protocol))
-            .ok_or(io::Error::new(
-            io::ErrorKind::ConnectionRefused,
-            "connection refused",
-        ))?;
+            .ok_or_else(|| {
+            io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused")
+        })?;
         let src = (ip, port).into();
         let (tx1, rx1) = self.channel(node, dst, protocol);
         let (tx2, rx2) = self.channel(dst_node, src, protocol);

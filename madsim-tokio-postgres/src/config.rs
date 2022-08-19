@@ -23,7 +23,7 @@ use std::{error, fmt, iter, mem};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Properties required of a session.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TargetSessionAttrs {
     /// No special properties are required.
@@ -33,7 +33,7 @@ pub enum TargetSessionAttrs {
 }
 
 /// TLS configuration.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SslMode {
     /// Do not use TLS.
@@ -45,7 +45,7 @@ pub enum SslMode {
 }
 
 /// Channel binding configuration.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ChannelBinding {
     /// Do not use channel binding.
@@ -57,7 +57,7 @@ pub enum ChannelBinding {
 }
 
 /// A host specification.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Host {
     /// A TCP hostname.
     Tcp(String),
@@ -144,7 +144,7 @@ pub enum Host {
 /// ```not_rust
 /// postgresql:///mydb?user=user&host=/var/lib/postgresql
 /// ```
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Config {
     pub(crate) user: Option<String>,
     pub(crate) password: Option<Vec<u8>>,
@@ -452,7 +452,7 @@ impl Config {
                 }
             }
             "target_session_attrs" => {
-                let target_session_attrs = match &*value {
+                let target_session_attrs = match value {
                     "any" => TargetSessionAttrs::Any,
                     "read-write" => TargetSessionAttrs::ReadWrite,
                     _ => {

@@ -1,3 +1,6 @@
+// remove this after prost-build fix clippy issue
+#![allow(clippy::derive_partial_eq_without_eq)]
+
 use std::time::Duration;
 
 use async_stream::stream;
