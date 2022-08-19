@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- madsim: Fix the address of `TcpStream` accepted from `TcpListener`.
+- madsim: Fix the socket address space. A TCP and a UDP sockets can have the same address in a node.
 - tonic: Close the stream when the connection is broken.
 
 ## [0.2.0] - 2022-08-10
