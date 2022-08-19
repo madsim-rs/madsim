@@ -61,18 +61,11 @@ RUSTFLAGS="--cfg madsim" cargo test
 Now you have gotten rid of tokio/tonic and you are in the simulation world!
 
 We provide a set of APIs to control the simulator. You can use them to kill a process, disconnect the network, inject failures, etc.
-Check out the [documentation](https://docs.rs/madsim) and search for the `sim` feature to learn more usages.
+Check out the [documentation](https://docs.rs/madsim) and search for the `madsim` feature to learn more usages.
 
 ### Ensure determinism
 
 Developers should eliminate any randomness in the application code. That's not easy.
-
-Here are some tips to avoid randomness:
-
-* Use [`futures::select_biased`][select_biased] instead of [`futures::select`][select] macro.
-
-[select_biased]: https://docs.rs/futures/0.3.21/futures/macro.select_biased.html
-[select]: https://docs.rs/futures/0.3.21/futures/macro.select.html
 
 To make sure your code is deterministic, run your test with the following environment variable:
 
