@@ -6,5 +6,6 @@ members = [
     "madsim-tokio-postgres",
     "madsim-tonic",
     "madsim-tonic-build",
+    "madsim-etcd-client",
     "tonic-example",
 ]
