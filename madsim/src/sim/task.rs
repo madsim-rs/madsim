@@ -361,7 +361,7 @@ pub struct Spawner {
 }
 
 /// A handle to spawn tasks on a node.
-#[deprecated(since = "0.3", note = "use Spawner instead")]
+#[deprecated(since = "0.3.0", note = "use Spawner instead")]
 pub type TaskNodeHandle = Spawner;
 
 impl Spawner {
@@ -445,7 +445,10 @@ where
 }
 
 /// Runs the provided closure on a thread where blocking is acceptable.
-#[deprecated(since = "0.3", note = "blocking function is not allowed in simulation")]
+#[deprecated(
+    since = "0.3.0",
+    note = "blocking function is not allowed in simulation"
+)]
 #[track_caller]
 pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
