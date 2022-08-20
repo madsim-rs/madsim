@@ -53,6 +53,7 @@ impl NodeId {
 
 pub(crate) struct TaskInfo {
     pub id: Id,
+    // name: Option<String>,
     pub node: Arc<NodeInfo>,
     /// The span of this task.
     span: Span,
@@ -72,12 +73,14 @@ pub(crate) struct NodeInfo {
 }
 
 impl NodeInfo {
-    fn new_task(self: &Arc<Self>) -> Arc<TaskInfo> {
+    fn new_task(self: &Arc<Self>, name: Option<&str>) -> Arc<TaskInfo> {
         let id = Id::new();
+        let name = name.map(|s| s.to_string());
         Arc::new(TaskInfo {
+            span: error_span!(parent: &self.span, "task", %id, name),
             id,
+            // name,
             node: self.clone(),
-            span: error_span!(parent: &self.span, "task", %id),
         })
     }
 }
@@ -121,7 +124,7 @@ impl Executor {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
-        let info = self.handle.main_info.new_task();
+        let info = self.handle.main_info.new_task(None);
         let (runnable, mut task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
@@ -189,7 +192,8 @@ impl Deref for Executor {
 }
 
 #[derive(Clone)]
-pub(crate) struct TaskHandle {
+#[doc(hidden)]
+pub struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
@@ -204,12 +208,17 @@ struct Node {
     init: Option<InitFn>,
 }
 
-pub(crate) type InitFn = Arc<dyn Fn(&TaskNodeHandle)>;
+pub(crate) type InitFn = Arc<dyn Fn(&Spawner)>;
 
 impl TaskHandle {
     /// Kill all tasks of the node.
-    pub fn kill(&self, id: NodeId) {
+    pub fn kill(&self, id: impl ToNodeId) {
         debug!(node = %id, "kill");
+        let id = id.to_node_id(self);
+        self.kill_id(id);
+    }
+
+    fn kill_id(&self, id: NodeId) {
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
@@ -226,13 +235,14 @@ impl TaskHandle {
     }
 
     /// Kill all tasks of the node and restart the initial task.
-    pub fn restart(&self, id: NodeId) {
-        self.kill(id);
+    pub fn restart(&self, id: impl ToNodeId) {
         debug!(node = %id, "restart");
+        let id = id.to_node_id(self);
+        self.kill_id(id);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
-            init(&TaskNodeHandle {
+            init(&Spawner {
                 sender: self.sender.clone(),
                 info: node.info.clone(),
             });
@@ -240,16 +250,18 @@ impl TaskHandle {
     }
 
     /// Pause all tasks of the node.
-    pub fn pause(&self, id: NodeId) {
+    pub fn pause(&self, id: impl ToNodeId) {
         debug!(node = %id, "pause");
+        let id = id.to_node_id(self);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
     }
 
     /// Resume the execution of the address.
-    pub fn resume(&self, id: NodeId) {
+    pub fn resume(&self, id: impl ToNodeId) {
         debug!(node = %id, "resume");
+        let id = id.to_node_id(self);
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
@@ -266,10 +278,10 @@ impl TaskHandle {
         name: Option<String>,
         init: Option<InitFn>,
         cores: Option<usize>,
-    ) -> TaskNodeHandle {
+    ) -> Spawner {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
-        debug!(node = %id, "create");
         let name = name.unwrap_or_else(|| format!("node-{}", id.0));
+        debug!(node = %id, name, "create");
         let info = Arc::new(NodeInfo {
             span: error_span!(parent: None, "node", %id, name),
             id,
@@ -278,7 +290,7 @@ impl TaskHandle {
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
         });
-        let handle = TaskNodeHandle {
+        let handle = Spawner {
             sender: self.sender.clone(),
             info: info.clone(),
         };
@@ -295,36 +307,74 @@ impl TaskHandle {
     }
 
     /// Get the node handle.
-    pub fn get_node(&self, id: NodeId) -> Option<TaskNodeHandle> {
+    pub fn get_node(&self, id: impl ToNodeId) -> Option<Spawner> {
+        let id = id.to_node_id(self);
         let info = match id {
             NodeId(0) => self.main_info.clone(),
             _ => self.nodes.lock().get(&id)?.info.clone(),
         };
-        Some(TaskNodeHandle {
+        Some(Spawner {
             sender: self.sender.clone(),
             info,
         })
     }
 }
 
+/// A trait for objects which can be resolved to an identifier of node.
+pub trait ToNodeId: std::fmt::Display {
+    #[doc(hidden)]
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId;
+}
+
+impl ToNodeId for NodeId {
+    fn to_node_id(&self, _task: &TaskHandle) -> NodeId {
+        *self
+    }
+}
+
+impl ToNodeId for &str {
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId {
+        match (task.nodes.lock().iter()).find(|(_, node)| &node.info.name == self) {
+            Some((id, _)) => *id,
+            None => panic!("node not found: {self}"),
+        }
+    }
+}
+
+impl ToNodeId for String {
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId {
+        self.as_str().to_node_id(task)
+    }
+}
+
+impl<T: ToNodeId> ToNodeId for &T {
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId {
+        (*self).to_node_id(task)
+    }
+}
+
 /// A handle to spawn tasks on a node.
 #[derive(Clone)]
-pub struct TaskNodeHandle {
+pub struct Spawner {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     info: Arc<NodeInfo>,
 }
 
-impl TaskNodeHandle {
+/// A handle to spawn tasks on a node.
+#[deprecated(since = "0.3.0", note = "use Spawner instead")]
+pub type TaskNodeHandle = Spawner;
+
+impl Spawner {
     fn current() -> Self {
         let info = crate::context::current_task();
         let sender = crate::context::current(|h| h.task.sender.clone());
-        TaskNodeHandle {
+        Spawner {
             sender,
             info: info.node.clone(),
         }
     }
 
-    pub(crate) fn id(&self) -> NodeId {
+    pub(crate) fn node_id(&self) -> NodeId {
         self.info.id
     }
 
@@ -334,7 +384,7 @@ impl TaskNodeHandle {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.spawn_local(future)
+        self.spawn_inner(future, None)
     }
 
     /// Spawns a `!Send` future on the local task set.
@@ -343,16 +393,25 @@ impl TaskNodeHandle {
         F: Future + 'static,
         F::Output: 'static,
     {
+        self.spawn_inner(future, None)
+    }
+
+    /// Spawns a future on with name.
+    fn spawn_inner<F>(&self, future: F, name: Option<&str>) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
         let sender = self.sender.clone();
-        let info = self.info.new_task();
+        let info = self.info.new_task(name);
         let id = info.id;
-        trace!(%id, "spawn task");
+        trace!(%id, name, "spawn task");
 
         let (runnable, task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
-                trace!(%id, "wake task");
+                trace!(%id, name, "wake task");
                 let _ = sender.send((runnable, info.clone()));
             })
         };
@@ -366,33 +425,75 @@ impl TaskNodeHandle {
 }
 
 /// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
+#[track_caller]
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    let handle = TaskNodeHandle::current();
-    handle.spawn(future)
+    Spawner::current().spawn(future)
 }
 
 /// Spawns a `!Send` future on the local task set.
+#[track_caller]
 pub fn spawn_local<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + 'static,
     F::Output: 'static,
 {
-    let handle = TaskNodeHandle::current();
-    handle.spawn_local(future)
+    Spawner::current().spawn_local(future)
 }
 
 /// Runs the provided closure on a thread where blocking is acceptable.
+#[deprecated(
+    since = "0.3.0",
+    note = "blocking function is not allowed in simulation"
+)]
+#[track_caller]
 pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    let handle = TaskNodeHandle::current();
-    handle.spawn(async move { f() })
+    Spawner::current().spawn(async move { f() })
+}
+
+/// Factory which is used to configure the properties of a new task.
+#[derive(Default, Debug)]
+pub struct Builder<'a> {
+    name: Option<&'a str>,
+}
+
+impl<'a> Builder<'a> {
+    /// Creates a new task builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Assigns a name to the task which will be spawned.
+    pub fn name(&self, name: &'a str) -> Self {
+        Self { name: Some(name) }
+    }
+
+    /// Spawns a task with this builder's settings on the current runtime.
+    #[track_caller]
+    pub fn spawn<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
+    where
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        Spawner::current().spawn_inner(future, self.name)
+    }
+
+    /// Spawns `!Send` a task on the current [`LocalSet`] with this builder's settings.
+    #[track_caller]
+    pub fn spawn_local<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
+    where
+        Fut: Future + 'static,
+        Fut::Output: 'static,
+    {
+        Spawner::current().spawn_inner(future, self.name)
+    }
 }
 
 /// An opaque ID that uniquely identifies a task relative to all other currently running tasks.

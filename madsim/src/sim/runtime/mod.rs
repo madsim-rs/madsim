@@ -1,7 +1,7 @@
 //! The madsim runtime.
 
 use super::*;
-use crate::task::{JoinHandle, NodeId};
+use crate::task::{JoinHandle, NodeId, ToNodeId};
 use spin::Mutex;
 use std::{
     any::{Any, TypeId},
@@ -238,8 +238,9 @@ impl Handle {
     ///
     /// - All tasks spawned on this node will be killed immediately.
     /// - All data that has not been flushed to the disk will be lost.
-    pub fn kill(&self, id: NodeId) {
-        self.task.kill(id);
+    pub fn kill(&self, id: impl ToNodeId) {
+        self.task.kill(&id);
+        let id = id.to_node_id(&self.task);
         let sims = self.sims.lock();
         let values = sims.values();
         for sim in values {
@@ -248,8 +249,9 @@ impl Handle {
     }
 
     /// Restart a node。
-    pub fn restart(&self, id: NodeId) {
-        self.task.restart(id);
+    pub fn restart(&self, id: impl ToNodeId) {
+        self.task.restart(&id);
+        let id = id.to_node_id(&self.task);
         let sims = self.sims.lock();
         let values = sims.values();
         for sim in values {
@@ -258,12 +260,12 @@ impl Handle {
     }
 
     /// Pause the execution of a node.
-    pub fn pause(&self, id: NodeId) {
+    pub fn pause(&self, id: impl ToNodeId) {
         self.task.pause(id);
     }
 
     /// Resume the execution of a node.
-    pub fn resume(&self, id: NodeId) {
+    pub fn resume(&self, id: impl ToNodeId) {
         self.task.resume(id);
     }
 
@@ -273,7 +275,7 @@ impl Handle {
     }
 
     /// Return a handle of the specified node.
-    pub fn get_node(&self, id: NodeId) -> Option<NodeHandle> {
+    pub fn get_node(&self, id: impl ToNodeId) -> Option<NodeHandle> {
         self.task.get_node(id).map(|task| NodeHandle { task })
     }
 }
@@ -343,10 +345,10 @@ impl<'a> NodeBuilder<'a> {
         let sims = self.handle.sims.lock();
         let values = sims.values();
         for sim in values {
-            sim.create_node(task.id());
+            sim.create_node(task.node_id());
             if let Some(ip) = self.ip {
                 if let Some(net) = sim.downcast_ref::<net::NetSim>() {
-                    net.set_ip(task.id(), ip)
+                    net.set_ip(task.node_id(), ip)
                 }
             }
         }
@@ -357,13 +359,13 @@ impl<'a> NodeBuilder<'a> {
 /// Handle to a node.
 #[derive(Clone)]
 pub struct NodeHandle {
-    task: task::TaskNodeHandle,
+    task: task::Spawner,
 }
 
 impl NodeHandle {
     /// Returns the node ID.
     pub fn id(&self) -> NodeId {
-        self.task.id()
+        self.task.node_id()
     }
 
     /// Spawn a future onto the runtime.

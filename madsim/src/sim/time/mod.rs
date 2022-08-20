@@ -32,7 +32,7 @@ impl TimeRuntime {
             );
         let handle = TimeHandle {
             timer: Arc::new(Mutex::new(Timer::default())),
-            clock: ClockHandle::new(base_time),
+            clock: Arc::new(Clock::new(base_time)),
         };
         TimeRuntime { handle }
     }
@@ -75,7 +75,7 @@ impl TimeRuntime {
 #[derive(Clone)]
 pub struct TimeHandle {
     timer: Arc<Mutex<Timer>>,
-    clock: ClockHandle,
+    clock: Arc<Clock>,
 }
 
 impl TimeHandle {
@@ -156,13 +156,12 @@ pub fn timeout<T: Future>(
     handle.timeout(duration, future)
 }
 
-#[derive(Clone)]
-struct ClockHandle {
-    inner: Arc<Mutex<Clock>>,
+struct Clock {
+    inner: Mutex<ClockInner>,
 }
 
 #[derive(Debug)]
-struct Clock {
+struct ClockInner {
     /// Time basis for which mock time is derived.
     base_time: std::time::SystemTime,
     base_instant: std::time::Instant,
@@ -170,15 +169,15 @@ struct Clock {
     advance: Duration,
 }
 
-impl ClockHandle {
+impl Clock {
     fn new(base_time: SystemTime) -> Self {
-        let clock = Clock {
+        let clock = ClockInner {
             base_time,
             base_instant: unsafe { std::mem::zeroed() },
             advance: Duration::default(),
         };
-        ClockHandle {
-            inner: Arc::new(Mutex::new(clock)),
+        Clock {
+            inner: Mutex::new(clock),
         }
     }
 

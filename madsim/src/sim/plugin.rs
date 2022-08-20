@@ -9,7 +9,7 @@ use downcast_rs::{impl_downcast, DowncastSync};
 
 use crate::{
     rand::GlobalRng,
-    task::{NodeId, TaskNodeHandle},
+    task::{NodeId, Spawner},
     time::TimeHandle,
     Config,
 };
@@ -25,7 +25,7 @@ pub trait Simulator: Any + Send + Sync + DowncastSync {
 
     // XXX: For compatibility. Merge to `new` in the next major version.
     #[doc(hidden)]
-    fn new1(rand: &GlobalRng, time: &TimeHandle, _task: &TaskNodeHandle, config: &Config) -> Self
+    fn new1(rand: &GlobalRng, time: &TimeHandle, _task: &Spawner, config: &Config) -> Self
     where
         Self: Sized,
     {

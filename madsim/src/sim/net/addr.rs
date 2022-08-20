@@ -194,7 +194,6 @@ impl sealed::ToSocketAddrsPriv for str {
     type Future = sealed::MaybeReady;
 
     fn to_socket_addrs(&self, _: sealed::Internal) -> Self::Future {
-        use crate::task::spawn_blocking;
         use sealed::MaybeReady;
 
         // First check if the input parses as a socket address
@@ -204,12 +203,9 @@ impl sealed::ToSocketAddrsPriv for str {
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
 
-        // Run DNS lookup on the blocking pool
-        let s = self.to_owned();
-
-        MaybeReady(sealed::State::Blocking(spawn_blocking(move || {
-            std::net::ToSocketAddrs::to_socket_addrs(&s)
-        })))
+        let (host, port) = self.rsplit_once(':').expect("invalid address");
+        let port = port.parse::<u16>().expect("invalid port");
+        (host, port).to_socket_addrs(sealed::Internal)
     }
 }
 
@@ -222,7 +218,6 @@ impl sealed::ToSocketAddrsPriv for (&str, u16) {
     type Future = sealed::MaybeReady;
 
     fn to_socket_addrs(&self, _: sealed::Internal) -> Self::Future {
-        use crate::task::spawn_blocking;
         use sealed::MaybeReady;
 
         let (host, port) = *self;
@@ -242,11 +237,7 @@ impl sealed::ToSocketAddrsPriv for (&str, u16) {
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
 
-        let host = host.to_owned();
-
-        MaybeReady(sealed::State::Blocking(spawn_blocking(move || {
-            std::net::ToSocketAddrs::to_socket_addrs(&(&host[..], port))
-        })))
+        todo!("simulate DNS lookup");
     }
 }
 
@@ -296,8 +287,6 @@ pub(crate) mod sealed {
     #[allow(missing_debug_implementations)]
     pub struct Internal;
 
-    use crate::task::JoinHandle;
-
     use std::option;
     use std::pin::Pin;
     use std::task::{Context, Poll};
@@ -310,7 +299,6 @@ pub(crate) mod sealed {
     #[derive(Debug)]
     pub(super) enum State {
         Ready(Option<SocketAddr>),
-        Blocking(JoinHandle<io::Result<vec::IntoIter<SocketAddr>>>),
     }
 
     #[doc(hidden)]
@@ -323,19 +311,11 @@ pub(crate) mod sealed {
     impl Future for MaybeReady {
         type Output = io::Result<OneOrMore>;
 
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
             match self.0 {
                 State::Ready(ref mut i) => {
                     let iter = OneOrMore::One(i.take().into_iter());
                     Poll::Ready(Ok(iter))
-                }
-                State::Blocking(ref mut rx) => {
-                    let res = match Pin::new(rx).poll(cx) {
-                        std::task::Poll::Ready(t) => t?.map(OneOrMore::More),
-                        std::task::Poll::Pending => return std::task::Poll::Pending,
-                    };
-
-                    Poll::Ready(res)
                 }
             }
         }
