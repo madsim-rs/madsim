@@ -386,6 +386,7 @@ where
 }
 
 /// Runs the provided closure on a thread where blocking is acceptable.
+#[deprecated(since = "0.3", note = "blocking function is not allowed in simulation")]
 pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
