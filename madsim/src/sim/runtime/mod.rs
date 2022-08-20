@@ -345,10 +345,10 @@ impl<'a> NodeBuilder<'a> {
         let sims = self.handle.sims.lock();
         let values = sims.values();
         for sim in values {
-            sim.create_node(task.id());
+            sim.create_node(task.node_id());
             if let Some(ip) = self.ip {
                 if let Some(net) = sim.downcast_ref::<net::NetSim>() {
-                    net.set_ip(task.id(), ip)
+                    net.set_ip(task.node_id(), ip)
                 }
             }
         }
@@ -359,13 +359,13 @@ impl<'a> NodeBuilder<'a> {
 /// Handle to a node.
 #[derive(Clone)]
 pub struct NodeHandle {
-    task: task::TaskNodeHandle,
+    task: task::Spawner,
 }
 
 impl NodeHandle {
     /// Returns the node ID.
     pub fn id(&self) -> NodeId {
-        self.task.id()
+        self.task.node_id()
     }
 
     /// Spawn a future onto the runtime.

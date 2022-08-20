@@ -48,7 +48,7 @@ use tracing::*;
 use crate::{
     plugin,
     rand::{GlobalRng, Rng},
-    task::{NodeId, TaskNodeHandle},
+    task::{NodeId, Spawner},
     time::{Duration, TimeHandle},
 };
 
@@ -79,7 +79,7 @@ pub struct NetSim {
     network: Mutex<Network>,
     rand: GlobalRng,
     time: TimeHandle,
-    task: TaskNodeHandle,
+    task: Spawner,
 }
 
 /// Message sent to a network socket.
@@ -93,12 +93,7 @@ impl plugin::Simulator for NetSim {
         unreachable!()
     }
 
-    fn new1(
-        rand: &GlobalRng,
-        time: &TimeHandle,
-        task: &TaskNodeHandle,
-        config: &crate::Config,
-    ) -> Self {
+    fn new1(rand: &GlobalRng, time: &TimeHandle, task: &Spawner, config: &crate::Config) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
             rand: rand.clone(),
