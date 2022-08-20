@@ -53,6 +53,7 @@ impl NodeId {
 
 pub(crate) struct TaskInfo {
     pub id: Id,
+    // name: Option<String>,
     pub node: Arc<NodeInfo>,
     /// The span of this task.
     span: Span,
@@ -72,12 +73,14 @@ pub(crate) struct NodeInfo {
 }
 
 impl NodeInfo {
-    fn new_task(self: &Arc<Self>) -> Arc<TaskInfo> {
+    fn new_task(self: &Arc<Self>, name: Option<&str>) -> Arc<TaskInfo> {
         let id = Id::new();
+        let name = name.map(|s| s.to_string());
         Arc::new(TaskInfo {
+            span: error_span!(parent: &self.span, "task", %id, name),
             id,
+            // name,
             node: self.clone(),
-            span: error_span!(parent: &self.span, "task", %id),
         })
     }
 }
@@ -121,7 +124,7 @@ impl Executor {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
-        let info = self.handle.main_info.new_task();
+        let info = self.handle.main_info.new_task(None);
         let (runnable, mut task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
@@ -381,7 +384,7 @@ impl Spawner {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.spawn_local(future)
+        self.spawn_inner(future, None)
     }
 
     /// Spawns a `!Send` future on the local task set.
@@ -390,16 +393,25 @@ impl Spawner {
         F: Future + 'static,
         F::Output: 'static,
     {
+        self.spawn_inner(future, None)
+    }
+
+    /// Spawns a future on with name.
+    fn spawn_inner<F>(&self, future: F, name: Option<&str>) -> JoinHandle<F::Output>
+    where
+        F: Future + 'static,
+        F::Output: 'static,
+    {
         let sender = self.sender.clone();
-        let info = self.info.new_task();
+        let info = self.info.new_task(name);
         let id = info.id;
-        trace!(%id, "spawn task");
+        trace!(%id, name, "spawn task");
 
         let (runnable, task) = unsafe {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
-                trace!(%id, "wake task");
+                trace!(%id, name, "wake task");
                 let _ = sender.send((runnable, info.clone()));
             })
         };
@@ -419,8 +431,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    let handle = Spawner::current();
-    handle.spawn(future)
+    Spawner::current().spawn(future)
 }
 
 /// Spawns a `!Send` future on the local task set.
@@ -430,8 +441,7 @@ where
     F: Future + 'static,
     F::Output: 'static,
 {
-    let handle = Spawner::current();
-    handle.spawn_local(future)
+    Spawner::current().spawn_local(future)
 }
 
 /// Runs the provided closure on a thread where blocking is acceptable.
@@ -442,8 +452,45 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    let handle = Spawner::current();
-    handle.spawn(async move { f() })
+    Spawner::current().spawn(async move { f() })
+}
+
+/// Factory which is used to configure the properties of a new task.
+#[derive(Default, Debug)]
+pub struct Builder<'a> {
+    name: Option<&'a str>,
+}
+
+impl<'a> Builder<'a> {
+    /// Creates a new task builder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Assigns a name to the task which will be spawned.
+    pub fn name(&self, name: &'a str) -> Self {
+        Self { name: Some(name) }
+    }
+
+    /// Spawns a task with this builder's settings on the current runtime.
+    #[track_caller]
+    pub fn spawn<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
+    where
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        Spawner::current().spawn_inner(future, self.name)
+    }
+
+    /// Spawns `!Send` a task on the current [`LocalSet`] with this builder's settings.
+    #[track_caller]
+    pub fn spawn_local<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
+    where
+        Fut: Future + 'static,
+        Fut::Output: 'static,
+    {
+        Spawner::current().spawn_inner(future, self.name)
+    }
 }
 
 /// An opaque ID that uniquely identifies a task relative to all other currently running tasks.
