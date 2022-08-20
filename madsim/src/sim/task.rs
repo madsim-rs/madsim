@@ -189,7 +189,8 @@ impl Deref for Executor {
 }
 
 #[derive(Clone)]
-pub(crate) struct TaskHandle {
+#[doc(hidden)]
+pub struct TaskHandle {
     sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
@@ -208,8 +209,13 @@ pub(crate) type InitFn = Arc<dyn Fn(&TaskNodeHandle)>;
 
 impl TaskHandle {
     /// Kill all tasks of the node.
-    pub fn kill(&self, id: NodeId) {
+    pub fn kill(&self, id: impl ToNodeId) {
         debug!(node = %id, "kill");
+        let id = id.to_node_id(self);
+        self.kill_id(id);
+    }
+
+    fn kill_id(&self, id: NodeId) {
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
@@ -226,9 +232,10 @@ impl TaskHandle {
     }
 
     /// Kill all tasks of the node and restart the initial task.
-    pub fn restart(&self, id: NodeId) {
-        self.kill(id);
+    pub fn restart(&self, id: impl ToNodeId) {
         debug!(node = %id, "restart");
+        let id = id.to_node_id(self);
+        self.kill_id(id);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
@@ -240,16 +247,18 @@ impl TaskHandle {
     }
 
     /// Pause all tasks of the node.
-    pub fn pause(&self, id: NodeId) {
+    pub fn pause(&self, id: impl ToNodeId) {
         debug!(node = %id, "pause");
+        let id = id.to_node_id(self);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
         node.info.paused.store(true, Ordering::SeqCst);
     }
 
     /// Resume the execution of the address.
-    pub fn resume(&self, id: NodeId) {
+    pub fn resume(&self, id: impl ToNodeId) {
         debug!(node = %id, "resume");
+        let id = id.to_node_id(self);
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.info.paused.store(false, Ordering::SeqCst);
@@ -268,8 +277,8 @@ impl TaskHandle {
         cores: Option<usize>,
     ) -> TaskNodeHandle {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
-        debug!(node = %id, "create");
         let name = name.unwrap_or_else(|| format!("node-{}", id.0));
+        debug!(node = %id, name, "create");
         let info = Arc::new(NodeInfo {
             span: error_span!(parent: None, "node", %id, name),
             id,
@@ -295,7 +304,8 @@ impl TaskHandle {
     }
 
     /// Get the node handle.
-    pub fn get_node(&self, id: NodeId) -> Option<TaskNodeHandle> {
+    pub fn get_node(&self, id: impl ToNodeId) -> Option<TaskNodeHandle> {
+        let id = id.to_node_id(self);
         let info = match id {
             NodeId(0) => self.main_info.clone(),
             _ => self.nodes.lock().get(&id)?.info.clone(),
@@ -304,6 +314,39 @@ impl TaskHandle {
             sender: self.sender.clone(),
             info,
         })
+    }
+}
+
+/// A trait for objects which can be resolved to an identifier of node.
+pub trait ToNodeId: std::fmt::Display {
+    #[doc(hidden)]
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId;
+}
+
+impl ToNodeId for NodeId {
+    fn to_node_id(&self, _task: &TaskHandle) -> NodeId {
+        *self
+    }
+}
+
+impl ToNodeId for &str {
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId {
+        match (task.nodes.lock().iter()).find(|(_, node)| &node.info.name == self) {
+            Some((id, _)) => *id,
+            None => panic!("node not found: {self}"),
+        }
+    }
+}
+
+impl ToNodeId for String {
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId {
+        self.as_str().to_node_id(task)
+    }
+}
+
+impl<T: ToNodeId> ToNodeId for &T {
+    fn to_node_id(&self, task: &TaskHandle) -> NodeId {
+        (*self).to_node_id(task)
     }
 }
 
