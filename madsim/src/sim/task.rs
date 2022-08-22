@@ -68,6 +68,8 @@ pub(crate) struct NodeInfo {
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
     killed: AtomicBool,
+    /// Whether to restart the node on panic.
+    restart_on_panic: bool,
     /// The span of this node.
     span: Span,
 }
@@ -100,6 +102,7 @@ impl Executor {
                     cores: 1,
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
+                    restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                 }),
             },
@@ -163,18 +166,22 @@ impl Executor {
                 continue;
             } else if info.node.paused.load(Ordering::SeqCst) {
                 // paused task: push to waiting list
-                let mut nodes = self.nodes.lock();
-                nodes
-                    .get_mut(&info.node.id)
-                    .unwrap()
-                    .paused
-                    .push((runnable, info));
+                (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push((runnable, info));
                 continue;
             }
             // run the task
+            let node_id = info.node.id;
+            let restart_on_panic = info.node.restart_on_panic;
             let _enter = info.span.clone().entered();
             let _guard = crate::context::enter_task(info);
-            runnable.run();
+            if restart_on_panic {
+                if std::panic::catch_unwind(move || runnable.run()).is_err() {
+                    error!("task panicked, restarting node");
+                    self.restart(node_id);
+                }
+            } else {
+                runnable.run();
+            }
 
             // advance time: 50-100ns
             let dur = Duration::from_nanos(self.rand.with(|rng| rng.gen_range(50..100)));
@@ -225,9 +232,10 @@ impl TaskHandle {
         let new_info = Arc::new(NodeInfo {
             id,
             name: node.info.name.clone(),
-            cores: 1,
+            cores: node.info.cores,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
+            restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
@@ -278,6 +286,7 @@ impl TaskHandle {
         name: Option<String>,
         init: Option<InitFn>,
         cores: Option<usize>,
+        restart_on_panic: bool,
     ) -> Spawner {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
         let name = name.unwrap_or_else(|| format!("node-{}", id.0));
@@ -289,6 +298,7 @@ impl TaskHandle {
             cores: cores.unwrap_or(1),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
+            restart_on_panic,
         });
         let handle = Spawner {
             sender: self.sender.clone(),

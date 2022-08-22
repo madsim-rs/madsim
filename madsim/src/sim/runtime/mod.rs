@@ -287,6 +287,7 @@ pub struct NodeBuilder<'a> {
     ip: Option<IpAddr>,
     cores: Option<usize>,
     init: Option<task::InitFn>,
+    restart_on_panic: bool,
 }
 
 impl<'a> NodeBuilder<'a> {
@@ -297,6 +298,7 @@ impl<'a> NodeBuilder<'a> {
             ip: None,
             cores: None,
             init: None,
+            restart_on_panic: false,
         }
     }
 
@@ -310,7 +312,7 @@ impl<'a> NodeBuilder<'a> {
 
     /// Set the initial task for the node.
     ///
-    /// This task will be automatically respawned after crash.
+    /// This task will be respawned when calling `restart`.
     pub fn init<F>(mut self, future: impl Fn() -> F + 'static) -> Self
     where
         F: Future + 'static,
@@ -318,6 +320,14 @@ impl<'a> NodeBuilder<'a> {
         self.init = Some(Arc::new(move |handle| {
             handle.spawn_local(future());
         }));
+        self
+    }
+
+    /// Automatically restart the node when it panics.
+    ///
+    /// By default a panic will terminate the simulation.
+    pub fn restart_on_panic(mut self) -> Self {
+        self.restart_on_panic = true;
         self
     }
 
@@ -338,10 +348,10 @@ impl<'a> NodeBuilder<'a> {
 
     /// Build a node.
     pub fn build(self) -> NodeHandle {
-        let task = self
-            .handle
-            .task
-            .create_node(self.name, self.init, self.cores);
+        let task =
+            self.handle
+                .task
+                .create_node(self.name, self.init, self.cores, self.restart_on_panic);
         let sims = self.handle.sims.lock();
         let values = sims.values();
         for sim in values {
