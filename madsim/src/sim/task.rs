@@ -773,6 +773,32 @@ mod tests {
     }
 
     #[test]
+    fn restart_on_panic() {
+        let runtime = Runtime::new();
+        let flag = Arc::new(AtomicUsize::new(0));
+
+        let flag_ = flag.clone();
+        runtime
+            .create_node()
+            .init(move || {
+                let flag = flag_.clone();
+                async move {
+                    if flag.fetch_add(1, Ordering::SeqCst) < 3 {
+                        panic!();
+                    }
+                }
+            })
+            .restart_on_panic()
+            .build();
+
+        runtime.block_on(async move {
+            time::sleep(Duration::from_secs(10)).await;
+            // should panic 3 times and success once
+            assert_eq!(flag.load(Ordering::SeqCst), 4);
+        });
+    }
+
+    #[test]
     fn pause_resume() {
         let runtime = Runtime::new();
         let node = runtime.create_node().build();
