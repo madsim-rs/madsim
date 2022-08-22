@@ -2,6 +2,7 @@
 
 use super::{
     rand::GlobalRng,
+    runtime::Simulators,
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
@@ -56,7 +57,7 @@ pub(crate) struct TaskInfo {
     // name: Option<String>,
     pub node: Arc<NodeInfo>,
     /// The span of this task.
-    span: Span,
+    pub span: Span,
 }
 
 pub(crate) struct NodeInfo {
@@ -68,6 +69,8 @@ pub(crate) struct NodeInfo {
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
     killed: AtomicBool,
+    /// Whether to restart the node on panic.
+    restart_on_panic: bool,
     /// The span of this node.
     span: Span,
 }
@@ -86,7 +89,7 @@ impl NodeInfo {
 }
 
 impl Executor {
-    pub fn new(rand: GlobalRng) -> Self {
+    pub fn new(rand: GlobalRng, sims: Arc<Simulators>) -> Self {
         let (sender, queue) = mpsc::channel();
         Executor {
             queue,
@@ -100,8 +103,10 @@ impl Executor {
                     cores: 1,
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
+                    restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                 }),
+                sims,
             },
             time: TimeRuntime::new(&rand),
             rand,
@@ -163,18 +168,21 @@ impl Executor {
                 continue;
             } else if info.node.paused.load(Ordering::SeqCst) {
                 // paused task: push to waiting list
-                let mut nodes = self.nodes.lock();
-                nodes
-                    .get_mut(&info.node.id)
-                    .unwrap()
-                    .paused
-                    .push((runnable, info));
+                (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push((runnable, info));
                 continue;
             }
             // run the task
-            let _enter = info.span.clone().entered();
+            let node_id = info.node.id;
+            let restart_on_panic = info.node.restart_on_panic;
             let _guard = crate::context::enter_task(info);
-            runnable.run();
+            if restart_on_panic {
+                if std::panic::catch_unwind(move || runnable.run()).is_err() {
+                    error!("task panicked, restarting node");
+                    self.restart(node_id);
+                }
+            } else {
+                runnable.run();
+            }
 
             // advance time: 50-100ns
             let dur = Duration::from_nanos(self.rand.with(|rng| rng.gen_range(50..100)));
@@ -199,6 +207,7 @@ pub struct TaskHandle {
     next_node_id: Arc<AtomicU64>,
     /// Info of the main node.
     main_info: Arc<NodeInfo>,
+    sims: Arc<Simulators>,
 }
 
 struct Node {
@@ -225,13 +234,18 @@ impl TaskHandle {
         let new_info = Arc::new(NodeInfo {
             id,
             name: node.info.name.clone(),
-            cores: 1,
+            cores: node.info.cores,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
+            restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
+
+        for sim in self.sims.lock().values() {
+            sim.reset_node(id);
+        }
     }
 
     /// Kill all tasks of the node and restart the initial task.
@@ -278,6 +292,7 @@ impl TaskHandle {
         name: Option<String>,
         init: Option<InitFn>,
         cores: Option<usize>,
+        restart_on_panic: bool,
     ) -> Spawner {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
         let name = name.unwrap_or_else(|| format!("node-{}", id.0));
@@ -289,6 +304,7 @@ impl TaskHandle {
             cores: cores.unwrap_or(1),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
+            restart_on_panic,
         });
         let handle = Spawner {
             sender: self.sender.clone(),
@@ -752,6 +768,32 @@ mod tests {
             assert_eq!(flag.load(Ordering::SeqCst), 2);
 
             time::sleep_until(t0 + Duration::from_secs(8)).await;
+            assert_eq!(flag.load(Ordering::SeqCst), 4);
+        });
+    }
+
+    #[test]
+    fn restart_on_panic() {
+        let runtime = Runtime::new();
+        let flag = Arc::new(AtomicUsize::new(0));
+
+        let flag_ = flag.clone();
+        runtime
+            .create_node()
+            .init(move || {
+                let flag = flag_.clone();
+                async move {
+                    if flag.fetch_add(1, Ordering::SeqCst) < 3 {
+                        panic!();
+                    }
+                }
+            })
+            .restart_on_panic()
+            .build();
+
+        runtime.block_on(async move {
+            time::sleep(Duration::from_secs(10)).await;
+            // should panic 3 times and success once
             assert_eq!(flag.load(Ordering::SeqCst), 4);
         });
     }
