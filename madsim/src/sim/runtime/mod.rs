@@ -49,12 +49,13 @@ impl Runtime {
     /// Create a new runtime instance with given seed and config.
     pub fn with_seed_and_config(seed: u64, config: Config) -> Self {
         let rand = rand::GlobalRng::new_with_seed(seed);
-        let task = task::Executor::new(rand.clone());
+        let sims = Arc::new(Mutex::new(HashMap::new()));
+        let task = task::Executor::new(rand.clone(), sims.clone());
         let handle = Handle {
             rand: rand.clone(),
             time: task.time_handle().clone(),
             task: task.handle().clone(),
-            sims: Default::default(),
+            sims,
             config,
         };
         let rt = Runtime { rand, task, handle };
@@ -204,9 +205,13 @@ pub struct Handle {
     pub(crate) rand: rand::GlobalRng,
     pub(crate) time: time::TimeHandle,
     pub(crate) task: task::TaskHandle,
-    pub(crate) sims: Arc<Mutex<HashMap<TypeId, Arc<dyn plugin::Simulator>>>>,
+    pub(crate) sims: Arc<Simulators>,
+
     pub(crate) config: Config,
 }
+
+/// A collection of simulators.
+pub(crate) type Simulators = Mutex<HashMap<TypeId, Arc<dyn plugin::Simulator>>>;
 
 impl Handle {
     /// Returns a [`Handle`] view over the currently running [`Runtime`].
@@ -240,23 +245,11 @@ impl Handle {
     /// - All data that has not been flushed to the disk will be lost.
     pub fn kill(&self, id: impl ToNodeId) {
         self.task.kill(&id);
-        let id = id.to_node_id(&self.task);
-        let sims = self.sims.lock();
-        let values = sims.values();
-        for sim in values {
-            sim.reset_node(id);
-        }
     }
 
     /// Restart a node。
     pub fn restart(&self, id: impl ToNodeId) {
         self.task.restart(&id);
-        let id = id.to_node_id(&self.task);
-        let sims = self.sims.lock();
-        let values = sims.values();
-        for sim in values {
-            sim.reset_node(id);
-        }
     }
 
     /// Pause the execution of a node.

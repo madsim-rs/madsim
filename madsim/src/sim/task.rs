@@ -2,6 +2,7 @@
 
 use super::{
     rand::GlobalRng,
+    runtime::Simulators,
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
@@ -88,7 +89,7 @@ impl NodeInfo {
 }
 
 impl Executor {
-    pub fn new(rand: GlobalRng) -> Self {
+    pub fn new(rand: GlobalRng, sims: Arc<Simulators>) -> Self {
         let (sender, queue) = mpsc::channel();
         Executor {
             queue,
@@ -105,6 +106,7 @@ impl Executor {
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                 }),
+                sims,
             },
             time: TimeRuntime::new(&rand),
             rand,
@@ -205,6 +207,7 @@ pub struct TaskHandle {
     next_node_id: Arc<AtomicU64>,
     /// Info of the main node.
     main_info: Arc<NodeInfo>,
+    sims: Arc<Simulators>,
 }
 
 struct Node {
@@ -239,6 +242,10 @@ impl TaskHandle {
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
+
+        for sim in self.sims.lock().values() {
+            sim.reset_node(id);
+        }
     }
 
     /// Kill all tasks of the node and restart the initial task.
