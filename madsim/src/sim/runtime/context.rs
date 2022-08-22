@@ -53,17 +53,21 @@ impl Drop for EnterGuard {
 
 pub(crate) fn enter_task(new: Arc<TaskInfo>) -> TaskEnterGuard {
     TASK.with(|ctx| {
+        let _span = new.span.clone().entered();
         let old = ctx.borrow_mut().replace(new);
-        TaskEnterGuard(old)
+        TaskEnterGuard { old, _span }
     })
 }
 
-pub(crate) struct TaskEnterGuard(Option<Arc<TaskInfo>>);
+pub(crate) struct TaskEnterGuard {
+    old: Option<Arc<TaskInfo>>,
+    _span: tracing::span::EnteredSpan,
+}
 
 impl Drop for TaskEnterGuard {
     fn drop(&mut self) {
         TASK.with(|ctx| {
-            *ctx.borrow_mut() = self.0.take();
+            *ctx.borrow_mut() = self.old.take();
         });
     }
 }

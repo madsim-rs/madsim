@@ -56,7 +56,7 @@ pub(crate) struct TaskInfo {
     // name: Option<String>,
     pub node: Arc<NodeInfo>,
     /// The span of this task.
-    span: Span,
+    pub span: Span,
 }
 
 pub(crate) struct NodeInfo {
@@ -172,7 +172,6 @@ impl Executor {
             // run the task
             let node_id = info.node.id;
             let restart_on_panic = info.node.restart_on_panic;
-            let _enter = info.span.clone().entered();
             let _guard = crate::context::enter_task(info);
             if restart_on_panic {
                 if std::panic::catch_unwind(move || runnable.run()).is_err() {
