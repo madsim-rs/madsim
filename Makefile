@@ -9,10 +9,10 @@ sbuild:
 	$(SIM_FLAGS) cargo build
 
 test:
-	cargo test --workspace --exclude madsim-tokio-postgres
+	cargo test
 
 stest:
-	$(SIM_FLAGS) cargo test --workspace --exclude madsim-tokio-postgres
+	$(SIM_FLAGS) cargo test
 
 clippy:
 	cargo clippy
