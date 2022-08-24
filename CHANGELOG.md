@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2022-08-24
+
+### Added
+
+- madsim: Add `task::Builder` API.
+- madsim: Support auto restarting a node on panic.
+
+### Changed
+
+- madsim: Rename `TaskNodeHandle` to `Spawner`.
+
+### Removed
+
+- madsim: Deprecate `spawn_blocking`.
+
 ## [0.2.1] - 2022-08-19
 
 ### Added
