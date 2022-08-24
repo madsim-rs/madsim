@@ -60,6 +60,7 @@ mod network;
 pub mod rpc;
 pub mod tcp;
 mod udp;
+pub mod unix;
 
 pub use self::addr::{lookup_host, ToSocketAddrs};
 pub use self::endpoint::{Endpoint, Receiver, Sender};
@@ -67,11 +68,7 @@ pub use self::network::{Config, Stat};
 use self::network::{IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
 pub use self::udp::UdpSocket;
-
-// #[cfg(unix)]
-// pub mod unix;
-// #[cfg(unix)]
-// pub use unix::{UnixDatagram, UnixListener, UnixStream};
+pub use self::unix::{UnixDatagram, UnixListener, UnixStream};
 
 /// Network simulator.
 #[cfg_attr(docsrs, doc(cfg(madsim)))]

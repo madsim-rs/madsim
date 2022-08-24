@@ -6,7 +6,8 @@ use bytes::{Buf, Bytes, BytesMut};
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::{
-    fmt, io,
+    fmt,
+    io::Result,
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -48,7 +49,7 @@ impl TcpStream {
     ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
     #[instrument]
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<TcpStream> {
+    pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<TcpStream> {
         let mut last_err = None;
 
         for addr in lookup_host(addr).await? {
@@ -67,7 +68,7 @@ impl TcpStream {
 
     /// Connects to one address.
     #[instrument]
-    async fn connect_one(addr: SocketAddr) -> io::Result<TcpStream> {
+    async fn connect_one(addr: SocketAddr) -> Result<TcpStream> {
         let net = plugin::simulator::<NetSim>();
         net.rand_delay().await?;
 
@@ -90,18 +91,18 @@ impl TcpStream {
     }
 
     /// Sets the value of the `TCP_NODELAY` option on this socket.
-    pub fn set_nodelay(&self, _nodelay: bool) -> io::Result<()> {
+    pub fn set_nodelay(&self, _nodelay: bool) -> Result<()> {
         // TODO: simulate TCP_NODELAY
         Ok(())
     }
 
     /// Returns the socket address of the local half of this TCP connection.
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+    pub fn local_addr(&self) -> Result<SocketAddr> {
         Ok(self.addr)
     }
 
     /// Returns the socket address of the remote peer of this TCP connection.
-    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
+    pub fn peer_addr(&self) -> Result<SocketAddr> {
         Ok(self.peer)
     }
 }
@@ -118,7 +119,7 @@ impl AsyncRead for TcpStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    ) -> Poll<Result<()>> {
         // read the buffer if not empty
         if !self.read_buf.is_empty() {
             let len = self.read_buf.len().min(buf.remaining());
@@ -146,13 +147,13 @@ impl AsyncWrite for TcpStream {
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<Result<usize>> {
         self.write_buf.extend_from_slice(buf);
         // TODO: simulate buffer full, partial write
         Poll::Ready(Ok(buf.len()))
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
         // send data
         let data = self.write_buf.split().freeze();
         self.tx
@@ -161,7 +162,7 @@ impl AsyncWrite for TcpStream {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<()>> {
         // TODO: simulate shutdown
         Poll::Ready(Ok(()))
     }
