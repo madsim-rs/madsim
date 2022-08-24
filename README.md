@@ -48,6 +48,8 @@ If your dependency graph includes the following crates, replace them by our patc
 [patch.crates-io]
 quanta = { git = "https://github.com/madsim-rs/quanta.git", rev = "a819877" }
 getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "cc95ee3" }
+tokio-retry = { git = "https://github.com/madsim-rs/rust-tokio-retry.git", rev = "95e2fd3" }
+tokio-postgres = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "1b392f1" }
 ```
 
 When built normally, these crates are identical to the original ones.
