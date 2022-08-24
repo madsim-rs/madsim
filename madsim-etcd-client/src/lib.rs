@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 mod error;
 mod kv;
 
