@@ -3,7 +3,6 @@ members = [
     "madsim",
     "madsim-macros",
     "madsim-tokio",
-    "madsim-tokio-postgres",
     "madsim-tonic",
     "madsim-tonic-build",
     "madsim-etcd-client",
