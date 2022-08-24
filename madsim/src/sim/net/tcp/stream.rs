@@ -3,6 +3,8 @@ use crate::{
     plugin,
 };
 use bytes::{Buf, Bytes, BytesMut};
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::{
     fmt, io,
     net::SocketAddr,
@@ -101,6 +103,13 @@ impl TcpStream {
     /// Returns the socket address of the remote peer of this TCP connection.
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.peer)
+    }
+}
+
+#[cfg(unix)]
+impl AsRawFd for TcpStream {
+    fn as_raw_fd(&self) -> RawFd {
+        todo!("TcpStream::as_raw_fd");
     }
 }
 
