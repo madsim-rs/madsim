@@ -1,4 +1,4 @@
-use std::{fmt, io, net::SocketAddr, sync::Arc};
+use std::{fmt, io::Result, net::SocketAddr, sync::Arc};
 use tracing::instrument;
 
 use crate::net::{IpProtocol::Tcp, *};
@@ -32,7 +32,7 @@ impl TcpListener {
     ///
     /// [`ToSocketAddrs`]: trait@crate::net::ToSocketAddrs
     #[instrument]
-    pub async fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
+    pub async fn bind<A: ToSocketAddrs>(addr: A) -> Result<TcpListener> {
         // TODO: simulate backlog
         let (tx, rx) = async_channel::unbounded();
         let guard = BindGuard::bind(addr, Tcp, Arc::new(TcpListenerSocket { tx })).await?;
@@ -51,7 +51,7 @@ impl TcpListener {
     ///
     /// [`TcpStream`]: struct@crate::net::TcpStream
     #[instrument]
-    pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+    pub async fn accept(&self) -> Result<(TcpStream, SocketAddr)> {
         self.guard.net.rand_delay().await?;
 
         let mut stream = (self.rx.recv().await)
@@ -64,7 +64,7 @@ impl TcpListener {
     }
 
     /// Returns the local socket address.
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+    pub fn local_addr(&self) -> Result<SocketAddr> {
         Ok(self.guard.addr)
     }
 }

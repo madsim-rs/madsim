@@ -501,7 +501,7 @@ impl<'a> Builder<'a> {
         Spawner::current().spawn_inner(future, self.name)
     }
 
-    /// Spawns `!Send` a task on the current [`LocalSet`] with this builder's settings.
+    /// Spawns `!Send` a task on the current `LocalSet` with this builder's settings.
     #[track_caller]
     pub fn spawn_local<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
     where
