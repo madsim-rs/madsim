@@ -246,7 +246,11 @@ impl<L> Router<L> {
                 // send the response
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>
-                    tx.send(Box::new(rsp)).await.unwrap();
+                    let res = tx.send(Box::new(rsp)).await;
+                    if res.is_err() {
+                        // client has closed the stream
+                        return;
+                    }
                 }
             });
         }
