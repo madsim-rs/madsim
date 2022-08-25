@@ -20,7 +20,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 use tracing::*;
@@ -74,6 +74,10 @@ pub(crate) struct NodeInfo {
     restart_on_panic: bool,
     /// The span of this node.
     span: Span,
+    /// Wakers of all spawned task.
+    ///
+    /// When being killed, all spawned tasks will be woken up.
+    wakers: Mutex<Vec<Waker>>,
 }
 
 impl NodeInfo {
@@ -100,12 +104,13 @@ impl Executor {
                 next_node_id: Arc::new(AtomicU64::new(1)),
                 main_info: Arc::new(NodeInfo {
                     id: NodeId::zero(),
-                    name: "main".into(),
+                    name: Some("main".into()),
                     cores: 1,
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
+                    wakers: Mutex::new(vec![]),
                 }),
                 sims,
             },
@@ -138,10 +143,9 @@ impl Executor {
                 let _ = sender.send((runnable, info.clone()));
             })
         };
-
-        let waker = runnable.waker();
         runnable.schedule();
 
+        let waker = futures_util::task::noop_waker();
         let mut cx = Context::from_waker(&waker);
 
         loop {
@@ -173,15 +177,18 @@ impl Executor {
                 continue;
             }
             // run the task
-            let node_id = info.node.id;
-            let restart_on_panic = info.node.restart_on_panic;
-            let _guard = crate::context::enter_task(info);
-            if restart_on_panic {
-                if std::panic::catch_unwind(move || runnable.run()).is_err() {
+            if info.node.restart_on_panic {
+                let node_id = info.node.id;
+                let res = {
+                    let _guard = crate::context::enter_task(info);
+                    std::panic::catch_unwind(move || runnable.run())
+                };
+                if res.is_err() {
                     error!("task panicked, restarting node");
                     self.restart(node_id);
                 }
             } else {
+                let _guard = crate::context::enter_task(info);
                 runnable.run();
             }
 
@@ -240,9 +247,11 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
+            wakers: Mutex::new(vec![]),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
+        old_info.wakers.lock().drain(..).for_each(Waker::wake);
 
         for sim in self.sims.lock().values() {
             sim.reset_node(id);
@@ -305,6 +314,7 @@ impl TaskHandle {
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
             restart_on_panic,
+            wakers: Mutex::new(vec![]),
         });
         let handle = Spawner {
             sender: self.sender.clone(),
@@ -350,7 +360,10 @@ impl ToNodeId for NodeId {
 
 impl ToNodeId for &str {
     fn to_node_id(&self, task: &TaskHandle) -> NodeId {
-        match (task.nodes.lock().iter()).find(|(_, node)| &node.info.name == self) {
+        match (task.nodes.lock().iter()).find(|(_, node)| match &node.info.name {
+            Some(name) => name == self,
+            None => false,
+        }) {
             Some((id, _)) => *id,
             None => panic!("node not found: {self}"),
         }
@@ -435,6 +448,7 @@ impl Spawner {
                 let _ = sender.send((runnable, info.clone()));
             })
         };
+        self.info.wakers.lock().push(runnable.waker());
         runnable.schedule();
 
         JoinHandle {
@@ -901,6 +915,27 @@ mod tests {
         let runtime = Runtime::new();
         runtime.block_on(async move {
             std::thread::spawn(|| {});
+        });
+    }
+
+    #[test]
+    fn kill_drop_futures() {
+        let runtime = Runtime::new();
+        let node = runtime.create_node().build();
+
+        let flag = Arc::new(());
+        let flag_ = flag.clone();
+        node.spawn(async move {
+            std::future::pending::<()>().await;
+            drop(flag_);
+        });
+
+        runtime.block_on(async move {
+            time::sleep(Duration::from_secs(1)).await;
+            // make sure the future is pending
+
+            Handle::current().kill(node.id());
+            assert_eq!(Arc::strong_count(&flag), 1);
         });
     }
 }
