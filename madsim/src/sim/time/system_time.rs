@@ -45,20 +45,24 @@ unsafe extern "C" fn clock_gettime(
 ) -> libc::c_int {
     if let Some(time) = super::TimeHandle::try_current() {
         // inside a madsim context, use the simulated time.
-        if clockid == 0 {
-            let dur = time
-                .now_time()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                .unwrap();
-            tp.write(libc::timespec {
-                tv_sec: dur.as_secs() as _,
-                tv_nsec: dur.subsec_nanos() as _,
-            });
-        } else if clockid == 1 {
-            tp.write(std::mem::transmute(time.now_instant()));
-        } else {
-            panic!("unsupported clockid: {}", clockid);
-        };
+        match clockid {
+            // used by SystemTime
+            libc::CLOCK_REALTIME | libc::CLOCK_REALTIME_COARSE => {
+                let dur = time
+                    .now_time()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap();
+                tp.write(libc::timespec {
+                    tv_sec: dur.as_secs() as _,
+                    tv_nsec: dur.subsec_nanos() as _,
+                });
+            }
+            // used by Instant
+            libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW | libc::CLOCK_MONOTONIC_COARSE => {
+                tp.write(std::mem::transmute(time.now_instant()));
+            }
+            _ => panic!("unsupported clockid: {}", clockid),
+        }
         0
     } else {
         lazy_static::lazy_static! {
