@@ -676,6 +676,23 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
     SYSCONF(name)
 }
 
+/// Forbid creating system thread in simulation.
+#[no_mangle]
+#[inline(never)]
+unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc::c_int {
+    if crate::context::try_current_task().is_some() {
+        panic!("attempt to spawn a system thread in simulation");
+    }
+    lazy_static::lazy_static! {
+        static ref PTHREAD_ATTR_INIT: unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int = unsafe {
+            let ptr = libc::dlsym(libc::RTLD_NEXT, b"pthread_attr_init\0".as_ptr() as _);
+            assert!(!ptr.is_null());
+            std::mem::transmute(ptr)
+        };
+    }
+    PTHREAD_ATTR_INIT(attr)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -872,5 +889,14 @@ mod tests {
         });
         runtime.block_on(f1).unwrap();
         runtime.block_on(f2).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn forbid_creating_system_thread() {
+        let runtime = Runtime::new();
+        runtime.block_on(async move {
+            std::thread::spawn(|| {});
+        });
     }
 }
