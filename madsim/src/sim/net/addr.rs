@@ -237,7 +237,12 @@ impl sealed::ToSocketAddrsPriv for (&str, u16) {
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
 
-        todo!("simulate DNS lookup");
+        if host == "localhost" {
+            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+
+            return MaybeReady(sealed::State::Ready(Some(addr)));
+        }
+        todo!("simulate DNS lookup: {host}");
     }
 }
 
@@ -337,5 +342,26 @@ pub(crate) mod sealed {
                 OneOrMore::More(i) => i.size_hint(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Runtime;
+
+    #[test]
+    fn parse() {
+        let runtime = Runtime::new();
+        runtime.block_on(async {
+            assert_eq!(
+                lookup_host("localhost:1").await.unwrap().next().unwrap(),
+                SocketAddr::from((Ipv4Addr::LOCALHOST, 1))
+            );
+            assert_eq!(
+                lookup_host(("localhost", 1)).await.unwrap().next().unwrap(),
+                SocketAddr::from((Ipv4Addr::LOCALHOST, 1))
+            );
+        });
     }
 }
