@@ -330,4 +330,39 @@ mod tests {
             handle.restart(node1.id());
         }
     }
+
+    #[madsim::test]
+    async fn client_drops_response_stream() {
+        let handle = Handle::current();
+        let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+        let ip1 = "10.0.0.2".parse().unwrap();
+        let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
+        node0.spawn(async move {
+            Server::builder()
+                .add_service(GreeterServer::new(MyGreeter::default()))
+                .serve(addr0)
+                .await
+                .unwrap();
+        });
+        sleep(Duration::from_secs(1)).await;
+
+        handle
+            .create_node()
+            .name("client1")
+            .ip(ip1)
+            .build()
+            .spawn(async move {
+                let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                    .await
+                    .unwrap();
+                let request = tonic::Request::new(HelloRequest {
+                    name: "Tonic".into(),
+                });
+                let _ = client.lots_of_replies(request).await.unwrap();
+                // ^ drop response stream
+                sleep(Duration::from_secs(10)).await;
+            })
+            .await
+            .unwrap();
+    }
 }
