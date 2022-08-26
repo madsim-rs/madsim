@@ -20,7 +20,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 use tracing::*;
@@ -62,9 +62,10 @@ pub(crate) struct TaskInfo {
 
 pub(crate) struct NodeInfo {
     pub id: NodeId,
-    pub name: String,
+    /// Node name.
+    name: Option<String>,
     /// The number of CPU cores.
-    pub cores: usize,
+    cores: usize,
     /// A flag indicating that the task should be paused.
     paused: AtomicBool,
     /// A flag indicating that the task should no longer be executed.
@@ -73,6 +74,10 @@ pub(crate) struct NodeInfo {
     restart_on_panic: bool,
     /// The span of this node.
     span: Span,
+    /// Wakers of all spawned task.
+    ///
+    /// When being killed, all spawned tasks will be woken up.
+    wakers: Mutex<Vec<Waker>>,
 }
 
 impl NodeInfo {
@@ -99,12 +104,13 @@ impl Executor {
                 next_node_id: Arc::new(AtomicU64::new(1)),
                 main_info: Arc::new(NodeInfo {
                     id: NodeId::zero(),
-                    name: "main".into(),
+                    name: Some("main".into()),
                     cores: 1,
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
+                    wakers: Mutex::new(vec![]),
                 }),
                 sims,
             },
@@ -137,10 +143,9 @@ impl Executor {
                 let _ = sender.send((runnable, info.clone()));
             })
         };
-
-        let waker = runnable.waker();
         runnable.schedule();
 
+        let waker = futures_util::task::noop_waker();
         let mut cx = Context::from_waker(&waker);
 
         loop {
@@ -163,24 +168,27 @@ impl Executor {
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
         while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
-            if info.node.killed.load(Ordering::SeqCst) {
+            if info.node.killed.load(Ordering::Relaxed) {
                 // killed task: ignore
                 continue;
-            } else if info.node.paused.load(Ordering::SeqCst) {
+            } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
                 (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push((runnable, info));
                 continue;
             }
             // run the task
-            let node_id = info.node.id;
-            let restart_on_panic = info.node.restart_on_panic;
-            let _guard = crate::context::enter_task(info);
-            if restart_on_panic {
-                if std::panic::catch_unwind(move || runnable.run()).is_err() {
+            if info.node.restart_on_panic {
+                let node_id = info.node.id;
+                let res = {
+                    let _guard = crate::context::enter_task(info);
+                    std::panic::catch_unwind(move || runnable.run())
+                };
+                if res.is_err() {
                     error!("task panicked, restarting node");
                     self.restart(node_id);
                 }
             } else {
+                let _guard = crate::context::enter_task(info);
                 runnable.run();
             }
 
@@ -239,9 +247,11 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
+            wakers: Mutex::new(vec![]),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
+        old_info.wakers.lock().drain(..).for_each(Waker::wake);
 
         for sim in self.sims.lock().values() {
             sim.reset_node(id);
@@ -269,7 +279,7 @@ impl TaskHandle {
         let id = id.to_node_id(self);
         let nodes = self.nodes.lock();
         let node = nodes.get(&id).expect("node not found");
-        node.info.paused.store(true, Ordering::SeqCst);
+        node.info.paused.store(true, Ordering::Relaxed);
     }
 
     /// Resume the execution of the address.
@@ -278,7 +288,7 @@ impl TaskHandle {
         let id = id.to_node_id(self);
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
-        node.info.paused.store(false, Ordering::SeqCst);
+        node.info.paused.store(false, Ordering::Relaxed);
 
         // take paused tasks from waiting list and push them to ready queue
         for (runnable, info) in node.paused.drain(..) {
@@ -294,8 +304,7 @@ impl TaskHandle {
         cores: Option<usize>,
         restart_on_panic: bool,
     ) -> Spawner {
-        let id = NodeId(self.next_node_id.fetch_add(1, Ordering::SeqCst));
-        let name = name.unwrap_or_else(|| format!("node-{}", id.0));
+        let id = NodeId(self.next_node_id.fetch_add(1, Ordering::Relaxed));
         debug!(node = %id, name, "create");
         let info = Arc::new(NodeInfo {
             span: error_span!(parent: None, "node", %id, name),
@@ -305,6 +314,7 @@ impl TaskHandle {
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
             restart_on_panic,
+            wakers: Mutex::new(vec![]),
         });
         let handle = Spawner {
             sender: self.sender.clone(),
@@ -350,7 +360,10 @@ impl ToNodeId for NodeId {
 
 impl ToNodeId for &str {
     fn to_node_id(&self, task: &TaskHandle) -> NodeId {
-        match (task.nodes.lock().iter()).find(|(_, node)| &node.info.name == self) {
+        match (task.nodes.lock().iter()).find(|(_, node)| match &node.info.name {
+            Some(name) => name == self,
+            None => false,
+        }) {
             Some((id, _)) => *id,
             None => panic!("node not found: {self}"),
         }
@@ -427,10 +440,15 @@ impl Spawner {
             // Safety: The schedule is not Sync,
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
+                if info.node.killed.load(Ordering::Relaxed) {
+                    // drop the future
+                    return;
+                }
                 trace!(%id, name, "wake task");
                 let _ = sender.send((runnable, info.clone()));
             })
         };
+        self.info.wakers.lock().push(runnable.waker());
         runnable.schedule();
 
         JoinHandle {
@@ -519,7 +537,7 @@ pub struct Id(u64);
 impl Id {
     fn new() -> Self {
         static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(0);
-        Id(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
+        Id(NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
 
@@ -724,7 +742,7 @@ mod tests {
         node1.spawn(async move {
             loop {
                 time::sleep(Duration::from_secs(2)).await;
-                flag1_.fetch_add(2, Ordering::SeqCst);
+                flag1_.fetch_add(2, Ordering::Relaxed);
             }
         });
 
@@ -732,7 +750,7 @@ mod tests {
         node2.spawn(async move {
             loop {
                 time::sleep(Duration::from_secs(2)).await;
-                flag2_.fetch_add(2, Ordering::SeqCst);
+                flag2_.fetch_add(2, Ordering::Relaxed);
             }
         });
 
@@ -740,14 +758,14 @@ mod tests {
             let t0 = time::Instant::now();
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
-            assert_eq!(flag1.load(Ordering::SeqCst), 2);
-            assert_eq!(flag2.load(Ordering::SeqCst), 2);
+            assert_eq!(flag1.load(Ordering::Relaxed), 2);
+            assert_eq!(flag2.load(Ordering::Relaxed), 2);
             Handle::current().kill(node1.id());
             Handle::current().kill(node1.id());
 
             time::sleep_until(t0 + Duration::from_secs(5)).await;
-            assert_eq!(flag1.load(Ordering::SeqCst), 2);
-            assert_eq!(flag2.load(Ordering::SeqCst), 4);
+            assert_eq!(flag1.load(Ordering::Relaxed), 2);
+            assert_eq!(flag2.load(Ordering::Relaxed), 4);
         });
     }
 
@@ -764,10 +782,10 @@ mod tests {
                 let flag = flag_.clone();
                 async move {
                     // set flag to 0, then +2 every 2s
-                    flag.store(0, Ordering::SeqCst);
+                    flag.store(0, Ordering::Relaxed);
                     loop {
                         time::sleep(Duration::from_secs(2)).await;
-                        flag.fetch_add(2, Ordering::SeqCst);
+                        flag.fetch_add(2, Ordering::Relaxed);
                     }
                 }
             })
@@ -777,15 +795,15 @@ mod tests {
             let t0 = time::Instant::now();
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
-            assert_eq!(flag.load(Ordering::SeqCst), 2);
+            assert_eq!(flag.load(Ordering::Relaxed), 2);
             Handle::current().kill(node.id());
             Handle::current().restart(node.id());
 
             time::sleep_until(t0 + Duration::from_secs(6)).await;
-            assert_eq!(flag.load(Ordering::SeqCst), 2);
+            assert_eq!(flag.load(Ordering::Relaxed), 2);
 
             time::sleep_until(t0 + Duration::from_secs(8)).await;
-            assert_eq!(flag.load(Ordering::SeqCst), 4);
+            assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
     }
 
@@ -800,7 +818,7 @@ mod tests {
             .init(move || {
                 let flag = flag_.clone();
                 async move {
-                    if flag.fetch_add(1, Ordering::SeqCst) < 3 {
+                    if flag.fetch_add(1, Ordering::Relaxed) < 3 {
                         panic!();
                     }
                 }
@@ -811,7 +829,7 @@ mod tests {
         runtime.block_on(async move {
             time::sleep(Duration::from_secs(10)).await;
             // should panic 3 times and success once
-            assert_eq!(flag.load(Ordering::SeqCst), 4);
+            assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
     }
 
@@ -825,7 +843,7 @@ mod tests {
         node.spawn(async move {
             loop {
                 time::sleep(Duration::from_secs(2)).await;
-                flag_.fetch_add(2, Ordering::SeqCst);
+                flag_.fetch_add(2, Ordering::Relaxed);
             }
         });
 
@@ -833,17 +851,17 @@ mod tests {
             let t0 = time::Instant::now();
 
             time::sleep_until(t0 + Duration::from_secs(3)).await;
-            assert_eq!(flag.load(Ordering::SeqCst), 2);
+            assert_eq!(flag.load(Ordering::Relaxed), 2);
             Handle::current().pause(node.id());
             Handle::current().pause(node.id());
 
             time::sleep_until(t0 + Duration::from_secs(5)).await;
-            assert_eq!(flag.load(Ordering::SeqCst), 2);
+            assert_eq!(flag.load(Ordering::Relaxed), 2);
 
             Handle::current().resume(node.id());
             Handle::current().resume(node.id());
             time::sleep_until(t0 + Duration::from_secs_f32(5.5)).await;
-            assert_eq!(flag.load(Ordering::SeqCst), 4);
+            assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
     }
 
@@ -897,6 +915,27 @@ mod tests {
         let runtime = Runtime::new();
         runtime.block_on(async move {
             std::thread::spawn(|| {});
+        });
+    }
+
+    #[test]
+    fn kill_drop_futures() {
+        let runtime = Runtime::new();
+        let node = runtime.create_node().build();
+
+        let flag = Arc::new(());
+        let flag_ = flag.clone();
+        node.spawn(async move {
+            std::future::pending::<()>().await;
+            drop(flag_);
+        });
+
+        runtime.block_on(async move {
+            time::sleep(Duration::from_secs(1)).await;
+            // make sure the future is pending
+
+            Handle::current().kill(node.id());
+            assert_eq!(Arc::strong_count(&flag), 1);
         });
     }
 }
