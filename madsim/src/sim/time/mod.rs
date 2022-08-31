@@ -62,6 +62,8 @@ impl TimeRuntime {
     /// Advances time.
     pub fn advance(&self, duration: Duration) {
         self.handle.clock.advance(duration);
+        let time = self.handle.clock.elapsed();
+        self.handle.timer.lock().expire(time);
     }
 
     #[allow(dead_code)]
