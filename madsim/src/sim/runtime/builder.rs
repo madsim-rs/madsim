@@ -127,6 +127,7 @@ impl Builder {
                         }
                         let ret = rt.block_on(f());
                         tx.send(()).unwrap();
+                        eprintln!("random count = {}", rt.rand.count());
                         ret
                     });
                     let _ = rx.await;
@@ -146,7 +147,12 @@ impl Builder {
                 // Err(e) => super::panic_with_info(seed, self.config.hash(), e),
             }
         }
-        eprintln!("fail rate = {}/{} = {}", failed, self.count, failed as f32 / self.count as f32);
+        eprintln!(
+            "fail rate = {}/{} = {}",
+            failed,
+            self.count,
+            failed as f32 / self.count as f32
+        );
         return_value.unwrap()
     }
 }

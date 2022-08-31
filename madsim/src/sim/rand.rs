@@ -20,13 +20,14 @@
 //!
 //! [`rand`]: rand
 
+use bytes::Buf;
 use rand::{
     distributions::Standard,
     prelude::{Distribution, SmallRng},
 };
-
 use spin::Mutex;
 use std::cell::Cell;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 // TODO: mock `rngs` module
@@ -53,9 +54,15 @@ pub struct GlobalRng {
 
 struct Inner {
     seed: u64,
-    rng: SmallRng,
+    rng: MixRng,
     log: Option<Vec<u8>>,
     check: Option<(Vec<u8>, usize)>,
+    count: u64,
+}
+
+enum MixRng {
+    Seed(SmallRng),
+    Bytes(VecDeque<u8>),
 }
 
 impl GlobalRng {
@@ -68,12 +75,20 @@ impl GlobalRng {
                 "failed to initialize std random state, std HashMap will not be deterministic"
             );
         }
+        Self::new_with_rng(MixRng::Seed(SeedableRng::seed_from_u64(seed)))
+    }
 
+    pub(crate) fn new_with_data(data: &[u8]) -> Self {
+        Self::new_with_rng(MixRng::Bytes(data.to_vec().into()))
+    }
+
+    fn new_with_rng(rng: MixRng) -> Self {
         let inner = Inner {
-            seed,
-            rng: SeedableRng::seed_from_u64(seed),
+            seed: 0,
+            rng,
             log: None,
             check: None,
+            count: 0,
         };
         GlobalRng {
             inner: Arc::new(Mutex::new(inner)),
@@ -81,35 +96,22 @@ impl GlobalRng {
     }
 
     /// Call function on the inner RNG.
-    pub(crate) fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
+    fn with<T>(&self, f: impl FnOnce(&mut MixRng) -> T) -> T {
         let mut lock = self.inner.lock();
         let ret = f(&mut lock.rng);
-        // log or check
-        if lock.log.is_some() || lock.check.is_some() {
-            let t = crate::time::TimeHandle::try_current().map(|t| t.elapsed());
-            fn hash_u128(x: u128) -> u8 {
-                x.to_ne_bytes().iter().fold(0, |a, b| a ^ b)
-            }
-            let v = lock.rng.clone().gen::<u8>() ^ hash_u128(t.unwrap_or_default().as_nanos());
-            if let Some(log) = &mut lock.log {
-                log.push(v);
-            }
-            if let Some((check, i)) = &mut lock.check {
-                if check.get(*i) != Some(&v) {
-                    if let Some(time) = t {
-                        panic!("non-determinism detected at {:?}", time);
-                    }
-                    panic!("non-determinism detected");
-                }
-                *i += 1;
-            }
-        }
+        // lock.log_or_check();
+        lock.count += 1;
         ret
     }
 
     pub(crate) fn seed(&self) -> u64 {
         let lock = self.inner.lock();
         lock.seed
+    }
+
+    pub(crate) fn count(&self) -> u64 {
+        let lock = self.inner.lock();
+        lock.count
     }
 
     pub(crate) fn enable_check(&self, log: Log) {
@@ -131,6 +133,31 @@ impl GlobalRng {
     }
 }
 
+impl Inner {
+    // fn log_or_check(&mut self) {
+    //     if self.log.is_none() && self.check.is_none() {
+    //         return;
+    //     }
+    //     let t = crate::time::TimeHandle::try_current().map(|t| t.elapsed());
+    //     fn hash_u128(x: u128) -> u8 {
+    //         x.to_ne_bytes().iter().fold(0, |a, b| a ^ b)
+    //     }
+    //     let v = self.rng.clone().gen::<u8>() ^ hash_u128(t.unwrap_or_default().as_nanos());
+    //     if let Some(log) = &mut self.log {
+    //         log.push(v);
+    //     }
+    //     if let Some((check, i)) = &mut self.check {
+    //         if check.get(*i) != Some(&v) {
+    //             if let Some(time) = t {
+    //                 panic!("non-determinism detected at {:?}", time);
+    //             }
+    //             panic!("non-determinism detected");
+    //         }
+    //         *i += 1;
+    //     }
+    // }
+}
+
 /// Retrieve the deterministic random number generator from the current madsim context.
 pub fn thread_rng() -> GlobalRng {
     crate::context::current(|h| h.rand.clone())
@@ -138,21 +165,46 @@ pub fn thread_rng() -> GlobalRng {
 
 impl RngCore for GlobalRng {
     fn next_u32(&mut self) -> u32 {
-        self.with(|rng| rng.next_u32())
+        self.with(|rng| match rng {
+            MixRng::Seed(rng) => rng.next_u32(),
+            // MixRng::Bytes(data) if data.len() < 4 => std::panic::panic_any(EndOfRandInput),
+            MixRng::Bytes(data) if data.len() < 4 => {
+                *rng = MixRng::Seed(SmallRng::seed_from_u64(0));
+                SmallRng::seed_from_u64(0).next_u32()
+            }
+            MixRng::Bytes(data) => data.get_u32(),
+        })
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.with(|rng| rng.next_u64())
+        self.with(|rng| match rng {
+            MixRng::Seed(rng) => rng.next_u64(),
+            MixRng::Bytes(data) if data.len() < 8 => {
+                *rng = MixRng::Seed(SmallRng::seed_from_u64(0));
+                SmallRng::seed_from_u64(0).next_u64()
+            }
+            MixRng::Bytes(data) => data.get_u64(),
+        })
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.with(|rng| rng.fill_bytes(dest))
+        self.with(|rng| match rng {
+            MixRng::Seed(rng) => rng.fill_bytes(dest),
+            MixRng::Bytes(data) if data.len() < dest.len() => {
+                *rng = MixRng::Seed(SmallRng::seed_from_u64(0));
+                SmallRng::seed_from_u64(0).fill_bytes(dest)
+            }
+            MixRng::Bytes(data) => data.copy_to_slice(dest),
+        })
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-        self.with(|rng| rng.try_fill_bytes(dest))
+        Ok(self.fill_bytes(dest))
     }
 }
+
+/// ...
+pub struct EndOfRandInput;
 
 /// Generates a random value using the global random number generator.
 #[inline]
@@ -198,15 +250,15 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
         std::slice::from_raw_parts_mut(buf as *mut u64, 2).fill(seed);
         SEED.with(|s| s.set(None));
         return 16;
-    } else if let Some(rand) = crate::context::try_current(|h| h.rand.clone()) {
+    } else if let Some(mut rand) = crate::context::try_current(|h| h.rand.clone()) {
         // inside a madsim context, use the global RNG.
         let len = buflen;
         while buflen >= std::mem::size_of::<u64>() {
-            (buf as *mut u64).write(rand.with(|rng| rng.gen()));
+            (buf as *mut u64).write(rand.gen());
             buf = buf.add(std::mem::size_of::<u64>());
             buflen -= std::mem::size_of::<u64>();
         }
-        let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
+        let val = rand.gen::<u64>().to_ne_bytes();
         core::ptr::copy(val.as_ptr(), buf, buflen);
         return len as _;
     }

@@ -73,7 +73,7 @@ impl<T> Receiver<T> {
     pub fn try_recv_random(&self, rng: &GlobalRng) -> Result<T, TryRecvError> {
         let mut queue = self.inner.queue.lock();
         if !queue.is_empty() {
-            let idx = rng.with(|rng| rng.gen_range(0..queue.len()));
+            let idx = rng.clone().gen_range(0..queue.len());
             Ok(queue.swap_remove(idx))
         } else if Arc::weak_count(&self.inner) == 0 {
             Err(TryRecvError::Disconnected)

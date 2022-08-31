@@ -163,7 +163,7 @@ impl NetSim {
 
     /// Delay a small random time and probably inject failure.
     async fn rand_delay(&self) -> io::Result<()> {
-        let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
+        let delay = Duration::from_micros(self.rand.clone().gen_range(0..5));
         self.time.sleep(delay).await;
         // TODO: inject failure
         Ok(())

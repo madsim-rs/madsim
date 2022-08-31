@@ -64,6 +64,24 @@ impl Runtime {
         rt
     }
 
+    /// Create a new runtime instance with given seed and config.
+    pub fn with_data_and_config(data: &[u8], config: Config) -> Self {
+        let rand = rand::GlobalRng::new_with_data(data);
+        let sims = Arc::new(Mutex::new(HashMap::new()));
+        let task = task::Executor::new(rand.clone(), sims.clone());
+        let handle = Handle {
+            rand: rand.clone(),
+            time: task.time_handle().clone(),
+            task: task.handle().clone(),
+            sims,
+            config,
+        };
+        let rt = Runtime { rand, task, handle };
+        rt.add_simulator::<fs::FsSim>();
+        rt.add_simulator::<net::NetSim>();
+        rt
+    }
+
     /// Register a simulator.
     pub fn add_simulator<S: plugin::Simulator>(&self) {
         let mut sims = self.handle.sims.lock();

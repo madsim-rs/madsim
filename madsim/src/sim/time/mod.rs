@@ -27,8 +27,7 @@ impl TimeRuntime {
         // around 2022
         let base_time = SystemTime::UNIX_EPOCH
             + Duration::from_secs(
-                60 * 60 * 24 * 365 * (2022 - 1970)
-                    + rand.with(|rng| rng.gen_range(0..60 * 60 * 24 * 365)),
+                60 * 60 * 24 * 365 * (2022 - 1970) + rand.clone().gen_range(0..60 * 60 * 24 * 365),
             );
         let handle = TimeHandle {
             timer: Arc::new(Mutex::new(Timer::default())),
