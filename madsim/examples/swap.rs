@@ -18,7 +18,7 @@ async fn main() {
             }
         });
     }
-    std::future::pending::<()>().await;
+    madsim::time::sleep(Duration::from_secs(1)).await;
 }
 
 struct Array {
@@ -41,8 +41,9 @@ impl Array {
         let x = a()[i];
         let y = a()[j];
         tracing::info!("begin({x}, {y})");
-        let t = thread_rng().gen_range(0..10);
-        madsim::time::sleep(Duration::from_micros(t)).await;
+        // let t = thread_rng().gen_range(0..10);
+        // madsim::time::sleep(Duration::from_micros(t)).await;
+        madsim::task::yield_now().await;
         a()[i] = y;
         a()[j] = x;
         tracing::info!("end  ({x}, {y})");

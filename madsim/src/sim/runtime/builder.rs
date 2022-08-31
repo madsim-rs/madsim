@@ -138,12 +138,15 @@ impl Builder {
             .build()
             .unwrap();
         let mut return_value = None;
+        let mut failed = 0;
         while let Some((seed, res)) = rt.block_on(stream.next()) {
             match res {
                 Ok(ret) => return_value = Some(ret),
-                Err(e) => super::panic_with_info(seed, self.config.hash(), e),
+                Err(_) => failed += 1,
+                // Err(e) => super::panic_with_info(seed, self.config.hash(), e),
             }
         }
+        eprintln!("fail rate = {}/{} = {}", failed, self.count, failed as f32 / self.count as f32);
         return_value.unwrap()
     }
 }
