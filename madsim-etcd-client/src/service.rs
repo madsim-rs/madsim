@@ -24,13 +24,29 @@ impl EtcdService {
     }
 
     pub fn get(&mut self, key: Vec<u8>, options: GetOptions) -> GetResponse {
-        let mut kvs = vec![];
-        if let Some(value) = self.kv.get(&key) {
-            kvs.push(KeyValue {
-                key,
-                value: value.clone(),
-            });
+        if options.revision > 0 {
+            todo!("get with revision");
         }
+        let kvs = if options.prefix {
+            let mut end = key.clone();
+            *end.last_mut().unwrap() += 1;
+            self.kv
+                .range(key..end)
+                .map(|(k, v)| KeyValue {
+                    key: k.clone(),
+                    value: v.clone(),
+                })
+                .collect()
+        } else {
+            self.kv
+                .get(&key)
+                .map(|v| KeyValue {
+                    key: key.clone(),
+                    value: v.clone(),
+                })
+                .into_iter()
+                .collect()
+        };
         GetResponse {
             header: self.header(),
             kvs,

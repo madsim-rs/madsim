@@ -12,7 +12,7 @@ impl SimServer {
         let ep = Endpoint::bind(addr).await?;
         let service = Arc::new(Mutex::new(EtcdService::default()));
         loop {
-            let (tx, mut rx, from) = ep.accept1().await?;
+            let (tx, mut rx, _) = ep.accept1().await?;
             let service = service.clone();
             madsim::task::spawn(async move {
                 let request = *rx.recv().await?.downcast::<Request>().unwrap();

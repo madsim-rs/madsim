@@ -127,8 +127,8 @@ impl PutResponse {
 /// Options for `Get` operation.
 #[derive(Debug, Default, Clone)]
 pub struct GetOptions {
-    revision: i64,
-    prefix: bool,
+    pub(crate) revision: i64,
+    pub(crate) prefix: bool,
 }
 
 impl GetOptions {

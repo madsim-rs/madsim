@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 mod error;
 mod kv;
 mod server;
@@ -22,7 +20,7 @@ impl Client {
     /// Connect to `etcd` servers from given `endpoints`.
     pub async fn connect<E: AsRef<str>, S: AsRef<[E]>>(
         endpoints: S,
-        options: Option<ConnectOptions>,
+        _options: Option<ConnectOptions>,
     ) -> Result<Self> {
         let addr = endpoints.as_ref()[0].as_ref();
         let ep = Endpoint::connect(addr).await?;
