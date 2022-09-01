@@ -1,24 +1,6 @@
 //! Utilities for random number generation.
 //!
 //! This module re-exports the [`rand`] crate, except for the random number generators.
-//!
-//! User should call [`thread_rng()`] to retrieve the deterministic random number
-//! generator from the current madsim context. **Do not** use [`rand`] crate directly,
-//! because no determinism is guaranteed.
-//!
-//! # Example
-//!
-//! ```
-//! use madsim::{runtime::Runtime, rand::{thread_rng, Rng}};
-//!
-//! Runtime::new().block_on(async {
-//!     let mut rng = thread_rng();
-//!     rng.gen_bool(0.5);
-//!     rng.gen_range(0..10);
-//! });
-//! ```
-//!
-//! [`rand`]: rand
 
 use rand::{
     distributions::Standard,
@@ -28,8 +10,6 @@ use rand::{
 use spin::Mutex;
 use std::cell::Cell;
 use std::sync::Arc;
-
-// TODO: mock `rngs` module
 
 #[doc(no_inline)]
 pub use rand::{distributions, seq, CryptoRng, Error, Fill, Rng, RngCore, SeedableRng};
@@ -164,9 +144,8 @@ where
 }
 
 /// Random log for determinism check.
-#[cfg_attr(docsrs, doc(cfg(madsim)))]
 #[derive(Debug, PartialEq, Eq)]
-pub struct Log(Vec<u8>);
+pub(crate) struct Log(Vec<u8>);
 
 /// Initialize std `RandomState` with specified seed.
 ///
