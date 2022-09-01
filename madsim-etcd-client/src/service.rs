@@ -1,0 +1,83 @@
+use super::kv::*;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Default)]
+pub struct EtcdService {
+    revision: i64,
+    kv: BTreeMap<Vec<u8>, Vec<u8>>,
+}
+
+impl EtcdService {
+    fn header(&self) -> ResponseHeader {
+        ResponseHeader {
+            revision: self.revision,
+        }
+    }
+
+    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>, options: PutOptions) -> PutResponse {
+        self.kv.insert(key, value);
+        self.revision += 1;
+        PutResponse {
+            header: self.header(),
+            prev_kv: None,
+        }
+    }
+
+    pub fn get(&mut self, key: Vec<u8>, options: GetOptions) -> GetResponse {
+        let mut kvs = vec![];
+        if let Some(value) = self.kv.get(&key) {
+            kvs.push(KeyValue {
+                key,
+                value: value.clone(),
+            });
+        }
+        GetResponse {
+            header: self.header(),
+            kvs,
+        }
+    }
+
+    pub fn delete(&mut self, key: Vec<u8>, options: DeleteOptions) -> DeleteResponse {
+        let deleted = self.kv.remove(&key).map_or(0, |_| 1);
+        self.revision += 1;
+        DeleteResponse {
+            header: self.header(),
+            deleted,
+        }
+    }
+
+    pub fn txn(&mut self, txn: Txn) -> TxnResponse {
+        let succeeded = txn.compare.iter().all(|cmp| {
+            let value = self.kv.get(&cmp.key);
+            match cmp.op {
+                CompareOp::Equal => value == Some(&cmp.value),
+                CompareOp::Greater => matches!(value, Some(v) if v > &cmp.value),
+                CompareOp::Less => matches!(value, Some(v) if v < &cmp.value),
+                CompareOp::NotEqual => value != Some(&cmp.value),
+            }
+        });
+
+        let revision = self.revision;
+        let mut op_responses = vec![];
+        for op in if succeeded { txn.success } else { txn.failure } {
+            let response = match op {
+                TxnOp::Get { key, options } => TxnOpResponse::Get(self.get(key, options)),
+                TxnOp::Put {
+                    key,
+                    value,
+                    options,
+                } => TxnOpResponse::Put(self.put(key, value, options)),
+                TxnOp::Delete { key, options } => TxnOpResponse::Delete(self.delete(key, options)),
+                TxnOp::Txn { txn } => todo!(),
+            };
+            op_responses.push(response);
+        }
+        self.revision = revision + 1;
+
+        TxnResponse {
+            header: self.header(),
+            succeeded,
+            op_responses,
+        }
+    }
+}

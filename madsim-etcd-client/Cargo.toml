@@ -1,8 +1,14 @@
 [package]
 name = "madsim-etcd-client"
-version = "0.1.0"
+version = "0.2.4"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[target.'cfg(not(madsim))'.dependencies]
+etcd-client = "0.10"
+
+[target.'cfg(madsim)'.dependencies]
+madsim = { version = "0.2.4", path = "../madsim" }
+spin = "0.9"
+tracing = "0.1"
