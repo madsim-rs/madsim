@@ -14,7 +14,7 @@ impl EtcdService {
         }
     }
 
-    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>, options: PutOptions) -> PutResponse {
+    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>, _options: PutOptions) -> PutResponse {
         self.kv.insert(key, value);
         self.revision += 1;
         PutResponse {
@@ -53,7 +53,7 @@ impl EtcdService {
         }
     }
 
-    pub fn delete(&mut self, key: Vec<u8>, options: DeleteOptions) -> DeleteResponse {
+    pub fn delete(&mut self, key: Vec<u8>, _options: DeleteOptions) -> DeleteResponse {
         let deleted = self.kv.remove(&key).map_or(0, |_| 1);
         self.revision += 1;
         DeleteResponse {
@@ -84,7 +84,7 @@ impl EtcdService {
                     options,
                 } => TxnOpResponse::Put(self.put(key, value, options)),
                 TxnOp::Delete { key, options } => TxnOpResponse::Delete(self.delete(key, options)),
-                TxnOp::Txn { txn } => todo!(),
+                TxnOp::Txn { txn: _txn } => todo!(),
             };
             op_responses.push(response);
         }

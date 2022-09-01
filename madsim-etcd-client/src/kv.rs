@@ -79,8 +79,8 @@ impl KvClient {
     #[inline]
     pub async fn compact(
         &mut self,
-        revision: i64,
-        options: Option<CompactionOptions>,
+        _revision: i64,
+        _options: Option<CompactionOptions>,
     ) -> Result<CompactionResponse> {
         todo!()
     }
