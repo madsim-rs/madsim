@@ -18,7 +18,7 @@ async fn main() {
             }
         });
     }
-    madsim::time::sleep(Duration::from_secs(1)).await;
+    madsim::time::sleep(Duration::from_millis(100)).await;
 }
 
 struct Array {

@@ -133,6 +133,10 @@ impl Executor {
     }
 
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        self.try_block_on(future).expect("unfinished")
+    }
+
+    pub fn try_block_on<F: Future>(&self, future: F) -> Option<F::Output> {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
         let info = self.handle.main_info.new_task(None);
@@ -148,10 +152,13 @@ impl Executor {
         let waker = futures_util::task::noop_waker();
         let mut cx = Context::from_waker(&waker);
 
-        loop {
+        while !self.rand.is_end() {
             self.run_all_ready();
+            if self.rand.is_end() {
+                return None;
+            }
             if let Poll::Ready(val) = Pin::new(&mut task).poll(&mut cx) {
-                return val;
+                return Some(val);
             }
             let going = self.time.advance_to_next_event();
             assert!(going, "no events, all tasks will block forever");
@@ -163,11 +170,15 @@ impl Executor {
                 )
             }
         }
+        None
     }
 
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
         while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
+            if self.rand.is_end() {
+                return;
+            }
             if info.node.killed.load(Ordering::Relaxed) {
                 // killed task: ignore
                 continue;

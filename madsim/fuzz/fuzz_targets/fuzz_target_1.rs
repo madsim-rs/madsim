@@ -6,13 +6,9 @@ fuzz_target!(|data: &[u8]| {
     let data = data.to_vec();
     std::thread::spawn(move || {
         let rt = madsim::runtime::Runtime::with_data_and_config(&data, madsim::Config::default());
-        rt.block_on(main());
+        rt.try_block_on(main());
     })
     .join().unwrap();
-    // match ret {
-    //     Err(e) if !(*e).is::<madsim::rand::EndOfRandInput>() => std::panic::resume_unwind(e),
-    //     _ => {}
-    // }
 });
 
 use madsim::rand::{thread_rng, Rng};
@@ -33,7 +29,7 @@ async fn main() {
             }
         });
     }
-    madsim::time::sleep(Duration::from_secs(1)).await;
+    madsim::time::sleep(Duration::from_millis(100)).await;
 }
 
 struct Array {

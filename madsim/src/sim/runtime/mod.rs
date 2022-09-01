@@ -142,6 +142,12 @@ impl Runtime {
         self.task.block_on(future)
     }
 
+    /// TODO
+    pub fn try_block_on<F: Future>(&self, future: F) -> Option<F::Output> {
+        let _guard = crate::context::enter(self.handle.clone());
+        self.task.try_block_on(future)
+    }
+
     /// Set a time limit of the execution.
     ///
     /// The runtime will panic when time limit exceeded.

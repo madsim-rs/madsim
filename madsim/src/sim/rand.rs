@@ -114,6 +114,11 @@ impl GlobalRng {
         lock.count
     }
 
+    pub(crate) fn is_end(&self) -> bool {
+        let lock = self.inner.lock();
+        matches!(&lock.rng, MixRng::Bytes(data) if data.is_empty())
+    }
+
     pub(crate) fn enable_check(&self, log: Log) {
         let mut lock = self.inner.lock();
         lock.check = Some((log.0, 0));
@@ -167,9 +172,8 @@ impl RngCore for GlobalRng {
     fn next_u32(&mut self) -> u32 {
         self.with(|rng| match rng {
             MixRng::Seed(rng) => rng.next_u32(),
-            // MixRng::Bytes(data) if data.len() < 4 => std::panic::panic_any(EndOfRandInput),
             MixRng::Bytes(data) if data.len() < 4 => {
-                *rng = MixRng::Seed(SmallRng::seed_from_u64(0));
+                data.clear();
                 SmallRng::seed_from_u64(0).next_u32()
             }
             MixRng::Bytes(data) => data.get_u32(),
@@ -180,7 +184,7 @@ impl RngCore for GlobalRng {
         self.with(|rng| match rng {
             MixRng::Seed(rng) => rng.next_u64(),
             MixRng::Bytes(data) if data.len() < 8 => {
-                *rng = MixRng::Seed(SmallRng::seed_from_u64(0));
+                data.clear();
                 SmallRng::seed_from_u64(0).next_u64()
             }
             MixRng::Bytes(data) => data.get_u64(),
@@ -191,7 +195,7 @@ impl RngCore for GlobalRng {
         self.with(|rng| match rng {
             MixRng::Seed(rng) => rng.fill_bytes(dest),
             MixRng::Bytes(data) if data.len() < dest.len() => {
-                *rng = MixRng::Seed(SmallRng::seed_from_u64(0));
+                data.clear();
                 SmallRng::seed_from_u64(0).fill_bytes(dest)
             }
             MixRng::Bytes(data) => data.copy_to_slice(dest),
@@ -202,9 +206,6 @@ impl RngCore for GlobalRng {
         Ok(self.fill_bytes(dest))
     }
 }
-
-/// ...
-pub struct EndOfRandInput;
 
 /// Generates a random value using the global random number generator.
 #[inline]
