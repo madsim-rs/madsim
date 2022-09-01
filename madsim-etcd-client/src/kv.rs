@@ -1,10 +1,23 @@
+use std::net::SocketAddr;
+
 use super::*;
 
 /// Client for KV operations.
 #[derive(Clone)]
-pub struct KvClient {}
+pub struct KvClient {
+    ep: Endpoint,
+    server_addr: SocketAddr,
+}
 
 impl KvClient {
+    /// Create a new [`KvClient`].
+    pub(crate) fn new(ep: Endpoint, addr: SocketAddr) -> Self {
+        KvClient {
+            ep,
+            server_addr: addr,
+        }
+    }
+
     /// Puts the given key into the key-value store.
     /// A put request increments the revision of the key-value store
     /// and generates one event in the event history.
@@ -15,7 +28,15 @@ impl KvClient {
         value: impl Into<Vec<u8>>,
         options: Option<PutOptions>,
     ) -> Result<PutResponse> {
-        todo!()
+        let req = Request::Put {
+            key: key.into(),
+            value: value.into(),
+            options: options.unwrap_or_default(),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        let rsp = *rx.recv().await?.downcast::<PutResponse>().unwrap();
+        Ok(rsp)
     }
 
     /// Gets the key or a range of keys from the store.
@@ -25,7 +46,14 @@ impl KvClient {
         key: impl Into<Vec<u8>>,
         options: Option<GetOptions>,
     ) -> Result<GetResponse> {
-        todo!()
+        let req = Request::Get {
+            key: key.into(),
+            options: options.unwrap_or_default(),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        let rsp = *rx.recv().await?.downcast::<GetResponse>().unwrap();
+        Ok(rsp)
     }
 
     /// Deletes the given key or a range of keys from the key-value store.
@@ -35,7 +63,14 @@ impl KvClient {
         key: impl Into<Vec<u8>>,
         options: Option<DeleteOptions>,
     ) -> Result<DeleteResponse> {
-        todo!()
+        let req = Request::Delete {
+            key: key.into(),
+            options: options.unwrap_or_default(),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        let rsp = *rx.recv().await?.downcast::<DeleteResponse>().unwrap();
+        Ok(rsp)
     }
 
     /// Compacts the event history in the etcd key-value store. The key-value
@@ -44,8 +79,8 @@ impl KvClient {
     #[inline]
     pub async fn compact(
         &mut self,
-        revision: i64,
-        options: Option<CompactionOptions>,
+        _revision: i64,
+        _options: Option<CompactionOptions>,
     ) -> Result<CompactionResponse> {
         todo!()
     }
@@ -56,7 +91,11 @@ impl KvClient {
     /// It is not allowed to modify the same key several times within one txn.
     #[inline]
     pub async fn txn(&mut self, txn: Txn) -> Result<TxnResponse> {
-        todo!()
+        let req = Request::Txn { txn };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        let rsp = *rx.recv().await?.downcast::<TxnResponse>().unwrap();
+        Ok(rsp)
     }
 }
 
@@ -66,13 +105,30 @@ pub struct PutOptions();
 
 /// Response for `Put` operation.
 #[derive(Debug, Clone)]
-pub struct PutResponse();
+pub struct PutResponse {
+    pub(crate) header: ResponseHeader,
+    pub(crate) prev_kv: Option<KeyValue>,
+}
+
+impl PutResponse {
+    /// Get response header.
+    #[inline]
+    pub fn header(&self) -> Option<&ResponseHeader> {
+        Some(&self.header)
+    }
+
+    /// If prev_kv is set in the request, the previous key-value pair will be returned.
+    #[inline]
+    pub fn prev_key(&self) -> Option<&KeyValue> {
+        self.prev_kv.as_ref()
+    }
+}
 
 /// Options for `Get` operation.
 #[derive(Debug, Default, Clone)]
 pub struct GetOptions {
-    revision: i64,
-    prefix: bool,
+    pub(crate) revision: i64,
+    pub(crate) prefix: bool,
 }
 
 impl GetOptions {
@@ -105,8 +161,8 @@ impl GetOptions {
 /// Response for `Get` operation.
 #[derive(Debug, Clone)]
 pub struct GetResponse {
-    header: ResponseHeader,
-    kvs: Vec<KeyValue>,
+    pub(crate) header: ResponseHeader,
+    pub(crate) kvs: Vec<KeyValue>,
 }
 
 impl GetResponse {
@@ -127,7 +183,7 @@ impl GetResponse {
 /// General `etcd` response header.
 #[derive(Debug, Clone)]
 pub struct ResponseHeader {
-    revision: i64,
+    pub(crate) revision: i64,
 }
 
 impl ResponseHeader {
@@ -144,7 +200,24 @@ pub struct DeleteOptions {}
 
 /// Response for `Delete` operation.
 #[derive(Debug, Clone)]
-pub struct DeleteResponse();
+pub struct DeleteResponse {
+    pub(crate) header: ResponseHeader,
+    pub(crate) deleted: i64,
+}
+
+impl DeleteResponse {
+    /// Get response header.
+    #[inline]
+    pub fn header(&self) -> Option<&ResponseHeader> {
+        Some(&self.header)
+    }
+
+    /// The number of keys deleted by the delete request.
+    #[inline]
+    pub const fn deleted(&self) -> i64 {
+        self.deleted
+    }
+}
 
 /// Options for `Compact` operation.
 #[derive(Debug, Default, Clone)]
@@ -157,9 +230,9 @@ pub struct CompactionResponse();
 /// Transaction of multiple operations.
 #[derive(Debug, Default, Clone)]
 pub struct Txn {
-    compare: Vec<Compare>,
-    success: Vec<TxnOp>,
-    failure: Vec<TxnOp>,
+    pub(crate) compare: Vec<Compare>,
+    pub(crate) success: Vec<TxnOp>,
+    pub(crate) failure: Vec<TxnOp>,
     c_when: bool,
     c_then: bool,
     c_else: bool,
@@ -214,6 +287,36 @@ impl Txn {
         self.c_else = true;
         self.failure = operations.into();
         self
+    }
+}
+
+/// Transaction comparision.
+#[derive(Debug, Clone)]
+pub struct Compare {
+    pub(crate) key: Vec<u8>,
+    pub(crate) value: Vec<u8>,
+    pub(crate) op: CompareOp,
+}
+
+///  Logical comparison operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(i32)]
+pub enum CompareOp {
+    Equal = 0,
+    Greater = 1,
+    Less = 2,
+    NotEqual = 3,
+}
+
+impl Compare {
+    /// Compares the value of the given key.
+    #[inline]
+    pub fn value(key: impl Into<Vec<u8>>, cmp: CompareOp, value: impl Into<Vec<u8>>) -> Self {
+        Compare {
+            key: key.into(),
+            value: value.into(),
+            op: cmp,
+        }
     }
 }
 
@@ -281,8 +384,17 @@ impl TxnOp {
 /// Response for `Txn` operation.
 #[derive(Debug, Clone)]
 pub struct TxnResponse {
-    header: ResponseHeader,
-    succeeded: bool,
+    pub(crate) header: ResponseHeader,
+    pub(crate) succeeded: bool,
+    pub(crate) op_responses: Vec<TxnOpResponse>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TxnOpResponse {
+    Put(PutResponse),
+    Get(GetResponse),
+    Delete(DeleteResponse),
+    Txn(TxnResponse),
 }
 
 impl TxnResponse {
@@ -297,13 +409,19 @@ impl TxnResponse {
     pub const fn succeeded(&self) -> bool {
         self.succeeded
     }
+
+    /// Returns responses of transaction operations.
+    #[inline]
+    pub fn op_responses(&self) -> Vec<TxnOpResponse> {
+        self.op_responses.clone()
+    }
 }
 
 /// Key-value pair.
 #[derive(Debug, Clone)]
 pub struct KeyValue {
-    key: Vec<u8>,
-    value: Vec<u8>,
+    pub(crate) key: Vec<u8>,
+    pub(crate) value: Vec<u8>,
 }
 
 impl KeyValue {
@@ -318,4 +436,25 @@ impl KeyValue {
     pub fn value(&self) -> &[u8] {
         &self.value
     }
+}
+
+/// A request to etcd server.
+#[derive(Debug)]
+pub(crate) enum Request {
+    Put {
+        key: Vec<u8>,
+        value: Vec<u8>,
+        options: PutOptions,
+    },
+    Get {
+        key: Vec<u8>,
+        options: GetOptions,
+    },
+    Delete {
+        key: Vec<u8>,
+        options: DeleteOptions,
+    },
+    Txn {
+        txn: Txn,
+    },
 }
