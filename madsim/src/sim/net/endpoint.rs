@@ -1,10 +1,13 @@
 use super::{IpProtocol::Udp, *};
 
 /// An endpoint.
+///
+/// May be cloned to obtain another handle to the same endpoint.
+#[derive(Clone)]
 pub struct Endpoint {
     guard: Arc<BindGuard>,
     socket: Arc<EndpointSocket>,
-    pub(super) peer: Mutex<Option<SocketAddr>>,
+    pub(super) peer: Arc<Mutex<Option<SocketAddr>>>,
     /// Incoming connections.
     conn_rx: async_channel::Receiver<(PayloadSender, PayloadReceiver, SocketAddr)>,
 }
@@ -21,7 +24,7 @@ impl Endpoint {
         Ok(Endpoint {
             guard,
             socket,
-            peer: Mutex::new(None),
+            peer: Arc::new(Mutex::new(None)),
             conn_rx,
         })
     }
@@ -199,6 +202,20 @@ impl Endpoint {
         Ok((sender, recver, addr))
     }
 }
+
+// pub struct Connection {
+//     _guard: Arc<BindGuard>,
+// }
+
+// impl Connection {
+//     pub async fn open_stream(&self) -> io::Result<(Sender, Receiver)> {
+//         todo!()
+//     }
+
+//     pub async fn next_stream(&self) -> io::Result<(Sender, Receiver)> {
+//         todo!()
+//     }
+// }
 
 #[doc(hidden)]
 pub struct Sender {

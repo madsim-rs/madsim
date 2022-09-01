@@ -18,6 +18,7 @@ use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
 use tracing::*;
 
 /// An endpoint.
+#[derive(Clone)]
 pub struct Endpoint {
     addr: SocketAddr,
     inner: Arc<Inner>,

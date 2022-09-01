@@ -100,7 +100,6 @@ fn gen_add_rpc_handler(input: &mut ItemImpl, calls: &[RpcFn]) {
     };
     let serve_on = quote! {
         pub async fn serve_on(self, ep: madsim::net::Endpoint) -> std::io::Result<()> {
-            let ep = std::sync::Arc::new(ep);
             #(#bodys)*
             madsim::export::futures::future::pending::<()>().await;
             Ok(())
