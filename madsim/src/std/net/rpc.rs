@@ -67,7 +67,6 @@ use std::{
     future::Future,
     io::{self, IoSlice},
     net::SocketAddr,
-    sync::Arc,
     time::Duration,
 };
 
@@ -141,7 +140,7 @@ impl Endpoint {
     }
 
     /// Add a RPC handler.
-    pub fn add_rpc_handler<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
+    pub fn add_rpc_handler<R: Request, AsyncFn, Fut>(&self, mut f: AsyncFn)
     where
         AsyncFn: FnMut(R) -> Fut + Send + 'static,
         Fut: Future<Output = R::Response> + Send + 'static,
@@ -150,7 +149,7 @@ impl Endpoint {
     }
 
     /// Add a RPC handler that send and receive data.
-    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(self: &Arc<Self>, mut f: AsyncFn)
+    pub fn add_rpc_handler_with_data<R: Request, AsyncFn, Fut>(&self, mut f: AsyncFn)
     where
         AsyncFn: FnMut(R, Bytes) -> Fut + Send + 'static,
         Fut: Future<Output = (R::Response, Vec<u8>)> + Send + 'static,

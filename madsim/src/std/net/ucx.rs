@@ -19,6 +19,7 @@ lazy_static::lazy_static! {
 }
 
 /// An endpoint.
+#[derive(Clone)]
 pub struct Endpoint {
     addr: SocketAddr,
     /// Client sends message from here.
