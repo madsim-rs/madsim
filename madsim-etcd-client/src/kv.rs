@@ -1,6 +1,5 @@
+use super::{Endpoint, Result};
 use std::net::SocketAddr;
-
-use super::*;
 
 /// Client for KV operations.
 #[derive(Clone)]
@@ -35,8 +34,7 @@ impl KvClient {
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
-        let rsp = *rx.recv().await?.downcast::<PutResponse>().unwrap();
-        Ok(rsp)
+        *rx.recv().await?.downcast::<Result<PutResponse>>().unwrap()
     }
 
     /// Gets the key or a range of keys from the store.
@@ -52,8 +50,7 @@ impl KvClient {
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
-        let rsp = *rx.recv().await?.downcast::<GetResponse>().unwrap();
-        Ok(rsp)
+        *rx.recv().await?.downcast::<Result<GetResponse>>().unwrap()
     }
 
     /// Deletes the given key or a range of keys from the key-value store.
@@ -69,8 +66,10 @@ impl KvClient {
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
-        let rsp = *rx.recv().await?.downcast::<DeleteResponse>().unwrap();
-        Ok(rsp)
+        *rx.recv()
+            .await?
+            .downcast::<Result<DeleteResponse>>()
+            .unwrap()
     }
 
     /// Compacts the event history in the etcd key-value store. The key-value
@@ -94,8 +93,7 @@ impl KvClient {
         let req = Request::Txn { txn };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
-        let rsp = *rx.recv().await?.downcast::<TxnResponse>().unwrap();
-        Ok(rsp)
+        *rx.recv().await?.downcast::<Result<TxnResponse>>().unwrap()
     }
 }
 
