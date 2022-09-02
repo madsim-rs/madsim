@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2022-09-02
+
+### Added
+
+- Add simulation crate of `etcd-client`.
+
+### Changed
+
+- madsim: Forbid creating system thread in simulation.
+- madsim: Drop futures on killing node.
+- madsim: Make `Endpoint` clonable.
+
 ## [0.2.4] - 2022-08-25
 
 ### Fixed

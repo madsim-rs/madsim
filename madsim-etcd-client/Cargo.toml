@@ -1,7 +1,15 @@
 [package]
 name = "madsim-etcd-client"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
+authors = ["Runji Wang <wangrunji0408@163.com>"]
+description = "The etcd simulator on madsim."
+homepage = "https://github.com/madsim-rs/madsim"
+repository = "https://github.com/madsim-rs/madsim"
+categories = ["network-programming", "asynchronous", "simulation"]
+keywords = ["etcd", "api", "client", "async", "simulator"]
+readme = "README.md"
+license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,6 +17,6 @@ edition = "2021"
 etcd-client = "0.10"
 
 [target.'cfg(madsim)'.dependencies]
-madsim = { version = "0.2.4", path = "../madsim" }
+madsim = { version = "0.2.5", path = "../madsim" }
 spin = "0.9"
 tracing = "0.1"

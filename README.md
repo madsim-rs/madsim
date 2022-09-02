@@ -31,12 +31,13 @@ Add the following lines to your Cargo.toml:
 madsim = "0.2"
 ```
 
-If your project depends on tokio or tonic, replace all the following entries:
+If your project depends on the following crates, replace them by our simulators:
 
 ```toml
 [dependencies]
 tokio = { version = "0.2", package = "madsim-tokio" }
 tonic = { version = "0.2", package = "madsim-tonic" }
+etcd-client = { version = "0.2", package = "madsim-etcd-client" }
 
 [dev-dependencies]
 tonic-build = { version = "0.2", package = "madsim-tonic-build" }
