@@ -1,20 +1,79 @@
-use super::kv::*;
+use super::{kv::*, Error, Result};
+use madsim::rand::{thread_rng, Rng};
+use spin::Mutex;
 use std::collections::BTreeMap;
+use std::io;
+use std::time::Duration;
+
+#[derive(Debug)]
+pub struct EtcdService {
+    timeout_rate: f32,
+    inner: Mutex<ServiceInner>,
+}
+
+impl EtcdService {
+    pub fn new(timeout_rate: f32) -> Self {
+        EtcdService {
+            timeout_rate,
+            inner: Mutex::new(ServiceInner::default()),
+        }
+    }
+
+    pub async fn put(
+        &self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+        options: PutOptions,
+    ) -> Result<PutResponse> {
+        self.timeout().await?;
+        let rsp = self.inner.lock().put(key, value, options);
+        Ok(rsp)
+    }
+
+    pub async fn get(&self, key: Vec<u8>, options: GetOptions) -> Result<GetResponse> {
+        self.timeout().await?;
+        let rsp = self.inner.lock().get(key, options);
+        Ok(rsp)
+    }
+
+    pub async fn delete(&self, key: Vec<u8>, options: DeleteOptions) -> Result<DeleteResponse> {
+        self.timeout().await?;
+        let rsp = self.inner.lock().delete(key, options);
+        Ok(rsp)
+    }
+
+    pub async fn txn(&self, txn: Txn) -> Result<TxnResponse> {
+        self.timeout().await?;
+        let rsp = self.inner.lock().txn(txn);
+        Ok(rsp)
+    }
+
+    async fn timeout(&self) -> Result<()> {
+        if thread_rng().gen_bool(self.timeout_rate as f64) {
+            madsim::time::sleep(Duration::from_secs(10)).await;
+            return Err(Error::IoError(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "etcdserver: request timed out",
+            )));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Default)]
-pub struct EtcdService {
+struct ServiceInner {
     revision: i64,
     kv: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
-impl EtcdService {
+impl ServiceInner {
     fn header(&self) -> ResponseHeader {
         ResponseHeader {
             revision: self.revision,
         }
     }
 
-    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>, _options: PutOptions) -> PutResponse {
+    fn put(&mut self, key: Vec<u8>, value: Vec<u8>, _options: PutOptions) -> PutResponse {
         self.kv.insert(key, value);
         self.revision += 1;
         PutResponse {
@@ -23,7 +82,7 @@ impl EtcdService {
         }
     }
 
-    pub fn get(&mut self, key: Vec<u8>, options: GetOptions) -> GetResponse {
+    fn get(&mut self, key: Vec<u8>, options: GetOptions) -> GetResponse {
         if options.revision > 0 {
             todo!("get with revision");
         }
@@ -53,7 +112,7 @@ impl EtcdService {
         }
     }
 
-    pub fn delete(&mut self, key: Vec<u8>, _options: DeleteOptions) -> DeleteResponse {
+    fn delete(&mut self, key: Vec<u8>, _options: DeleteOptions) -> DeleteResponse {
         let deleted = self.kv.remove(&key).map_or(0, |_| 1);
         self.revision += 1;
         DeleteResponse {
@@ -62,7 +121,7 @@ impl EtcdService {
         }
     }
 
-    pub fn txn(&mut self, txn: Txn) -> TxnResponse {
+    fn txn(&mut self, txn: Txn) -> TxnResponse {
         let succeeded = txn.compare.iter().all(|cmp| {
             let value = self.kv.get(&cmp.key);
             match cmp.op {
