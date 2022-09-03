@@ -28,7 +28,8 @@ pub(crate) struct Network {
     nodes: HashMap<NodeId, Node>,
     /// Maps the global IP to its node.
     addr_to_node: HashMap<IpAddr, NodeId>,
-    clogged_node: HashSet<NodeId>,
+    clogged_node_in: HashSet<NodeId>,
+    clogged_node_out: HashSet<NodeId>,
     clogged_link: HashSet<(NodeId, NodeId)>,
 }
 
@@ -109,6 +110,14 @@ pub struct Stat {
     pub msg_count: u64,
 }
 
+/// Direction of a link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Direction {
+    In,
+    Out,
+    Both,
+}
+
 impl Network {
     pub fn new(rand: GlobalRng, config: Config) -> Self {
         Self {
@@ -117,7 +126,8 @@ impl Network {
             stat: Stat::default(),
             nodes: HashMap::new(),
             addr_to_node: HashMap::new(),
-            clogged_node: HashSet::new(),
+            clogged_node_in: HashSet::new(),
+            clogged_node_out: HashSet::new(),
             clogged_link: HashSet::new(),
         }
     }
@@ -156,36 +166,46 @@ impl Network {
         // TODO: what if we change the IP when there are opening sockets?
     }
 
-    pub fn clog_node(&mut self, id: NodeId) {
-        assert!(self.nodes.contains_key(&id));
-        debug!(%id, "clog_node");
-        self.clogged_node.insert(id);
+    pub fn clog_node(&mut self, id: NodeId, direction: Direction) {
+        assert!(self.nodes.contains_key(&id), "node not found");
+        debug!(%id, ?direction, "clog_node");
+        if matches!(direction, Direction::In | Direction::Both) {
+            self.clogged_node_in.insert(id);
+        }
+        if matches!(direction, Direction::Out | Direction::Both) {
+            self.clogged_node_out.insert(id);
+        }
     }
 
-    pub fn unclog_node(&mut self, id: NodeId) {
-        assert!(self.nodes.contains_key(&id));
-        debug!(%id, "unclog_node");
-        self.clogged_node.remove(&id);
+    pub fn unclog_node(&mut self, id: NodeId, direction: Direction) {
+        assert!(self.nodes.contains_key(&id), "node not found");
+        debug!(%id, ?direction, "unclog_node");
+        if matches!(direction, Direction::In | Direction::Both) {
+            self.clogged_node_in.remove(&id);
+        }
+        if matches!(direction, Direction::Out | Direction::Both) {
+            self.clogged_node_out.remove(&id);
+        }
     }
 
     pub fn clog_link(&mut self, src: NodeId, dst: NodeId) {
-        assert!(self.nodes.contains_key(&src));
-        assert!(self.nodes.contains_key(&dst));
+        assert!(self.nodes.contains_key(&src), "node not found");
+        assert!(self.nodes.contains_key(&dst), "node not found");
         debug!(?src, ?dst, "clog_link");
         self.clogged_link.insert((src, dst));
     }
 
     pub fn unclog_link(&mut self, src: NodeId, dst: NodeId) {
-        assert!(self.nodes.contains_key(&src));
-        assert!(self.nodes.contains_key(&dst));
+        assert!(self.nodes.contains_key(&src), "node not found");
+        assert!(self.nodes.contains_key(&dst), "node not found");
         debug!(?src, ?dst, "unclog_link");
         self.clogged_link.remove(&(src, dst));
     }
 
-    /// Returns whether a link is clogged.
+    /// Returns whether the link from `src` to `dst` is clogged.
     pub fn link_clogged(&self, src: NodeId, dst: NodeId) -> bool {
-        self.clogged_node.contains(&src)
-            || self.clogged_node.contains(&dst)
+        self.clogged_node_out.contains(&src)
+            || self.clogged_node_in.contains(&dst)
             || self.clogged_link.contains(&(src, dst))
     }
 
@@ -201,8 +221,7 @@ impl Network {
         // check IP address
         if !addr.ip().is_unspecified()
             && !addr.ip().is_loopback()
-            && node.ip.is_some()
-            && addr.ip() != node.ip.unwrap()
+            && matches!(node.ip, Some(ip) if addr.ip() != ip)
         {
             return Err(io::Error::new(
                 io::ErrorKind::AddrNotAvailable,

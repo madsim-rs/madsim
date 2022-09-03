@@ -65,7 +65,7 @@ pub mod unix;
 pub use self::addr::{lookup_host, ToSocketAddrs};
 pub use self::endpoint::{Endpoint, Receiver, Sender};
 pub use self::network::{Config, Stat};
-use self::network::{IpProtocol, Network, Socket};
+use self::network::{Direction, IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
 pub use self::udp::UdpSocket;
 pub use self::unix::{UnixDatagram, UnixListener, UnixStream};
@@ -110,6 +110,11 @@ impl plugin::Simulator for NetSim {
 }
 
 impl NetSim {
+    /// Get [`NetSim`] of the current simulator.
+    pub fn current() -> Arc<Self> {
+        plugin::simulator()
+    }
+
     /// Get the statistics.
     pub fn stat(&self) -> Stat {
         self.network.lock().stat().clone()
@@ -136,29 +141,71 @@ impl NetSim {
     }
 
     /// Connect a node to the network.
+    #[deprecated(since = "0.3.0", note = "use `unclog_node` instead")]
     pub fn connect(&self, id: NodeId) {
-        let mut network = self.network.lock();
-        network.unclog_node(id);
+        self.unclog_node(id);
+    }
+
+    /// Unclog the node.
+    pub fn unclog_node(&self, id: NodeId) {
+        self.network.lock().unclog_node(id, Direction::Both);
+    }
+
+    /// Unclog the node for receive.
+    pub fn unclog_node_in(&self, id: NodeId) {
+        self.network.lock().unclog_node(id, Direction::In);
+    }
+
+    /// Unclog the node for send.
+    pub fn unclog_node_out(&self, id: NodeId) {
+        self.network.lock().unclog_node(id, Direction::Out);
     }
 
     /// Disconnect a node from the network.
+    #[deprecated(since = "0.3.0", note = "use `clog_node` instead")]
     pub fn disconnect(&self, id: NodeId) {
-        let mut network = self.network.lock();
-        network.clog_node(id);
+        self.clog_node(id);
+    }
+
+    /// Clog the node.
+    pub fn clog_node(&self, id: NodeId) {
+        self.network.lock().clog_node(id, Direction::Both);
+    }
+
+    /// Clog the node for receive.
+    pub fn clog_node_in(&self, id: NodeId) {
+        self.network.lock().clog_node(id, Direction::In);
+    }
+
+    /// Clog the node for send.
+    pub fn clog_node_out(&self, id: NodeId) {
+        self.network.lock().clog_node(id, Direction::Out);
     }
 
     /// Connect a pair of nodes.
+    #[deprecated(since = "0.3.0", note = "call `unclog_link` twice instead")]
     pub fn connect2(&self, node1: NodeId, node2: NodeId) {
         let mut network = self.network.lock();
         network.unclog_link(node1, node2);
         network.unclog_link(node2, node1);
     }
 
+    /// Unclog the link from `src` to `dst`.
+    pub fn unclog_link(&self, src: NodeId, dst: NodeId) {
+        self.network.lock().unclog_link(src, dst);
+    }
+
     /// Disconnect a pair of nodes.
+    #[deprecated(since = "0.3.0", note = "call `clog_link` twice instead")]
     pub fn disconnect2(&self, node1: NodeId, node2: NodeId) {
         let mut network = self.network.lock();
         network.clog_link(node1, node2);
         network.clog_link(node2, node1);
+    }
+
+    /// Clog the link from `src` to `dst`.
+    pub fn clog_link(&self, src: NodeId, dst: NodeId) {
+        self.network.lock().clog_link(src, dst);
     }
 
     /// Delay a small random time and probably inject failure.
