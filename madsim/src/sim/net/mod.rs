@@ -35,9 +35,11 @@
 //! runtime.block_on(f);
 //! ```
 
+use bytes::Bytes;
 use spin::Mutex;
 use std::{
     any::Any,
+    collections::HashMap,
     io,
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -77,6 +79,8 @@ pub struct NetSim {
     rand: GlobalRng,
     time: TimeHandle,
     task: Spawner,
+    hooks_req: Mutex<HashMap<NodeId, MsgHookFn>>,
+    hooks_rsp: Mutex<HashMap<NodeId, MsgHookFn>>,
 }
 
 /// Message sent to a network socket.
@@ -84,6 +88,7 @@ pub type Payload = Box<dyn Any + Send + Sync>;
 
 type PayloadSender = mpsc::UnboundedSender<Payload>;
 type PayloadReceiver = mpsc::UnboundedReceiver<Payload>;
+type MsgHookFn = Arc<dyn Fn(&Payload) -> bool + Send + Sync>;
 
 impl plugin::Simulator for NetSim {
     fn new(_rand: &GlobalRng, _time: &TimeHandle, _config: &crate::Config) -> Self {
@@ -96,6 +101,8 @@ impl plugin::Simulator for NetSim {
             rand: rand.clone(),
             time: time.clone(),
             task: task.clone(),
+            hooks_req: Default::default(),
+            hooks_rsp: Default::default(),
         }
     }
 
@@ -208,6 +215,48 @@ impl NetSim {
         self.network.lock().clog_link(src, dst);
     }
 
+    /// Add a hook function for RPC requests.
+    #[doc(hidden)]
+    #[cfg(feature = "rpc")]
+    pub fn hook_rpc_req<R: 'static>(
+        &self,
+        node: NodeId,
+        f: impl Fn(&R) -> bool + Send + Sync + 'static,
+    ) {
+        self.hooks_req.lock().insert(
+            node,
+            Arc::new(move |payload| {
+                if let Some((_, payload)) = payload.downcast_ref::<(u64, Payload)>() {
+                    if let Some((_, msg, _)) = payload.downcast_ref::<(u64, R, Bytes)>() {
+                        return f(msg);
+                    }
+                }
+                true
+            }),
+        );
+    }
+
+    /// Add a hook function for RPC responses.
+    #[doc(hidden)]
+    #[cfg(feature = "rpc")]
+    pub fn hook_rpc_rsp<R: 'static>(
+        &self,
+        node: NodeId,
+        f: impl Fn(&R) -> bool + Send + Sync + 'static,
+    ) {
+        self.hooks_rsp.lock().insert(
+            node,
+            Arc::new(move |payload| {
+                if let Some((_, payload)) = payload.downcast_ref::<(u64, Payload)>() {
+                    if let Some((msg, _)) = payload.downcast_ref::<(R, Bytes)>() {
+                        return f(msg);
+                    }
+                }
+                true
+            }),
+        );
+    }
+
     /// Delay a small random time and probably inject failure.
     async fn rand_delay(&self) -> io::Result<()> {
         let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
@@ -226,9 +275,22 @@ impl NetSim {
         msg: Payload,
     ) -> io::Result<()> {
         self.rand_delay().await?;
-        if let Some((ip, _, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
+        if let Some(hook) = self.hooks_req.lock().get(&node).cloned() {
+            if !hook(&msg) {
+                return Ok(());
+            }
+        }
+        if let Some((ip, dst_node, socket, latency)) =
+            self.network.lock().try_send(node, dst, protocol)
+        {
             trace!(?latency, "delay");
+            let hook = self.hooks_rsp.lock().get(&dst_node).cloned();
             self.time.add_timer(latency, move || {
+                if let Some(hook) = hook {
+                    if !hook(&msg) {
+                        return;
+                    }
+                }
                 socket.deliver((ip, port).into(), dst, msg);
             });
         }
