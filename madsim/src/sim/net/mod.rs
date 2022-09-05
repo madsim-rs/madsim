@@ -35,9 +35,11 @@
 //! runtime.block_on(f);
 //! ```
 
+use bytes::Bytes;
 use spin::Mutex;
 use std::{
     any::Any,
+    collections::HashMap,
     io,
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -65,7 +67,7 @@ pub mod unix;
 pub use self::addr::{lookup_host, ToSocketAddrs};
 pub use self::endpoint::{Endpoint, Receiver, Sender};
 pub use self::network::{Config, Stat};
-use self::network::{IpProtocol, Network, Socket};
+use self::network::{Direction, IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
 pub use self::udp::UdpSocket;
 pub use self::unix::{UnixDatagram, UnixListener, UnixStream};
@@ -77,6 +79,8 @@ pub struct NetSim {
     rand: GlobalRng,
     time: TimeHandle,
     task: Spawner,
+    hooks_req: Mutex<HashMap<NodeId, MsgHookFn>>,
+    hooks_rsp: Mutex<HashMap<NodeId, MsgHookFn>>,
 }
 
 /// Message sent to a network socket.
@@ -84,6 +88,7 @@ pub type Payload = Box<dyn Any + Send + Sync>;
 
 type PayloadSender = mpsc::UnboundedSender<Payload>;
 type PayloadReceiver = mpsc::UnboundedReceiver<Payload>;
+type MsgHookFn = Arc<dyn Fn(&Payload) -> bool + Send + Sync>;
 
 impl plugin::Simulator for NetSim {
     fn new(_rand: &GlobalRng, _time: &TimeHandle, _config: &crate::Config) -> Self {
@@ -96,6 +101,8 @@ impl plugin::Simulator for NetSim {
             rand: rand.clone(),
             time: time.clone(),
             task: task.clone(),
+            hooks_req: Default::default(),
+            hooks_rsp: Default::default(),
         }
     }
 
@@ -110,6 +117,11 @@ impl plugin::Simulator for NetSim {
 }
 
 impl NetSim {
+    /// Get [`NetSim`] of the current simulator.
+    pub fn current() -> Arc<Self> {
+        plugin::simulator()
+    }
+
     /// Get the statistics.
     pub fn stat(&self) -> Stat {
         self.network.lock().stat().clone()
@@ -136,29 +148,113 @@ impl NetSim {
     }
 
     /// Connect a node to the network.
+    #[deprecated(since = "0.3.0", note = "use `unclog_node` instead")]
     pub fn connect(&self, id: NodeId) {
-        let mut network = self.network.lock();
-        network.unclog_node(id);
+        self.unclog_node(id);
+    }
+
+    /// Unclog the node.
+    pub fn unclog_node(&self, id: NodeId) {
+        self.network.lock().unclog_node(id, Direction::Both);
+    }
+
+    /// Unclog the node for receive.
+    pub fn unclog_node_in(&self, id: NodeId) {
+        self.network.lock().unclog_node(id, Direction::In);
+    }
+
+    /// Unclog the node for send.
+    pub fn unclog_node_out(&self, id: NodeId) {
+        self.network.lock().unclog_node(id, Direction::Out);
     }
 
     /// Disconnect a node from the network.
+    #[deprecated(since = "0.3.0", note = "use `clog_node` instead")]
     pub fn disconnect(&self, id: NodeId) {
-        let mut network = self.network.lock();
-        network.clog_node(id);
+        self.clog_node(id);
+    }
+
+    /// Clog the node.
+    pub fn clog_node(&self, id: NodeId) {
+        self.network.lock().clog_node(id, Direction::Both);
+    }
+
+    /// Clog the node for receive.
+    pub fn clog_node_in(&self, id: NodeId) {
+        self.network.lock().clog_node(id, Direction::In);
+    }
+
+    /// Clog the node for send.
+    pub fn clog_node_out(&self, id: NodeId) {
+        self.network.lock().clog_node(id, Direction::Out);
     }
 
     /// Connect a pair of nodes.
+    #[deprecated(since = "0.3.0", note = "call `unclog_link` twice instead")]
     pub fn connect2(&self, node1: NodeId, node2: NodeId) {
         let mut network = self.network.lock();
         network.unclog_link(node1, node2);
         network.unclog_link(node2, node1);
     }
 
+    /// Unclog the link from `src` to `dst`.
+    pub fn unclog_link(&self, src: NodeId, dst: NodeId) {
+        self.network.lock().unclog_link(src, dst);
+    }
+
     /// Disconnect a pair of nodes.
+    #[deprecated(since = "0.3.0", note = "call `clog_link` twice instead")]
     pub fn disconnect2(&self, node1: NodeId, node2: NodeId) {
         let mut network = self.network.lock();
         network.clog_link(node1, node2);
         network.clog_link(node2, node1);
+    }
+
+    /// Clog the link from `src` to `dst`.
+    pub fn clog_link(&self, src: NodeId, dst: NodeId) {
+        self.network.lock().clog_link(src, dst);
+    }
+
+    /// Add a hook function for RPC requests.
+    #[doc(hidden)]
+    #[cfg(feature = "rpc")]
+    pub fn hook_rpc_req<R: 'static>(
+        &self,
+        node: NodeId,
+        f: impl Fn(&R) -> bool + Send + Sync + 'static,
+    ) {
+        self.hooks_req.lock().insert(
+            node,
+            Arc::new(move |payload| {
+                if let Some((_, payload)) = payload.downcast_ref::<(u64, Payload)>() {
+                    if let Some((_, msg, _)) = payload.downcast_ref::<(u64, R, Bytes)>() {
+                        return f(msg);
+                    }
+                }
+                true
+            }),
+        );
+    }
+
+    /// Add a hook function for RPC responses.
+    #[doc(hidden)]
+    #[cfg(feature = "rpc")]
+    pub fn hook_rpc_rsp<R: 'static>(
+        &self,
+        node: NodeId,
+        f: impl Fn(&R) -> bool + Send + Sync + 'static,
+    ) {
+        self.hooks_rsp.lock().insert(
+            node,
+            Arc::new(move |payload| {
+                if let Some((_, payload)) = payload.downcast_ref::<(u64, Payload)>() {
+                    if let Some((msg, _)) = payload.downcast_ref::<(R, Bytes)>() {
+                        return f(msg);
+                    }
+                }
+                true
+            }),
+        );
     }
 
     /// Delay a small random time and probably inject failure.
@@ -179,9 +275,22 @@ impl NetSim {
         msg: Payload,
     ) -> io::Result<()> {
         self.rand_delay().await?;
-        if let Some((ip, _, socket, latency)) = self.network.lock().try_send(node, dst, protocol) {
+        if let Some(hook) = self.hooks_req.lock().get(&node).cloned() {
+            if !hook(&msg) {
+                return Ok(());
+            }
+        }
+        if let Some((ip, dst_node, socket, latency)) =
+            self.network.lock().try_send(node, dst, protocol)
+        {
             trace!(?latency, "delay");
+            let hook = self.hooks_rsp.lock().get(&dst_node).cloned();
             self.time.add_timer(latency, move || {
+                if let Some(hook) = hook {
+                    if !hook(&msg) {
+                        return;
+                    }
+                }
                 socket.deliver((ip, port).into(), dst, msg);
             });
         }

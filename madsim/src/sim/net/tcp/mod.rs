@@ -110,7 +110,7 @@ mod tests {
         let f1 = node1.spawn(async move {
             // phase1
             let net = plugin::simulator::<NetSim>();
-            net.disconnect(id1);
+            net.clog_node(id1);
             let listener = TcpListener::bind(addr1).await.unwrap();
             barrier.wait().await;
 
@@ -121,7 +121,7 @@ mod tests {
             barrier.wait().await;
 
             // phase3
-            net.connect(id1);
+            net.unclog_node(id1);
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
             stream.write(b"hello world").await.unwrap();
@@ -129,10 +129,12 @@ mod tests {
             barrier.wait().await;
 
             // phase4
-            net.disconnect2(id1, id2);
+            net.clog_link(id1, id2);
+            net.clog_link(id2, id1);
             crate::task::spawn(async move {
                 crate::time::sleep(Duration::from_secs(5)).await;
-                net.connect2(id1, id2);
+                net.unclog_link(id1, id2);
+                net.unclog_link(id2, id1);
             });
             barrier.wait().await;
             stream.write(b"hello world").await.unwrap();
