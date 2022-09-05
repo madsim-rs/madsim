@@ -216,8 +216,10 @@ impl NetSim {
     }
 
     /// Add a hook function for RPC requests.
-    #[doc(hidden)]
+    ///
+    /// If the hook function returns `false`, the request will be dropped.
     #[cfg(feature = "rpc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
     pub fn hook_rpc_req<R: 'static>(
         &self,
         node: NodeId,
@@ -237,8 +239,10 @@ impl NetSim {
     }
 
     /// Add a hook function for RPC responses.
-    #[doc(hidden)]
+    ///
+    /// If the hook function returns `false`, the response will be dropped.
     #[cfg(feature = "rpc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
     pub fn hook_rpc_rsp<R: 'static>(
         &self,
         node: NodeId,
