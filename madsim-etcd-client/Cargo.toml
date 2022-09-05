@@ -17,6 +17,8 @@ license = "Apache-2.0"
 etcd-client = "0.10"
 
 [target.'cfg(madsim)'.dependencies]
+http = "0.2"
 madsim = { version = "0.2.5", path = "../madsim" }
 spin = "0.9"
+tonic = { version = "0.8", default-features = false }
 tracing = "0.1"

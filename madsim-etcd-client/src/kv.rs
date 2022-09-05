@@ -1,5 +1,5 @@
 use super::{Endpoint, Result};
-use std::net::SocketAddr;
+use std::{fmt::Display, net::SocketAddr};
 
 /// Client for KV operations.
 #[derive(Clone)]
@@ -376,6 +376,57 @@ impl TxnOp {
     #[inline]
     pub fn txn(txn: Txn) -> Self {
         TxnOp::Txn { txn }
+    }
+}
+
+impl Display for Compare {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "value({:?}) ", String::from_utf8_lossy(&self.key))?;
+        match self.op {
+            CompareOp::Equal => write!(f, "=="),
+            CompareOp::Greater => write!(f, ">"),
+            CompareOp::Less => write!(f, "<"),
+            CompareOp::NotEqual => write!(f, "!="),
+        }?;
+        write!(f, " {:?}", String::from_utf8_lossy(&self.value))
+    }
+}
+
+impl Display for Txn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "if:")?;
+        for compare in &self.compare {
+            writeln!(f, "  {compare}")?;
+        }
+        writeln!(f, "success:")?;
+        for success in &self.success {
+            writeln!(f, "  {success}")?;
+        }
+        if !self.failure.is_empty() {
+            writeln!(f, "failure:")?;
+            for failure in &self.failure {
+                writeln!(f, "  {failure}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Display for TxnOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TxnOp::Put { key, value, .. } => {
+                write!(
+                    f,
+                    "put key={:?}, value={:?}",
+                    String::from_utf8_lossy(key),
+                    String::from_utf8_lossy(value),
+                )
+            }
+            TxnOp::Get { key, .. } => write!(f, "get key={:?}", String::from_utf8_lossy(key)),
+            TxnOp::Delete { key, .. } => write!(f, "del key={:?}", String::from_utf8_lossy(key)),
+            TxnOp::Txn { txn } => write!(f, "txn\n{}", txn),
+        }
     }
 }
 
