@@ -2,7 +2,6 @@ use super::{kv::*, Error, Result};
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
 use std::collections::BTreeMap;
-use std::io;
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -50,9 +49,11 @@ impl EtcdService {
 
     async fn timeout(&self) -> Result<()> {
         if thread_rng().gen_bool(self.timeout_rate as f64) {
-            madsim::time::sleep(Duration::from_secs(10)).await;
-            return Err(Error::IoError(io::Error::new(
-                io::ErrorKind::TimedOut,
+            let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
+            madsim::time::sleep(t).await;
+            tracing::warn!(?t, "etcdserver: request timed out");
+            return Err(Error::GRpcStatus(tonic::Status::new(
+                tonic::Code::Unavailable,
                 "etcdserver: request timed out",
             )));
         }
