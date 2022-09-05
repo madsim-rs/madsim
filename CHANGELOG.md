@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2022-09-05
+
+### Added
+
+- madsim: Add hook function for RPC.
+- etcd: Add logging in etcd service.
+
+### Removed
+
+- madsim: Deprecate `Network::(dis)connect(2)` functions. Rename them to `(un)clog_*`.
+
+### Fixed
+
+- etcd: Complete `Error` type and fix the error kind of `request timed out`.
+
 ## [0.2.5] - 2022-09-02
 
 ### Added
