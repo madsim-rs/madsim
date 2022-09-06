@@ -13,9 +13,10 @@ categories = ["asynchronous", "simulation"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["macros", "rpc"]
+default = ["macros", "rpc", "quic"]
 ucx = ["async-ucx"]
 rpc = ["bincode"]
+quic = ["quinn"]
 macros = ["madsim-macros", "tokio/macros"]
 erpc = ["rpc"] # "mad_rpc"
 
@@ -25,6 +26,7 @@ bytes = "1"
 futures-util = "0.3"
 lazy_static = "1.4"
 madsim-macros = { version = "0.2", path = "../madsim-macros", optional = true }
+quinn = { version = "0.8", optional = true }
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
 spin = "0.9"
