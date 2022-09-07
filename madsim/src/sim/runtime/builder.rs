@@ -61,7 +61,7 @@ impl Builder {
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
-                .as_secs()
+                .as_nanos() as _
         };
         let jobs: u16 = if let Ok(jobs_str) = std::env::var("MADSIM_TEST_JOBS") {
             jobs_str
