@@ -244,15 +244,17 @@ impl<L> Router<L> {
             madsim::task::spawn(async move {
                 let mut stream = rsp_future.instrument(span.clone()).await.unwrap();
                 // send the response
+                let mut count = 0;
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>
                     let res = tx.send(Box::new(rsp)).await;
                     if res.is_err() {
                         // client has closed the stream
-                        return;
+                        break;
                     }
+                    count += 1;
                 }
-                debug!(parent: &span, "completed");
+                debug!(parent: &span, "completed {count}");
             });
         }
     }
