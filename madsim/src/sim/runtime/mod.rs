@@ -306,7 +306,7 @@ impl<'a> NodeBuilder<'a> {
     /// Set the initial task for the node.
     ///
     /// This task will be respawned when calling `restart`.
-    pub fn init<F>(mut self, future: impl Fn() -> F + 'static) -> Self
+    pub fn init<F>(mut self, future: impl Fn() -> F + Send + Sync + 'static) -> Self
     where
         F: Future + 'static,
     {

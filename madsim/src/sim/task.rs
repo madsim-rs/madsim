@@ -91,6 +91,10 @@ impl NodeInfo {
             node: self.clone(),
         })
     }
+
+    pub(crate) fn is_killed(&self) -> bool {
+        self.killed.load(Ordering::Relaxed)
+    }
 }
 
 impl Executor {
@@ -184,8 +188,18 @@ impl Executor {
                     std::panic::catch_unwind(move || runnable.run())
                 };
                 if res.is_err() {
-                    error!("task panicked, restarting node");
-                    self.restart(node_id);
+                    let delay = self
+                        .rand
+                        .with(|rng| rng.gen_range(Duration::from_secs(1)..Duration::from_secs(10)));
+                    error!(
+                        "task panicked, restarting node {} after {:?}",
+                        node_id, delay
+                    );
+                    self.kill(node_id);
+                    let h = self.handle.clone();
+                    self.time
+                        .handle()
+                        .add_timer(delay, move || h.restart(node_id));
                 }
             } else {
                 let _guard = crate::context::enter_task(info);
@@ -225,7 +239,7 @@ struct Node {
     init: Option<InitFn>,
 }
 
-pub(crate) type InitFn = Arc<dyn Fn(&Spawner)>;
+pub(crate) type InitFn = Arc<dyn Fn(&Spawner) + Send + Sync>;
 
 impl TaskHandle {
     /// Kill all tasks of the node.
@@ -827,7 +841,7 @@ mod tests {
             .build();
 
         runtime.block_on(async move {
-            time::sleep(Duration::from_secs(10)).await;
+            time::sleep(Duration::from_secs(60)).await;
             // should panic 3 times and success once
             assert_eq!(flag.load(Ordering::Relaxed), 4);
         });

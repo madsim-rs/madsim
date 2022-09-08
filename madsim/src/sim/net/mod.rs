@@ -50,7 +50,7 @@ use tracing::*;
 use crate::{
     plugin,
     rand::{GlobalRng, Rng},
-    task::{NodeId, Spawner},
+    task::{NodeId, NodeInfo, Spawner},
     time::{Duration, TimeHandle},
 };
 
@@ -368,7 +368,7 @@ impl NetSim {
 /// An RAII structure used to release the bound port.
 pub(crate) struct BindGuard {
     net: Arc<NetSim>,
-    node: NodeId,
+    node: Arc<NodeInfo>,
     /// Bound address.
     addr: SocketAddr,
     protocol: IpProtocol,
@@ -382,7 +382,7 @@ impl BindGuard {
         socket: Arc<dyn Socket>,
     ) -> io::Result<Self> {
         let net = plugin::simulator::<NetSim>();
-        let node = plugin::node();
+        let node = crate::context::current_task().node.clone();
 
         // attempt to bind to each address
         let mut last_err = None;
@@ -391,7 +391,7 @@ impl BindGuard {
             match net
                 .network
                 .lock()
-                .bind(node, addr, protocol, socket.clone())
+                .bind(node.id, addr, protocol, socket.clone())
             {
                 Ok(addr) => {
                     return Ok(BindGuard {
@@ -415,9 +415,13 @@ impl BindGuard {
 
 impl Drop for BindGuard {
     fn drop(&mut self) {
+        // avoid interfering with restarted node
+        if self.node.is_killed() {
+            return;
+        }
         // avoid panic on panicking
         if let Some(mut network) = self.net.network.try_lock() {
-            network.close(self.node, self.addr, self.protocol);
+            network.close(self.node.id, self.addr, self.protocol);
         }
     }
 }

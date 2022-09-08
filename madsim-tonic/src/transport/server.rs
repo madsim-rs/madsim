@@ -220,7 +220,7 @@ impl<L> Router<L> {
                 .downcast::<(PathAndQuery, BoxMessage)>()
                 .expect("invalid type");
             let span = debug_span!("request", ?addr, ?path);
-            debug!(parent: &span, "received request");
+            debug!(parent: &span, "received");
 
             let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
                 // single request
@@ -242,16 +242,19 @@ impl<L> Router<L> {
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
             let rsp_future = svc.call((addr, path, requests));
             madsim::task::spawn(async move {
-                let mut stream = rsp_future.instrument(span).await.unwrap();
+                let mut stream = rsp_future.instrument(span.clone()).await.unwrap();
                 // send the response
+                let mut count = 0;
                 while let Some(rsp) = stream.next().await {
                     // rsp: Result<BoxMessage, Status>
                     let res = tx.send(Box::new(rsp)).await;
                     if res.is_err() {
                         // client has closed the stream
-                        return;
+                        break;
                     }
+                    count += 1;
                 }
+                debug!(parent: &span, "completed {count}");
             });
         }
     }
