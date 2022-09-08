@@ -91,6 +91,10 @@ impl NodeInfo {
             node: self.clone(),
         })
     }
+
+    pub(crate) fn is_killed(&self) -> bool {
+        self.killed.load(Ordering::Relaxed)
+    }
 }
 
 impl Executor {
@@ -184,9 +188,9 @@ impl Executor {
                     std::panic::catch_unwind(move || runnable.run())
                 };
                 if res.is_err() {
-                    let delay = self.rand.with(|rng| {
-                        rng.gen_range(Duration::from_secs(1)..Duration::from_secs(10))
-                    });
+                    let delay = self
+                        .rand
+                        .with(|rng| rng.gen_range(Duration::from_secs(1)..Duration::from_secs(10)));
                     error!(
                         "task panicked, restarting node {} after {:?}",
                         node_id, delay

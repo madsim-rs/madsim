@@ -114,7 +114,7 @@ impl Endpoint {
         self.guard
             .net
             .send(
-                self.guard.node,
+                self.guard.node.id,
                 self.guard.addr.port(),
                 dst,
                 Udp,
@@ -171,7 +171,7 @@ impl Endpoint {
         let (tx, rx, _) = self
             .guard
             .net
-            .connect1(self.guard.node, self.guard.addr.port(), addr, Udp)
+            .connect1(self.guard.node.id, self.guard.addr.port(), addr, Udp)
             .await?;
         let sender = Sender {
             _guard: self.guard.clone(),
