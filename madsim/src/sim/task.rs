@@ -841,7 +841,7 @@ mod tests {
             .build();
 
         runtime.block_on(async move {
-            time::sleep(Duration::from_secs(10)).await;
+            time::sleep(Duration::from_secs(60)).await;
             // should panic 3 times and success once
             assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
