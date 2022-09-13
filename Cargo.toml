@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "madsim",
+    "madsim-aws-sdk-s3",
     "madsim-macros",
     "madsim-tokio",
     "madsim-tonic",
