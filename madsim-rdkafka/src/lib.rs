@@ -1,5 +1,6 @@
 #![allow(unused_variables)]
 
+pub mod broker;
 pub mod client;
 pub mod config;
 pub mod consumer;
