@@ -173,3 +173,23 @@ where
         todo!()
     }
 }
+
+#[derive(Debug, Default)]
+struct ProducerConfig {
+    bootstrap_servers: String,
+    transactional_id: Option<String>,
+}
+
+impl ProducerConfig {
+    fn from_kv(kv: impl IntoIterator<Item = (String, String)>) -> Self {
+        let mut cfg = Self::default();
+        for (k, v) in kv {
+            match k.as_str() {
+                "bootstrap.servers" => cfg.bootstrap_servers = v,
+                "transactional.id" => cfg.transactional_id = Some(v.clone()),
+                _ => panic!("invalid key: {}", k),
+            }
+        }
+        cfg
+    }
+}

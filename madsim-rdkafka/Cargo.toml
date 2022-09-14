@@ -2,10 +2,10 @@
 name = "madsim-rdkafka"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# rdkafka = { version = "0.28", default-features = false }
 futures-util = "0.3"
+madsim = { version = "0.2.5", path = "../madsim" }
+spin = "0.9"
 tokio = { version = "1", features = ["sync"] }

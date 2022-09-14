@@ -1,3 +1,25 @@
+/// A cheap conversion from a byte slice to typed data.
+pub trait FromBytes {
+    /// The error type that will be returned if the conversion fails.
+    type Error;
+    /// Tries to convert the provided byte slice into a different type.
+    fn from_bytes(_: &[u8]) -> Result<&Self, Self::Error>;
+}
+
+impl FromBytes for [u8] {
+    type Error = ();
+    fn from_bytes(bytes: &[u8]) -> Result<&Self, Self::Error> {
+        Ok(bytes)
+    }
+}
+
+impl FromBytes for str {
+    type Error = std::str::Utf8Error;
+    fn from_bytes(bytes: &[u8]) -> Result<&Self, Self::Error> {
+        std::str::from_utf8(bytes)
+    }
+}
+
 /// A cheap conversion from typed data to a byte slice.
 pub trait ToBytes {
     /// Converts the provided data to bytes.
@@ -40,11 +62,31 @@ impl ToBytes for () {
     }
 }
 
+/// A generic representation of Kafka message headers.
+pub trait Headers {
+    /// Returns the number of contained headers.
+    fn count(&self) -> usize;
+
+    /// Gets the specified header, where the first header corresponds to index
+    /// 0. If the index is out of bounds, returns `None`.
+    fn get(&self, idx: usize) -> Option<(&str, &[u8])>;
+
+    /// Like [`Headers::get`], but the value of the header will be converted to
+    /// the specified type. If the conversion fails, returns an error.
+    fn get_as<V: FromBytes + ?Sized>(&self, idx: usize) -> Option<(&str, Result<&V, V::Error>)> {
+        self.get(idx)
+            .map(|(name, value)| (name, V::from_bytes(value)))
+    }
+}
+
 /// A generic representation of a Kafka message.
 ///
 /// Only read-only methods are provided by this trait, as the underlying storage
 /// might not allow modification.
 pub trait Message {
+    /// The type of headers that this message contains.
+    type Headers: Headers;
+
     /// Returns the key of the message, or `None` if there is no key.
     fn key(&self) -> Option<&[u8]>;
 
@@ -62,6 +104,9 @@ pub trait Message {
 
     /// Returns the message timestamp.
     fn timestamp(&self) -> Timestamp;
+
+    /// Returns the headers of the message, or `None` if there are no headers.
+    fn headers(&self) -> Option<&Self::Headers>;
 }
 
 /// Timestamp of a Kafka message.
@@ -83,7 +128,7 @@ pub struct OwnedMessage {
     topic: String,
     timestamp: Timestamp,
     partition: i32,
-    offset: i64,
+    pub(crate) offset: i64,
     headers: Option<OwnedHeaders>,
 }
 
@@ -108,9 +153,23 @@ impl OwnedMessage {
             headers,
         }
     }
+
+    /// Returns the estimate size in bytes.
+    pub(crate) fn size(&self) -> usize {
+        let mut size = 10;
+        if let Some(ref payload) = self.payload {
+            size += payload.len();
+        }
+        if let Some(ref key) = self.key {
+            size += key.len();
+        }
+        size
+    }
 }
 
 impl Message for OwnedMessage {
+    type Headers = OwnedHeaders;
+
     fn key(&self) -> Option<&[u8]> {
         match self.key {
             Some(ref k) => Some(k.as_slice()),
@@ -137,6 +196,10 @@ impl Message for OwnedMessage {
     fn timestamp(&self) -> Timestamp {
         self.timestamp
     }
+
+    fn headers(&self) -> Option<&Self::Headers> {
+        self.headers.as_ref()
+    }
 }
 
 /// A zero-copy Kafka message.
@@ -145,6 +208,8 @@ pub struct BorrowedMessage<'a> {
 }
 
 impl Message for BorrowedMessage<'_> {
+    type Headers = BorrowedHeaders;
+
     fn key(&self) -> Option<&[u8]> {
         self.msg.key()
     }
@@ -168,8 +233,42 @@ impl Message for BorrowedMessage<'_> {
     fn timestamp(&self) -> Timestamp {
         self.msg.timestamp()
     }
+
+    fn headers(&self) -> Option<&Self::Headers> {
+        self.msg
+            .headers()
+            .map(|h| unsafe { std::mem::transmute(h) })
+    }
+}
+
+/// A zero-copy collection of Kafka message headers.
+#[repr(transparent)]
+pub struct BorrowedHeaders(OwnedHeaders);
+
+impl Headers for BorrowedHeaders {
+    fn count(&self) -> usize {
+        self.0.count()
+    }
+
+    fn get(&self, idx: usize) -> Option<(&str, &[u8])> {
+        self.0.get(idx)
+    }
 }
 
 /// A collection of Kafka message headers that owns its backing data.
 #[derive(Debug, Clone)]
-pub struct OwnedHeaders {}
+pub struct OwnedHeaders {
+    headers: Vec<(String, Vec<u8>)>,
+}
+
+impl Headers for OwnedHeaders {
+    fn count(&self) -> usize {
+        self.headers.len()
+    }
+
+    fn get(&self, idx: usize) -> Option<(&str, &[u8])> {
+        self.headers
+            .get(idx)
+            .map(|(k, v)| (k.as_str(), v.as_slice()))
+    }
+}

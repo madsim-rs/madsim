@@ -198,3 +198,23 @@ impl<'a> Stream for MessageStream<'a> {
         todo!()
     }
 }
+
+#[derive(Debug, Default)]
+struct ConsumerConfig {
+    bootstrap_servers: String,
+    group_id: Option<String>,
+}
+
+impl ConsumerConfig {
+    fn from_kv(kv: impl IntoIterator<Item = (String, String)>) -> Self {
+        let mut cfg = Self::default();
+        for (k, v) in kv {
+            match k.as_str() {
+                "bootstrap.servers" => cfg.bootstrap_servers = v,
+                "group.id" => cfg.group_id = Some(v.clone()),
+                _ => panic!("invalid key: {}", k),
+            }
+        }
+        cfg
+    }
+}
