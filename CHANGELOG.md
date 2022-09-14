@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2022-09-13
+
+### Changed
+
+- madsim: Change the default seed to the nanosecond of current time.
+- madsim: Wait for a while after panicking before restart.
+
+### Fixed
+
+- madsim: Avoid closing socket of a restarted node.
+
 ## [0.2.6] - 2022-09-05
 
 ### Added
