@@ -80,8 +80,8 @@ impl Broker {
         Ok(())
     }
 
-    /// Consumes records.
-    pub fn consume(&self, consumer: &mut Consumer) -> Result<Vec<OwnedMessage>> {
+    /// Fetch records.
+    pub fn fetch(&self, consumer: &mut Consumer) -> Result<Vec<OwnedMessage>> {
         let mut rets = vec![];
         let mut total_bytes = 0;
         for e in &mut consumer.tpl.list {

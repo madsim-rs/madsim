@@ -1,10 +1,15 @@
-use std::marker::PhantomData;
-
 use futures_util::Stream;
+use madsim::net::Endpoint;
+use serde::Deserialize;
 
 use crate::{
-    client::ClientContext, config::FromClientConfigAndContext, error::KafkaResult,
-    message::BorrowedMessage, metadata::Metadata, util::Timeout, ClientConfig, TopicPartitionList,
+    client::ClientContext,
+    config::{FromClientConfig, FromClientConfigAndContext},
+    error::{KafkaError, KafkaResult},
+    message::BorrowedMessage,
+    metadata::Metadata,
+    util::Timeout,
+    ClientConfig, TopicPartitionList,
 };
 
 /// Common trait for all consumers.
@@ -63,13 +68,31 @@ pub struct BaseConsumer<C = DefaultConsumerContext>
 where
     C: ConsumerContext,
 {
-    _runtime: PhantomData<C>,
+    context: C,
+    config: ConsumerConfig,
+    ep: Endpoint,
+}
+
+impl FromClientConfig for BaseConsumer {
+    fn from_config(config: &ClientConfig) -> KafkaResult<BaseConsumer> {
+        BaseConsumer::from_config_and_context(config, DefaultConsumerContext)
+    }
 }
 
 /// Creates a new `BaseConsumer` starting from a `ClientConfig`.
 impl<C: ConsumerContext> FromClientConfigAndContext<C> for BaseConsumer<C> {
     fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<BaseConsumer<C>> {
-        todo!()
+        let config_json = serde_json::to_string(&config.conf_map)
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let config = serde_json::from_str(&config_json)
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let mut p = BaseConsumer {
+            context,
+            config,
+            // ep: Endpoint::bind("0.0.0.0:0"),
+            ep: todo!(),
+        };
+        Ok(p)
     }
 }
 
@@ -185,7 +208,7 @@ impl StreamConsumer {
 }
 
 pub struct MessageStream<'a> {
-    _runtime: PhantomData<&'a ()>,
+    _runtime: &'a (),
 }
 
 impl<'a> Stream for MessageStream<'a> {
@@ -199,22 +222,41 @@ impl<'a> Stream for MessageStream<'a> {
     }
 }
 
-#[derive(Debug, Default)]
+/// Consumers configs.
+///
+/// <https://kafka.apache.org/documentation/#consumerconfigs>
+#[derive(Debug, Default, Deserialize)]
 struct ConsumerConfig {
+    #[serde(rename = "bootstrap.servers")]
     bootstrap_servers: String,
+
+    #[serde(rename = "group.id")]
     group_id: Option<String>,
+
+    /// If true the consumer's offset will be periodically committed in the background.
+    #[serde(rename = "enable.auto.commit", default = "default_enable_auto_commit")]
+    enable_auto_commit: bool,
+
+    /// The maximum amount of data the server should return for a fetch request.
+    #[serde(rename = "fetch.max.bytes", default = "default_fetch_max_bytes")]
+    fetch_max_bytes: u32,
+
+    /// What to do when there is no initial offset in Kafka or if the current offset does not exist
+    /// any more on the server (e.g. because that data has been deleted)
+    #[serde(rename = "auto.offset.reset", default = "default_auto_offset_reset")]
+    auto_offset_reset: String,
+
+    /// Emit `PartitionEOF` event whenever the consumer reaches the end of a partition.
+    #[serde(rename = "enable.partition.eof")]
+    enable_partition_eof: bool,
 }
 
-impl ConsumerConfig {
-    fn from_kv(kv: impl IntoIterator<Item = (String, String)>) -> Self {
-        let mut cfg = Self::default();
-        for (k, v) in kv {
-            match k.as_str() {
-                "bootstrap.servers" => cfg.bootstrap_servers = v,
-                "group.id" => cfg.group_id = Some(v.clone()),
-                _ => panic!("invalid key: {}", k),
-            }
-        }
-        cfg
-    }
+const fn default_enable_auto_commit() -> bool {
+    true
+}
+const fn default_fetch_max_bytes() -> u32 {
+    52428800
+}
+fn default_auto_offset_reset() -> String {
+    "latest".into()
 }

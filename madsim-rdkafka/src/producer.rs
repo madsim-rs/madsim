@@ -1,8 +1,9 @@
-use std::marker::PhantomData;
+use madsim::net::Endpoint;
+use serde::Deserialize;
 
 use crate::{
     client::ClientContext,
-    config::FromClientConfigAndContext,
+    config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult},
     message::{OwnedHeaders, ToBytes},
     util::Timeout,
@@ -111,14 +112,28 @@ pub struct DefaultProducerContext;
 impl ClientContext for DefaultProducerContext {}
 impl ProducerContext for DefaultProducerContext {}
 
+impl FromClientConfig for BaseProducer {
+    fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer> {
+        BaseProducer::from_config_and_context(config, DefaultProducerContext)
+    }
+}
+
 impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
-    /// Creates a new `BaseProducer` starting from a configuration and a
-    /// context.
     fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<BaseProducer<C>> {
-        todo!()
+        let config_json = serde_json::to_string(&config.conf_map)
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let config = serde_json::from_str(&config_json)
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let mut p = BaseProducer {
+            context,
+            config,
+            // ep: Endpoint::bind("0.0.0.0:0"),
+            ep: todo!(),
+        };
+        Ok(p)
     }
 }
 
@@ -127,7 +142,9 @@ pub struct BaseProducer<C = DefaultProducerContext>
 where
     C: ProducerContext,
 {
-    _runtime: PhantomData<C>,
+    context: C,
+    config: ProducerConfig,
+    ep: Endpoint,
 }
 
 /// A low-level Kafka producer with a separate thread for event handling.
@@ -174,22 +191,22 @@ where
     }
 }
 
-#[derive(Debug, Default)]
+/// Producer configs.
+///
+/// <https://kafka.apache.org/documentation/#producerconfigs>
+#[derive(Debug, Default, Deserialize)]
 struct ProducerConfig {
+    #[serde(rename = "bootstrap.servers")]
     bootstrap_servers: String,
+
+    #[serde(rename = "transactional.id")]
     transactional_id: Option<String>,
+
+    /// Local message timeout.
+    #[serde(rename = "message.timeout.ms", default = "default_message_timeout_ms")]
+    message_timeout_ms: u32,
 }
 
-impl ProducerConfig {
-    fn from_kv(kv: impl IntoIterator<Item = (String, String)>) -> Self {
-        let mut cfg = Self::default();
-        for (k, v) in kv {
-            match k.as_str() {
-                "bootstrap.servers" => cfg.bootstrap_servers = v,
-                "transactional.id" => cfg.transactional_id = Some(v.clone()),
-                _ => panic!("invalid key: {}", k),
-            }
-        }
-        cfg
-    }
+const fn default_message_timeout_ms() -> u32 {
+    300_000
 }

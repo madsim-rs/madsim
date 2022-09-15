@@ -28,7 +28,7 @@ pub enum RDKafkaLogLevel {
 /// Client configuration.
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
-    conf_map: HashMap<String, String>,
+    pub(crate) conf_map: HashMap<String, String>,
     /// The librdkafka logging level. Refer to [`RDKafkaLogLevel`] for the list
     /// of available levels.
     pub log_level: RDKafkaLogLevel,

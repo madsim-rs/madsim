@@ -23,9 +23,9 @@ impl SimBroker {
                         Box::new(service.lock().create_topic(name, partitions))
                     }
                     Request::Produce { record } => Box::new(service.lock().produce(record)),
-                    Request::Consume { tpl } => {
+                    Request::Fetch { tpl } => {
                         let mut consumer = Consumer::new(tpl);
-                        Box::new(service.lock().consume(&mut consumer))
+                        Box::new(service.lock().fetch(&mut consumer))
                     }
                 };
                 tx.send(response).await?;
@@ -40,5 +40,5 @@ impl SimBroker {
 pub enum Request {
     CreateTopic { name: String, partitions: usize },
     Produce { record: OwnedRecord },
-    Consume { tpl: TopicPartitionList },
+    Fetch { tpl: TopicPartitionList },
 }
