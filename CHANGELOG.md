@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.7] - 2022-09-13
 
+### Added
+
+- tokio: Add fake `Runtime`.
+
 ### Changed
 
 - madsim: Change the default seed to the nanosecond of current time.
