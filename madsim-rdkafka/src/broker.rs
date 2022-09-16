@@ -5,7 +5,7 @@ use crate::{
     message::{OwnedHeaders, OwnedMessage, Timestamp, ToBytes},
     metadata::{Metadata, MetadataPartition, MetadataTopic},
     producer::BaseRecord,
-    Offset, TopicPartitionList,
+    Message, Offset, TopicPartitionList,
 };
 use std::collections::HashMap;
 
@@ -31,6 +31,7 @@ struct Partition {
 }
 
 impl Partition {
+    /// Creates a new partition.
     fn new(id: i32) -> Self {
         Partition {
             id,
@@ -39,6 +40,21 @@ impl Partition {
             high_watermark: 0,
             msgs: vec![],
         }
+    }
+
+    /// Looks up the offset by timestamp.
+    ///
+    /// The returned offset is the earliest offset whose timestamp
+    /// is greater than or equal to the given timestamp.
+    fn offset_for_time(&self, timestamp: i64) -> Option<i64> {
+        let idx = self
+            .msgs
+            .partition_point(|msg| match msg.timestamp() {
+                Timestamp::NotAvailable => 0,
+                Timestamp::CreateTime(t) => t,
+                Timestamp::LogAppendTime(t) => t,
+            } < timestamp);
+        self.msgs.get(idx).map(|msg| msg.offset())
     }
 }
 
@@ -69,7 +85,9 @@ impl Broker {
             record.payload,
             record.key,
             record.topic,
-            Timestamp::NotAvailable, // FIXME: assign timestamp
+            record
+                .timestamp
+                .map_or(Timestamp::NotAvailable, Timestamp::CreateTime),
             partition_idx as _,
             partition.log_end_offset,
             record.headers,
@@ -85,14 +103,9 @@ impl Broker {
         let mut rets = vec![];
         let mut total_bytes = 0;
         for e in &mut consumer.tpl.list {
-            let topic = self
-                .topics
-                .get(&e.topic)
-                .ok_or(Error::MessageConsumption(ErrorCode::UnknownTopic))?;
-            let partition = &topic
-                .partitions
-                .get(e.partition as usize)
-                .ok_or(Error::MessageConsumption(ErrorCode::UnknownPartition))?;
+            let partition = self
+                .get_partition(&e.topic, e.partition)
+                .map_err(Error::MessageConsumption)?;
             let msgs = &partition.msgs;
             if msgs.is_empty() {
                 continue;
@@ -103,14 +116,14 @@ impl Broker {
                 Offset::Stored => todo!("stored offset"),
                 Offset::Invalid => todo!("invalid offset"),
                 Offset::Offset(offset) => msgs
-                    .binary_search_by_key(&offset, |msg| msg.offset)
+                    .binary_search_by_key(&offset, |msg| msg.offset())
                     .expect("invalid offset"),
                 Offset::OffsetTail(_) => todo!("offset tail"),
             };
             let mut total_bytes_in_partition = 0;
             for msg in msgs.iter().skip(start_idx) {
                 let size = msg.size();
-                if msg.offset >= partition.high_watermark {
+                if msg.offset() >= partition.high_watermark {
                     continue;
                 }
                 if total_bytes + size > consumer.fetch_max_bytes as usize
@@ -118,7 +131,7 @@ impl Broker {
                 {
                     return Ok(rets);
                 }
-                e.offset = Offset::Offset(msg.offset + 1);
+                e.offset = Offset::Offset(msg.offset() + 1);
                 rets.push(msg.clone());
                 total_bytes += size;
                 total_bytes_in_partition += size;
@@ -140,6 +153,47 @@ impl Broker {
             .get(topic)
             .ok_or(Error::MetadataFetch(ErrorCode::UnknownTopic))?;
         Ok(topic.metadata())
+    }
+
+    /// Returns the low and high watermarks for a specific topic and partition.
+    pub fn fetch_watermarks(&self, topic: &str, partition: i32) -> Result<(i64, i64)> {
+        let partition = self
+            .get_partition(topic, partition)
+            .map_err(Error::OffsetFetch)?;
+        Ok((partition.low_watermark, partition.high_watermark))
+    }
+
+    /// Looks up the offsets for the specified partitions by timestamp.
+    pub fn offsets_for_times(&self, tpl: &TopicPartitionList) -> Result<TopicPartitionList> {
+        let mut ret = TopicPartitionList::with_capacity(tpl.count());
+        for e in &tpl.list {
+            let partition = self
+                .get_partition(&e.topic, e.partition)
+                .map_err(Error::OffsetFetch)?;
+            let timestamp = match e.offset {
+                Offset::Offset(ts) => ts,
+                _ => return Err(Error::OffsetFetch(ErrorCode::InvalidTimestamp)),
+            };
+            let offset = partition
+                .offset_for_time(timestamp)
+                .map_or(Offset::Invalid, Offset::Offset);
+            ret.add_partition_offset(&e.topic, e.partition, offset)
+                .unwrap();
+        }
+        Ok(ret)
+    }
+
+    fn get_partition(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> std::result::Result<&Partition, ErrorCode> {
+        let topic = self.topics.get(topic).ok_or(ErrorCode::UnknownTopic)?;
+        let partition = &topic
+            .partitions
+            .get(partition as usize)
+            .ok_or(ErrorCode::UnknownPartition)?;
+        Ok(partition)
     }
 }
 

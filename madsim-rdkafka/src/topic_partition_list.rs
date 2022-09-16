@@ -48,6 +48,11 @@ impl TopicPartitionList {
         }
     }
 
+    /// Returns the number of elements in the list.
+    pub fn count(&self) -> usize {
+        self.list.len()
+    }
+
     /// Adds a topic and partition to the list.
     pub fn add_partition<'a>(
         &'a mut self,

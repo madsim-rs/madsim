@@ -128,7 +128,7 @@ pub struct OwnedMessage {
     topic: String,
     timestamp: Timestamp,
     partition: i32,
-    pub(crate) offset: i64,
+    offset: i64,
     headers: Option<OwnedHeaders>,
 }
 

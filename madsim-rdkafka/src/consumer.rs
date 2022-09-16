@@ -33,6 +33,9 @@ where
         Self: Sized;
 
     /// Looks up the offsets for the specified partitions by timestamp.
+    ///
+    /// The returned offset for each partition is the earliest offset whose timestamp
+    /// is greater than or equal to the given timestamp in the corresponding partition.
     fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
@@ -96,44 +99,26 @@ impl<C: ConsumerContext> FromClientConfigAndContext<C> for BaseConsumer<C> {
     }
 }
 
-impl<C> Consumer<C> for BaseConsumer<C>
+impl<C> BaseConsumer<C>
 where
     C: ConsumerContext,
 {
-    fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+    async fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
         todo!()
     }
 
-    fn fetch_watermarks<T>(
-        &self,
-        topic: &str,
-        partition: i32,
-        timeout: T,
-    ) -> KafkaResult<(i64, i64)>
-    where
-        T: Into<Timeout>,
-        Self: Sized,
-    {
+    async fn fetch_watermarks(&self, topic: &str, partition: i32) -> KafkaResult<(i64, i64)> {
         todo!()
     }
 
-    fn offsets_for_times<T>(
+    async fn offsets_for_times(
         &self,
         timestamps: TopicPartitionList,
-        timeout: T,
-    ) -> KafkaResult<TopicPartitionList>
-    where
-        T: Into<Timeout>,
-        Self: Sized,
-    {
+    ) -> KafkaResult<TopicPartitionList> {
         todo!()
     }
 
-    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
-    where
-        T: Into<Timeout>,
-        Self: Sized,
-    {
+    async fn fetch_metadata(&self, topic: Option<&str>) -> KafkaResult<Metadata> {
         todo!()
     }
 }
@@ -156,48 +141,6 @@ where
 {
     _base: BaseConsumer<C>,
     // _runtime: PhantomData<R>,
-}
-
-impl<C> Consumer<C> for StreamConsumer<C>
-where
-    C: ConsumerContext,
-{
-    fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
-        todo!()
-    }
-
-    fn fetch_watermarks<T>(
-        &self,
-        topic: &str,
-        partition: i32,
-        timeout: T,
-    ) -> KafkaResult<(i64, i64)>
-    where
-        T: Into<Timeout>,
-        Self: Sized,
-    {
-        todo!()
-    }
-
-    fn offsets_for_times<T>(
-        &self,
-        timestamps: TopicPartitionList,
-        timeout: T,
-    ) -> KafkaResult<TopicPartitionList>
-    where
-        T: Into<Timeout>,
-        Self: Sized,
-    {
-        todo!()
-    }
-
-    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
-    where
-        T: Into<Timeout>,
-        Self: Sized,
-    {
-        todo!()
-    }
 }
 
 impl StreamConsumer {
@@ -247,7 +190,10 @@ struct ConsumerConfig {
     auto_offset_reset: String,
 
     /// Emit `PartitionEOF` event whenever the consumer reaches the end of a partition.
-    #[serde(rename = "enable.partition.eof")]
+    #[serde(
+        rename = "enable.partition.eof",
+        default = "default_enable_partition_eof"
+    )]
     enable_partition_eof: bool,
 }
 
@@ -259,4 +205,7 @@ const fn default_fetch_max_bytes() -> u32 {
 }
 fn default_auto_offset_reset() -> String {
     "latest".into()
+}
+const fn default_enable_partition_eof() -> bool {
+    false
 }
