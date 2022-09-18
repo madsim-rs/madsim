@@ -11,10 +11,10 @@ pub struct KvClient {
 
 impl KvClient {
     /// Create a new [`KvClient`].
-    pub(crate) fn new(ep: Endpoint, addr: SocketAddr) -> Self {
+    pub(crate) fn new(ep: Endpoint) -> Self {
         KvClient {
+            server_addr: ep.peer_addr().unwrap(),
             ep,
-            server_addr: addr,
         }
     }
 

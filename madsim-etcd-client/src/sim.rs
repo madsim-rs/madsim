@@ -1,21 +1,24 @@
 mod election;
 mod error;
 mod kv;
+mod lease;
 mod server;
 mod service;
 
 use madsim::net::Endpoint;
 use std::time::Duration;
 
-pub use self::election::ElectionClient;
+pub use self::election::*;
 pub use self::error::{Error, Result};
 pub use self::kv::*;
+pub use self::lease::*;
 pub use self::server::SimServer;
 
 /// Asynchronous `etcd` client using v3 API.
 #[derive(Clone)]
 pub struct Client {
     kv: KvClient,
+    lease: LeaseClient,
     election: ElectionClient,
 }
 
@@ -27,10 +30,10 @@ impl Client {
     ) -> Result<Self> {
         let addr = endpoints.as_ref()[0].as_ref();
         let ep = Endpoint::connect(addr).await?;
-        let addr = ep.peer_addr().unwrap();
         Ok(Client {
-            kv: KvClient::new(ep.clone(), addr),
-            election: ElectionClient::new(ep, addr),
+            kv: KvClient::new(ep.clone()),
+            lease: LeaseClient::new(ep.clone()),
+            election: ElectionClient::new(ep),
         })
     }
 
@@ -38,6 +41,12 @@ impl Client {
     #[inline]
     pub fn kv_client(&self) -> KvClient {
         self.kv.clone()
+    }
+
+    /// Gets a lease client.
+    #[inline]
+    pub fn lease_client(&self) -> LeaseClient {
+        self.lease.clone()
     }
 
     /// Gets a election client.
