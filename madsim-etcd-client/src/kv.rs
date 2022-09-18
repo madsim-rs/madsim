@@ -1,4 +1,5 @@
-use super::{Endpoint, Result};
+use super::{server::Request, ResponseHeader, Result};
+use madsim::net::Endpoint;
 use std::{fmt::Display, net::SocketAddr};
 
 /// Client for KV operations.
@@ -175,20 +176,6 @@ impl GetResponse {
     #[inline]
     pub fn kvs(&self) -> &[KeyValue] {
         &self.kvs
-    }
-}
-
-/// General `etcd` response header.
-#[derive(Debug, Clone)]
-pub struct ResponseHeader {
-    pub(crate) revision: i64,
-}
-
-impl ResponseHeader {
-    /// The key-value store revision when the request was applied.
-    #[inline]
-    pub const fn revision(&self) -> i64 {
-        self.revision
     }
 }
 
@@ -485,25 +472,4 @@ impl KeyValue {
     pub fn value(&self) -> &[u8] {
         &self.value
     }
-}
-
-/// A request to etcd server.
-#[derive(Debug)]
-pub(crate) enum Request {
-    Put {
-        key: Vec<u8>,
-        value: Vec<u8>,
-        options: PutOptions,
-    },
-    Get {
-        key: Vec<u8>,
-        options: GetOptions,
-    },
-    Delete {
-        key: Vec<u8>,
-        options: DeleteOptions,
-    },
-    Txn {
-        txn: Txn,
-    },
 }

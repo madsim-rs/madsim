@@ -1,4 +1,4 @@
-use super::{kv::*, Error, Result};
+use super::*;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
 use std::collections::BTreeMap;
