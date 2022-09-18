@@ -1,4 +1,4 @@
-use super::{KeyValue, ResponseHeader, Result};
+use super::{ResponseHeader, Result};
 use futures_util::stream::Stream;
 use madsim::net::Endpoint;
 use std::{
@@ -97,9 +97,9 @@ impl LeaseGrantOptions {
 /// Response for `Grant` operation.
 #[derive(Debug, Clone)]
 pub struct LeaseGrantResponse {
-    header: ResponseHeader,
-    id: i64,
-    ttl: i64,
+    pub(crate) header: ResponseHeader,
+    pub(crate) id: i64,
+    pub(crate) ttl: i64,
 }
 
 impl LeaseGrantResponse {
@@ -139,7 +139,7 @@ impl LeaseRevokeResponse {
 /// Lease status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaseStatus {
-    id: i64,
+    pub(crate) id: i64,
 }
 
 impl LeaseStatus {
@@ -194,9 +194,9 @@ impl Stream for LeaseKeepAliveStream {
 /// Response for `KeepAlive` operation.
 #[derive(Debug, Clone)]
 pub struct LeaseKeepAliveResponse {
-    header: ResponseHeader,
-    id: i64,
-    ttl: i64,
+    pub(crate) header: ResponseHeader,
+    pub(crate) id: i64,
+    pub(crate) ttl: i64,
 }
 
 impl LeaseKeepAliveResponse {
@@ -251,11 +251,11 @@ impl LeaseTimeToLiveOptions {
 /// Response for `TimeToLive` operation.
 #[derive(Debug, Clone)]
 pub struct LeaseTimeToLiveResponse {
-    header: ResponseHeader,
-    ttl: i64,
-    id: i64,
-    granted_ttl: i64,
-    keys: Vec<Vec<u8>>,
+    pub(crate) header: ResponseHeader,
+    pub(crate) ttl: i64,
+    pub(crate) id: i64,
+    pub(crate) granted_ttl: i64,
+    pub(crate) keys: Vec<Vec<u8>>,
 }
 
 impl LeaseTimeToLiveResponse {
@@ -293,8 +293,8 @@ impl LeaseTimeToLiveResponse {
 // Response for `Leases` operation.
 #[derive(Debug, Clone)]
 pub struct LeaseLeasesResponse {
-    header: ResponseHeader,
-    leases: Vec<LeaseStatus>,
+    pub(crate) header: ResponseHeader,
+    pub(crate) leases: Vec<LeaseStatus>,
 }
 
 impl LeaseLeasesResponse {

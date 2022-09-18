@@ -42,6 +42,13 @@ impl SimServer {
                         Box::new(service.delete(key, options).await)
                     }
                     Request::Txn { txn } => Box::new(service.txn(txn).await),
+                    Request::LeaseGrant { ttl, id } => Box::new(service.lease_grant(ttl, id).await),
+                    Request::LeaseRevoke { id } => Box::new(service.lease_revoke(id).await),
+                    Request::LeaseKeepAlive { id } => Box::new(service.lease_keep_alive(id).await),
+                    Request::LeaseTimeToLive { id } => {
+                        Box::new(service.lease_time_to_live(id).await)
+                    }
+                    Request::LeaseLeases => Box::new(service.lease_leases().await),
                     Request::Campaign { name, value, lease } => todo!(),
                     Request::Proclaim { leader, value } => todo!(),
                     Request::Leader { name } => todo!(),
@@ -58,6 +65,7 @@ impl SimServer {
 /// A request to etcd server.
 #[derive(Debug)]
 pub(crate) enum Request {
+    // kv API
     Put {
         key: Vec<u8>,
         value: Vec<u8>,
@@ -74,6 +82,24 @@ pub(crate) enum Request {
     Txn {
         txn: Txn,
     },
+
+    // lease API
+    LeaseGrant {
+        ttl: i64,
+        id: i64,
+    },
+    LeaseRevoke {
+        id: i64,
+    },
+    LeaseKeepAlive {
+        id: i64,
+    },
+    LeaseTimeToLive {
+        id: i64,
+    },
+    LeaseLeases,
+
+    // election API
     Campaign {
         name: Vec<u8>,
         value: Vec<u8>,

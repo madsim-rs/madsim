@@ -100,7 +100,37 @@ impl KvClient {
 
 /// Options for `Put` operation.
 #[derive(Debug, Default, Clone)]
-pub struct PutOptions();
+pub struct PutOptions {
+    pub(crate) lease: i64,
+    pub(crate) prev_kv: bool,
+}
+
+impl PutOptions {
+    /// Creates a [`PutOptions`].
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            lease: 0,
+            prev_kv: false,
+        }
+    }
+
+    /// Lease is the lease ID to associate with the key in the key-value store.
+    /// A lease value of 0 indicates no lease.
+    #[inline]
+    pub const fn with_lease(mut self, lease: i64) -> Self {
+        self.lease = lease;
+        self
+    }
+
+    /// If prev_kv is set, etcd gets the previous key-value pair before changing it.
+    /// The previous key-value pair will be returned in the put response.
+    #[inline]
+    pub const fn with_prev_key(mut self) -> Self {
+        self.prev_kv = true;
+        self
+    }
+}
 
 /// Response for `Put` operation.
 #[derive(Debug, Clone)]
