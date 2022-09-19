@@ -1,6 +1,6 @@
-use super::{ResponseHeader, Result};
+use super::{server::Request, ResponseHeader, Result};
 use futures_util::stream::Stream;
-use madsim::net::Endpoint;
+use madsim::net::{Endpoint, Receiver, Sender};
 use std::{
     net::SocketAddr,
     pin::Pin,
@@ -32,20 +32,34 @@ impl LeaseClient {
         ttl: i64,
         options: Option<LeaseGrantOptions>,
     ) -> Result<LeaseGrantResponse> {
-        todo!()
+        let req = Request::LeaseGrant {
+            ttl,
+            id: options.map_or(0, |opt| opt.id),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 
     /// Revokes a lease. All keys attached to the lease will expire and be deleted.
     #[inline]
     pub async fn revoke(&mut self, id: i64) -> Result<LeaseRevokeResponse> {
-        todo!()
+        let req = Request::LeaseRevoke { id };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 
     /// Keeps the lease alive by streaming keep alive requests from the client
     /// to the server and streaming keep alive responses from the server to the client.
     #[inline]
     pub async fn keep_alive(&mut self, id: i64) -> Result<(LeaseKeeper, LeaseKeepAliveStream)> {
-        todo!()
+        let (tx, rx) = self.ep.connect1(self.server_addr).await?;
+        let mut keeper = LeaseKeeper { tx, id };
+        let mut stream = LeaseKeepAliveStream { rx };
+        keeper.keep_alive().await?;
+        stream.message().await?;
+        Ok((keeper, stream))
     }
 
     /// Retrieves lease information.
@@ -55,13 +69,22 @@ impl LeaseClient {
         id: i64,
         options: Option<LeaseTimeToLiveOptions>,
     ) -> Result<LeaseTimeToLiveResponse> {
-        todo!()
+        let req = Request::LeaseTimeToLive {
+            id,
+            keys: options.map_or(false, |opt| opt.keys),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 
     /// Lists all existing leases.
     #[inline]
     pub async fn leases(&mut self) -> Result<LeaseLeasesResponse> {
-        todo!()
+        let req = Request::LeaseLeases;
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 }
 
@@ -69,17 +92,9 @@ impl LeaseClient {
 #[derive(Debug, Default, Clone)]
 pub struct LeaseGrantOptions {
     id: i64,
-    ttl: i64,
 }
 
 impl LeaseGrantOptions {
-    /// Set ttl
-    #[inline]
-    const fn with_ttl(mut self, ttl: i64) -> Self {
-        self.ttl = ttl;
-        self
-    }
-
     /// Set id
     #[inline]
     pub const fn with_id(mut self, id: i64) -> Self {
@@ -90,7 +105,7 @@ impl LeaseGrantOptions {
     /// Creates a [`LeaseGrantOptions`].
     #[inline]
     pub const fn new() -> Self {
-        Self { ttl: 0, id: 0 }
+        Self { id: 0 }
     }
 }
 
@@ -154,6 +169,7 @@ impl LeaseStatus {
 #[derive(Debug)]
 pub struct LeaseKeeper {
     id: i64,
+    tx: Sender,
 }
 
 impl LeaseKeeper {
@@ -166,19 +182,27 @@ impl LeaseKeeper {
     /// Sends a keep alive request and receive response
     #[inline]
     pub async fn keep_alive(&mut self) -> Result<()> {
-        todo!()
+        self.tx
+            .send(Box::new(Request::LeaseKeepAlive { id: self.id }))
+            .await?;
+        Ok(())
     }
 }
 
 /// The lease keep alive response stream.
 #[derive(Debug)]
-pub struct LeaseKeepAliveStream {}
+pub struct LeaseKeepAliveStream {
+    rx: Receiver,
+}
 
 impl LeaseKeepAliveStream {
     /// Fetches the next message from this stream.
     #[inline]
     pub async fn message(&mut self) -> Result<Option<LeaseKeepAliveResponse>> {
-        todo!()
+        let rsp = *(self.rx.recv().await?)
+            .downcast::<Result<LeaseKeepAliveResponse>>()
+            .unwrap();
+        rsp.map(Some)
     }
 }
 
@@ -186,8 +210,17 @@ impl Stream for LeaseKeepAliveStream {
     type Item = Result<LeaseKeepAliveResponse>;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.rx).poll_next(cx) {
+            Poll::Ready(Some(Ok(payload))) => Poll::Ready(Some(
+                *payload
+                    .downcast::<Result<LeaseKeepAliveResponse>>()
+                    .unwrap(),
+            )),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -222,18 +255,10 @@ impl LeaseKeepAliveResponse {
 /// Options for `TimeToLive` operation.
 #[derive(Debug, Default, Clone)]
 pub struct LeaseTimeToLiveOptions {
-    id: i64,
     keys: bool,
 }
 
 impl LeaseTimeToLiveOptions {
-    /// ID is the lease ID for the lease.
-    #[inline]
-    const fn with_id(mut self, id: i64) -> Self {
-        self.id = id;
-        self
-    }
-
     /// Keys is true to query all the keys attached to this lease.
     #[inline]
     pub const fn with_keys(mut self) -> Self {
@@ -244,7 +269,7 @@ impl LeaseTimeToLiveOptions {
     /// Creates a `LeaseTimeToLiveOptions`.
     #[inline]
     pub const fn new() -> Self {
-        Self { id: 0, keys: false }
+        Self { keys: false }
     }
 }
 

@@ -75,9 +75,9 @@ impl EtcdService {
         Ok(rsp)
     }
 
-    pub async fn lease_time_to_live(&self, id: i64) -> Result<LeaseTimeToLiveResponse> {
+    pub async fn lease_time_to_live(&self, id: i64, keys: bool) -> Result<LeaseTimeToLiveResponse> {
         self.timeout().await?;
-        let rsp = self.inner.lock().lease_time_to_live(id);
+        let rsp = self.inner.lock().lease_time_to_live(id, keys);
         Ok(rsp)
     }
 
@@ -289,14 +289,18 @@ impl ServiceInner {
         }
     }
 
-    fn lease_time_to_live(&self, id: i64) -> LeaseTimeToLiveResponse {
+    fn lease_time_to_live(&self, id: i64, keys: bool) -> LeaseTimeToLiveResponse {
         let lease = self.lease.get(&id).expect("no lease");
         LeaseTimeToLiveResponse {
             header: self.header(),
             id,
             ttl: lease.ttl,
             granted_ttl: lease.granted_ttl,
-            keys: lease.keys.iter().cloned().collect(),
+            keys: if keys {
+                lease.keys.iter().cloned().collect()
+            } else {
+                vec![]
+            },
         }
     }
 

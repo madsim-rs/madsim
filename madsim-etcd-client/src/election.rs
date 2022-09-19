@@ -113,7 +113,7 @@ impl ProclaimOptions {
     /// The leadership hold on the election.
     #[inline]
     pub fn with_leader(mut self, leader: LeaderKey) -> Self {
-        self.leader = Some(leader.into());
+        self.leader = Some(leader);
         self
     }
 }
@@ -179,11 +179,11 @@ impl LeaderKey {
         std::str::from_utf8(self.name()).map_err(From::from)
     }
 
-    /// The name in string. name is the election identifier that corresponds to the leadership key.
-    #[inline]
-    pub unsafe fn name_str_unchecked(&self) -> &str {
-        std::str::from_utf8_unchecked(self.name())
-    }
+    // /// The name in string. name is the election identifier that corresponds to the leadership key.
+    // #[inline]
+    // pub unsafe fn name_str_unchecked(&self) -> &str {
+    //     std::str::from_utf8_unchecked(self.name())
+    // }
 
     /// The key in byte. key is an opaque key representing the ownership of the election. If the key
     /// is deleted, then leadership is lost.
@@ -199,12 +199,12 @@ impl LeaderKey {
         std::str::from_utf8(self.key()).map_err(From::from)
     }
 
-    /// The key in string. key is an opaque key representing the ownership of the election. If the key
-    /// is deleted, then leadership is lost.
-    #[inline]
-    pub unsafe fn key_str_unchecked(&self) -> &str {
-        std::str::from_utf8_unchecked(self.key())
-    }
+    // /// The key in string. key is an opaque key representing the ownership of the election. If the key
+    // /// is deleted, then leadership is lost.
+    // #[inline]
+    // pub unsafe fn key_str_unchecked(&self) -> &str {
+    //     std::str::from_utf8_unchecked(self.key())
+    // }
 
     /// The creation revision of the key.  It can be used to test for ownership
     /// of an election during transactions by testing the key's creation revision
@@ -292,7 +292,7 @@ impl ResignOptions {
     /// The leadership to relinquish by resignation.
     #[inline]
     pub fn with_leader(mut self, leader: LeaderKey) -> Self {
-        self.leader = Some(leader.into());
+        self.leader = Some(leader);
         self
     }
 }

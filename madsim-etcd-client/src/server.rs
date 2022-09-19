@@ -45,8 +45,8 @@ impl SimServer {
                     Request::LeaseGrant { ttl, id } => Box::new(service.lease_grant(ttl, id).await),
                     Request::LeaseRevoke { id } => Box::new(service.lease_revoke(id).await),
                     Request::LeaseKeepAlive { id } => Box::new(service.lease_keep_alive(id).await),
-                    Request::LeaseTimeToLive { id } => {
-                        Box::new(service.lease_time_to_live(id).await)
+                    Request::LeaseTimeToLive { id, keys } => {
+                        Box::new(service.lease_time_to_live(id, keys).await)
                     }
                     Request::LeaseLeases => Box::new(service.lease_leases().await),
                     Request::Campaign { name, value, lease } => todo!(),
@@ -96,6 +96,7 @@ pub(crate) enum Request {
     },
     LeaseTimeToLive {
         id: i64,
+        keys: bool,
     },
     LeaseLeases,
 
