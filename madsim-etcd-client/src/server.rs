@@ -49,11 +49,15 @@ impl SimServer {
                         Box::new(service.lease_time_to_live(id, keys).await)
                     }
                     Request::LeaseLeases => Box::new(service.lease_leases().await),
-                    Request::Campaign { name, value, lease } => todo!(),
-                    Request::Proclaim { leader, value } => todo!(),
-                    Request::Leader { name } => todo!(),
+                    Request::Campaign { name, value, lease } => {
+                        Box::new(service.campaign(name, value, lease).await)
+                    }
+                    Request::Proclaim { leader, value } => {
+                        Box::new(service.proclaim(leader, value).await)
+                    }
+                    Request::Leader { name } => Box::new(service.leader(name).await),
                     Request::Observe { name } => todo!(),
-                    Request::Resign { leader } => todo!(),
+                    Request::Resign { leader } => Box::new(service.resign(leader).await),
                 };
                 tx.send(response).await?;
                 Ok(()) as Result<()>
@@ -107,7 +111,7 @@ pub(crate) enum Request {
         lease: i64,
     },
     Proclaim {
-        leader: Option<LeaderKey>,
+        leader: LeaderKey,
         value: Vec<u8>,
     },
     Leader {
@@ -117,6 +121,6 @@ pub(crate) enum Request {
         name: Vec<u8>,
     },
     Resign {
-        leader: Option<LeaderKey>,
+        leader: LeaderKey,
     },
 }

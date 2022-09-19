@@ -70,7 +70,7 @@ impl ElectionClient {
 #[derive(Debug, Clone)]
 pub struct CampaignResponse {
     pub(crate) header: ResponseHeader,
-    pub(crate) leader: Option<LeaderKey>,
+    pub(crate) leader: LeaderKey,
 }
 
 impl CampaignResponse {
@@ -83,7 +83,7 @@ impl CampaignResponse {
     /// Describes the resources used for holding leadership of the election.
     #[inline]
     pub fn leader(&self) -> Option<&LeaderKey> {
-        self.leader.as_ref()
+        Some(&self.leader)
     }
 }
 
@@ -121,10 +121,10 @@ impl ProclaimOptions {
 /// Leader key of election
 #[derive(Debug, Clone)]
 pub struct LeaderKey {
-    name: Vec<u8>,
-    key: Vec<u8>,
-    rev: i64,
-    lease: i64,
+    pub(crate) name: Vec<u8>,
+    pub(crate) key: Vec<u8>,
+    pub(crate) rev: i64,
+    pub(crate) lease: i64,
 }
 
 impl LeaderKey {

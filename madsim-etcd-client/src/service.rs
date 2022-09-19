@@ -1,8 +1,10 @@
 use super::*;
-use madsim::rand::{thread_rng, Rng};
+use futures_util::future::poll_fn;
+use madsim::rand::{random, thread_rng, Rng};
 use spin::Mutex;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -87,6 +89,27 @@ impl EtcdService {
         Ok(rsp)
     }
 
+    pub async fn campaign(&self, name: Key, value: Value, lease: i64) -> Result<CampaignResponse> {
+        self.timeout().await?;
+        let rsp = poll_fn(|cx| self.inner.lock().poll_campaign(&name, &value, lease, cx)).await;
+        Ok(rsp)
+    }
+
+    pub async fn proclaim(&self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
+        self.timeout().await?;
+        self.inner.lock().proclaim(leader, value)
+    }
+
+    pub async fn leader(&self, name: Key) -> Result<LeaderResponse> {
+        self.timeout().await?;
+        self.inner.lock().leader(name)
+    }
+
+    pub async fn resign(&self, leader: LeaderKey) -> Result<ResignResponse> {
+        self.timeout().await?;
+        self.inner.lock().resign(leader)
+    }
+
     async fn timeout(&self) -> Result<()> {
         if thread_rng().gen_bool(self.timeout_rate as f64) {
             let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
@@ -104,18 +127,21 @@ impl EtcdService {
 #[derive(Debug, Default)]
 struct ServiceInner {
     revision: i64,
-    kv: BTreeMap<Vec<u8>, Vec<u8>>,
+    kv: BTreeMap<Key, Value>,
     lease: HashMap<LeaseId, Lease>,
-    next_lease_id: i64,
+    /// Waiters for election.
+    waiting_candidates: Vec<(Key, Waker)>,
 }
 
 type LeaseId = i64;
+type Key = Vec<u8>;
+type Value = Vec<u8>;
 
 #[derive(Debug)]
 struct Lease {
     ttl: i64,
     granted_ttl: i64,
-    keys: HashSet<Vec<u8>>,
+    keys: HashSet<Key>,
 }
 
 impl Lease {
@@ -169,10 +195,7 @@ impl ServiceInner {
             todo!("get with revision");
         }
         let kvs = if options.prefix {
-            let mut end = key.clone();
-            *end.last_mut().unwrap() += 1;
-            self.kv
-                .range(key..end)
+            self.get_prefix_range(key)
                 .map(|(k, v)| KeyValue {
                     key: k.clone(),
                     value: v.clone(),
@@ -194,13 +217,30 @@ impl ServiceInner {
         }
     }
 
+    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, Value> {
+        let mut end = key.clone();
+        *end.last_mut().unwrap() += 1;
+        self.kv.range(key..end)
+    }
+
     fn delete(&mut self, key: Vec<u8>, _options: DeleteOptions) -> DeleteResponse {
         tracing::trace!(
             key = ?String::from_utf8_lossy(&key),
             "delete"
         );
         let deleted = self.kv.remove(&key).map_or(0, |_| 1);
-        self.revision += 1;
+        if deleted > 0 {
+            self.revision += 1;
+            // TODO: notify one
+            self.waiting_candidates.retain(|(prefix, waker)| {
+                if key.starts_with(prefix) {
+                    waker.wake_by_ref();
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         DeleteResponse {
             header: self.header(),
             deleted,
@@ -247,11 +287,9 @@ impl ServiceInner {
         tracing::trace!(ttl, id, "lease_grant");
         // choose an ID if == 0
         if id == 0 {
-            self.next_lease_id += 1;
-            while self.lease.contains_key(&self.next_lease_id) {
-                self.next_lease_id += 1;
+            while self.lease.contains_key(&id) || id == 0 {
+                id = random();
             }
-            id = self.next_lease_id;
         }
         let old = self.lease.insert(id, Lease::new(ttl));
         assert!(old.is_some(), "lease ID already exists");
@@ -329,5 +367,77 @@ impl ServiceInner {
         if self.lease.len() != origin_len {
             self.revision += 1;
         }
+    }
+
+    fn poll_campaign(
+        &mut self,
+        name: &[u8],
+        value: &[u8],
+        lease: i64,
+        cx: &mut Context<'_>,
+    ) -> Poll<CampaignResponse> {
+        if self.get_prefix_range(name.to_vec()).next().is_some() {
+            // the election name is occupied
+            self.waiting_candidates
+                .push((name.to_vec(), cx.waker().clone()));
+            return Poll::Pending;
+        }
+
+        // name = format!("{name}/{lease:016x}")
+        let mut key = name.to_vec();
+        key.push(b'/');
+        key.extend_from_slice(format!("{lease:016x}").as_bytes());
+
+        self.kv.insert(key.clone(), value.to_vec());
+        self.revision += 1;
+
+        tracing::trace!(
+            name = ?String::from_utf8_lossy(name),
+            value = ?String::from_utf8_lossy(value),
+            lease,
+            "new leader",
+        );
+        Poll::Ready(CampaignResponse {
+            header: self.header(),
+            leader: LeaderKey {
+                name: name.to_vec(),
+                key,
+                rev: 0, // TODO: key revision
+                lease,
+            },
+        })
+    }
+
+    fn proclaim(&mut self, leader: LeaderKey, value: Vec<u8>) -> Result<ProclaimResponse> {
+        tracing::trace!(
+            name = ?String::from_utf8_lossy(&leader.name),
+            value = ?String::from_utf8_lossy(&value),
+            "proclaim",
+        );
+        (self.kv.insert(leader.key, value))
+            .ok_or_else(|| Error::ElectError("session expired".into()))?;
+        self.revision += 1;
+        Ok(ProclaimResponse {
+            header: self.header(),
+        })
+    }
+
+    fn leader(&self, name: Key) -> Result<LeaderResponse> {
+        Ok(LeaderResponse {
+            header: self.header(),
+            kv: self.get_prefix_range(name).next().map(|(k, v)| KeyValue {
+                key: k.clone(),
+                value: v.clone(),
+            }),
+        })
+    }
+
+    fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
+        tracing::trace!(name = ?String::from_utf8_lossy(&leader.name), "resign");
+        (self.kv.remove(&leader.key)).ok_or_else(|| Error::ElectError("session expired".into()))?;
+        self.revision += 1;
+        Ok(ResignResponse {
+            header: self.header(),
+        })
     }
 }
