@@ -56,7 +56,7 @@ impl SimServer {
                         Box::new(service.proclaim(leader, value).await)
                     }
                     Request::Leader { name } => Box::new(service.leader(name).await),
-                    Request::Observe { name } => todo!(),
+                    Request::Observe { name: _ } => todo!(),
                     Request::Resign { leader } => Box::new(service.resign(leader).await),
                 };
                 tx.send(response).await?;
@@ -118,6 +118,7 @@ pub(crate) enum Request {
         name: Vec<u8>,
     },
     Observe {
+        #[allow(dead_code)]
         name: Vec<u8>,
     },
     Resign {

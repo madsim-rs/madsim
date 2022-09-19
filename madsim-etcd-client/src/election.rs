@@ -1,6 +1,6 @@
-use super::{KeyValue, ResponseHeader, Result};
+use super::{server::Request, KeyValue, ResponseHeader, Result};
 use futures_util::stream::Stream;
-use madsim::net::Endpoint;
+use madsim::net::{Endpoint, Receiver};
 use std::{
     net::SocketAddr,
     pin::Pin,
@@ -33,7 +33,14 @@ impl ElectionClient {
         value: impl Into<Vec<u8>>,
         lease: i64,
     ) -> Result<CampaignResponse> {
-        todo!()
+        let req = Request::Campaign {
+            name: name.into(),
+            value: value.into(),
+            lease,
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 
     /// Lets the leader announce a new value without another election.
@@ -43,26 +50,49 @@ impl ElectionClient {
         value: impl Into<Vec<u8>>,
         options: Option<ProclaimOptions>,
     ) -> Result<ProclaimResponse> {
-        todo!()
+        let req = Request::Proclaim {
+            leader: options
+                .expect("no leader key")
+                .leader
+                .expect("no leader key"),
+            value: value.into(),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 
     /// Returns the leader value for the current election.
     #[inline]
     pub async fn leader(&mut self, name: impl Into<Vec<u8>>) -> Result<LeaderResponse> {
-        todo!()
+        let req = Request::Leader { name: name.into() };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 
     /// Returns a channel that reliably observes ordered leader proposals
     /// as GetResponse values on every current elected leader key.
     #[inline]
     pub async fn observe(&mut self, name: impl Into<Vec<u8>>) -> Result<ObserveStream> {
-        todo!()
+        let req = Request::Observe { name: name.into() };
+        let (tx, rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        Ok(ObserveStream { rx })
     }
 
     /// Releases election leadership and then start a new election
     #[inline]
-    pub async fn resign(&mut self, option: Option<ResignOptions>) -> Result<ResignResponse> {
-        todo!()
+    pub async fn resign(&mut self, options: Option<ResignOptions>) -> Result<ResignResponse> {
+        let req = Request::Resign {
+            leader: options
+                .expect("no leader key")
+                .leader
+                .expect("no leader key"),
+        };
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast().unwrap()
     }
 }
 
@@ -91,23 +121,12 @@ impl CampaignResponse {
 #[derive(Debug, Default, Clone)]
 pub struct ProclaimOptions {
     leader: Option<LeaderKey>,
-    value: Vec<u8>,
 }
 
 impl ProclaimOptions {
     #[inline]
     pub const fn new() -> Self {
-        Self {
-            leader: None,
-            value: Vec::new(),
-        }
-    }
-
-    /// The initial proclaimed value set when the campaigner wins the election.
-    #[inline]
-    fn with_value(mut self, value: impl Into<Vec<u8>>) -> Self {
-        self.value = value.into();
-        self
+        Self { leader: None }
     }
 
     /// The leadership hold on the election.
@@ -258,13 +277,18 @@ impl LeaderResponse {
 
 /// Response for `Observe` operation.
 #[derive(Debug)]
-pub struct ObserveStream {}
+pub struct ObserveStream {
+    rx: Receiver,
+}
 
 impl ObserveStream {
     /// Fetches the next message from this stream.
     #[inline]
     pub async fn message(&mut self) -> Result<Option<LeaderResponse>> {
-        todo!()
+        let rsp = *(self.rx.recv().await?)
+            .downcast::<Result<LeaderResponse>>()
+            .unwrap();
+        rsp.map(Some)
     }
 }
 
@@ -272,8 +296,15 @@ impl Stream for ObserveStream {
     type Item = Result<LeaderResponse>;
 
     #[inline]
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.rx).poll_next(cx) {
+            Poll::Ready(Some(Ok(payload))) => {
+                Poll::Ready(Some(*payload.downcast::<Result<LeaderResponse>>().unwrap()))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
