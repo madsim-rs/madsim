@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use futures_util::Stream;
 use madsim::net::Endpoint;
 use serde::Deserialize;
@@ -13,16 +15,17 @@ use crate::{
 };
 
 /// Common trait for all consumers.
+#[async_trait::async_trait]
 pub trait Consumer<C = DefaultConsumerContext>
 where
     C: ConsumerContext,
 {
     /// Manually assigns topics and partitions to the consumer. If used,
     /// automatic consumer rebalance won't be activated.
-    fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()>;
+    async fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()>;
 
     /// Returns the low and high watermarks for a specific topic and partition.
-    fn fetch_watermarks<T>(
+    async fn fetch_watermarks<T>(
         &self,
         topic: &str,
         partition: i32,
@@ -36,7 +39,7 @@ where
     ///
     /// The returned offset for each partition is the earliest offset whose timestamp
     /// is greater than or equal to the given timestamp in the corresponding partition.
-    fn offsets_for_times<T>(
+    async fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
@@ -47,7 +50,7 @@ where
 
     /// Returns the metadata information for the specified topic, or for all
     /// topics in the cluster if no topic is specified.
-    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
+    async fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
     where
         T: Into<Timeout>,
         Self: Sized;
@@ -74,26 +77,38 @@ where
     context: C,
     config: ConsumerConfig,
     ep: Endpoint,
+    addr: SocketAddr,
 }
 
+#[async_trait::async_trait]
 impl FromClientConfig for BaseConsumer {
-    fn from_config(config: &ClientConfig) -> KafkaResult<BaseConsumer> {
-        BaseConsumer::from_config_and_context(config, DefaultConsumerContext)
+    async fn from_config(config: &ClientConfig) -> KafkaResult<BaseConsumer> {
+        BaseConsumer::from_config_and_context(config, DefaultConsumerContext).await
     }
 }
 
 /// Creates a new `BaseConsumer` starting from a `ClientConfig`.
+#[async_trait::async_trait]
 impl<C: ConsumerContext> FromClientConfigAndContext<C> for BaseConsumer<C> {
-    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<BaseConsumer<C>> {
+    async fn from_config_and_context(
+        config: &ClientConfig,
+        context: C,
+    ) -> KafkaResult<BaseConsumer<C>> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
-        let config = serde_json::from_str(&config_json)
+        let config: ConsumerConfig = serde_json::from_str(&config_json)
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let addr = config
+            .bootstrap_servers
+            .parse::<SocketAddr>()
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let mut p = BaseConsumer {
             context,
             config,
-            // ep: Endpoint::bind("0.0.0.0:0"),
-            ep: todo!(),
+            ep: Endpoint::bind("0.0.0.0:0")
+                .await
+                .map_err(|e| KafkaError::ClientCreation(e.to_string()))?,
+            addr,
         };
         Ok(p)
     }
@@ -124,8 +139,9 @@ where
 }
 
 /// Creates a new `StreamConsumer` starting from a `ClientConfig`.
+#[async_trait::async_trait]
 impl<C: ConsumerContext> FromClientConfigAndContext<C> for StreamConsumer<C> {
-    fn from_config_and_context(
+    async fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<StreamConsumer<C>> {

@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use madsim::net::Endpoint;
 use serde::Deserialize;
 
@@ -112,26 +114,37 @@ pub struct DefaultProducerContext;
 impl ClientContext for DefaultProducerContext {}
 impl ProducerContext for DefaultProducerContext {}
 
+#[async_trait::async_trait]
 impl FromClientConfig for BaseProducer {
-    fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer> {
-        BaseProducer::from_config_and_context(config, DefaultProducerContext)
+    async fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer> {
+        BaseProducer::from_config_and_context(config, DefaultProducerContext).await
     }
 }
 
+#[async_trait::async_trait]
 impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
-    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<BaseProducer<C>> {
+    async fn from_config_and_context(
+        config: &ClientConfig,
+        context: C,
+    ) -> KafkaResult<BaseProducer<C>> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
-        let config = serde_json::from_str(&config_json)
+        let config: ProducerConfig = serde_json::from_str(&config_json)
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let addr = config
+            .bootstrap_servers
+            .parse::<SocketAddr>()
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let mut p = BaseProducer {
             context,
             config,
-            // ep: Endpoint::bind("0.0.0.0:0"),
-            ep: todo!(),
+            ep: Endpoint::bind("0.0.0.0:0")
+                .await
+                .map_err(|e| KafkaError::ClientCreation(e.to_string()))?,
+            addr,
         };
         Ok(p)
     }
@@ -145,6 +158,7 @@ where
     context: C,
     config: ProducerConfig,
     ep: Endpoint,
+    addr: SocketAddr,
 }
 
 /// A low-level Kafka producer with a separate thread for event handling.

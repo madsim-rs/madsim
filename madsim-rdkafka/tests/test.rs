@@ -30,6 +30,7 @@ async fn test() {
             let admin = ClientConfig::new()
                 .set("bootstrap.servers", broker_addr.to_string())
                 .create::<AdminClient<_>>()
+                .await
                 .expect("failed to create admin client");
             admin
                 .create_topics(
@@ -51,6 +52,7 @@ async fn test() {
             let producer = ClientConfig::new()
                 .set("bootstrap.servers", broker_addr.to_string())
                 .create::<BaseProducer>()
+                .await
                 .expect("failed to create producer");
         });
 
@@ -63,6 +65,7 @@ async fn test() {
             let consumer = ClientConfig::new()
                 .set("bootstrap.servers", broker_addr.to_string())
                 .create::<BaseConsumer>()
+                .await
                 .expect("failed to create consumer");
         });
 
@@ -75,6 +78,7 @@ async fn test() {
             let consumer = ClientConfig::new()
                 .set("bootstrap.servers", broker_addr.to_string())
                 .create::<BaseConsumer>()
+                .await
                 .expect("failed to create consumer");
         });
 }

@@ -8,6 +8,7 @@ use crate::{
     Message, Offset, TopicPartitionList,
 };
 use std::collections::HashMap;
+use tracing::debug;
 
 #[derive(Debug, Default)]
 pub struct Broker {
@@ -61,6 +62,7 @@ impl Partition {
 impl Broker {
     /// Creates a new topic.
     pub fn create_topic(&mut self, name: String, partitions: usize) -> Result<()> {
+        debug!(?name, partitions, "create_topic");
         self.topics
             .insert(name.clone(), Topic::new(name, partitions));
         Ok(())
@@ -68,6 +70,7 @@ impl Broker {
 
     /// Produces a record.
     pub fn produce(&mut self, record: OwnedRecord) -> Result<()> {
+        debug!(?record, "produce");
         let topic = self
             .topics
             .get_mut(&record.topic)

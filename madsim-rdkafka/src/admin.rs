@@ -20,6 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::net::SocketAddr;
+
 use madsim::net::Endpoint;
 use serde::Deserialize;
 
@@ -27,6 +29,7 @@ use crate::{
     client::{ClientContext, DefaultClientContext},
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult},
+    sim_broker::Request,
     types::RDKafkaErrorCode,
     util::Timeout,
     ClientConfig,
@@ -36,27 +39,36 @@ pub struct AdminClient<C: ClientContext> {
     context: C,
     config: AdminClientConfig,
     ep: Endpoint,
+    addr: SocketAddr,
 }
 
+#[async_trait::async_trait]
 impl FromClientConfig for AdminClient<DefaultClientContext> {
-    fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
-        AdminClient::from_config_and_context(config, DefaultClientContext)
+    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
+        AdminClient::from_config_and_context(config, DefaultClientContext).await
     }
 }
 
+#[async_trait::async_trait]
 impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
-    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<AdminClient<C>> {
+    async fn from_config_and_context(
+        config: &ClientConfig,
+        context: C,
+    ) -> KafkaResult<AdminClient<C>> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
-        let config = serde_json::from_str(&config_json)
+        let config: AdminClientConfig = serde_json::from_str(&config_json)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
-        let mut client = AdminClient {
+        let addr = config
+            .bootstrap_servers
+            .parse::<SocketAddr>()
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        Ok(AdminClient {
             context,
             config,
-            // ep: Endpoint::bind("0.0.0.0:0"),
-            ep: todo!(),
-        };
-        Ok(client)
+            ep: Endpoint::bind("0.0.0.0:0").await?,
+            addr,
+        })
     }
 }
 
@@ -68,9 +80,23 @@ where
     pub async fn create_topics<'a>(
         &self,
         topics: impl IntoIterator<Item = &'a NewTopic<'a>>,
-        opts: &AdminOptions,
+        _opts: &AdminOptions,
     ) -> KafkaResult<Vec<TopicResult>> {
-        todo!()
+        let mut results = vec![];
+        for topic in topics {
+            let req = Request::CreateTopic {
+                name: topic.name.to_string(),
+                partitions: topic.num_partitions as usize,
+            };
+            let (tx, mut rx) = self.ep.connect1(self.addr).await?;
+            tx.send(Box::new(req)).await?;
+            let res = match *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap() {
+                Ok(()) => Ok(topic.name.to_string()),
+                Err(e) => todo!("failed to create topic: {}", e),
+            };
+            results.push(res);
+        }
+        Ok(results)
     }
 
     /// Adds additional partitions to existing topics according to the provided
