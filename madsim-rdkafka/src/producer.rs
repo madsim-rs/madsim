@@ -2,12 +2,16 @@ use std::net::SocketAddr;
 
 use madsim::net::Endpoint;
 use serde::Deserialize;
+use spin::Mutex;
+use tracing::*;
 
 use crate::{
+    broker::OwnedRecord,
     client::ClientContext,
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult},
     message::{OwnedHeaders, ToBytes},
+    sim_broker::Request,
     util::Timeout,
     ClientConfig,
 };
@@ -128,7 +132,7 @@ where
 {
     async fn from_config_and_context(
         config: &ClientConfig,
-        context: C,
+        _context: C,
     ) -> KafkaResult<BaseProducer<C>> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
@@ -138,13 +142,14 @@ where
             .bootstrap_servers
             .parse::<SocketAddr>()
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
-        let mut p = BaseProducer {
-            context,
-            config,
+        let p = BaseProducer {
+            _context,
+            _config: config,
             ep: Endpoint::bind("0.0.0.0:0")
                 .await
                 .map_err(|e| KafkaError::ClientCreation(e.to_string()))?,
             addr,
+            buffer: Mutex::new(vec![]),
         };
         Ok(p)
     }
@@ -155,10 +160,11 @@ pub struct BaseProducer<C = DefaultProducerContext>
 where
     C: ProducerContext,
 {
-    context: C,
-    config: ProducerConfig,
+    _context: C,
+    _config: ProducerConfig,
     ep: Endpoint,
     addr: SocketAddr,
+    buffer: Mutex<Vec<OwnedRecord>>,
 }
 
 /// A low-level Kafka producer with a separate thread for event handling.
@@ -168,6 +174,7 @@ impl<C> BaseProducer<C>
 where
     C: ProducerContext,
 {
+    /// Sends a message to Kafka.
     pub fn send<'a, K, P>(
         &self,
         record: BaseRecord<'a, K, P>,
@@ -176,7 +183,35 @@ where
         K: ToBytes + ?Sized,
         P: ToBytes + ?Sized,
     {
-        todo!()
+        // TODO: simulate queue full
+        self.buffer.lock().push(record.to_owned());
+        Ok(())
+    }
+
+    /// Polls the producer, returning the number of events served.
+    pub async fn poll(&self) -> i32 {
+        match self.poll_internal().await {
+            Ok(num) => num as _,
+            Err(e) => {
+                error!("poll producer error: {}", e);
+                0
+            }
+        }
+    }
+
+    /// Polls the producer, returning the number of events served.
+    async fn poll_internal(&self) -> KafkaResult<u32> {
+        let records = std::mem::take(&mut *self.buffer.lock());
+        if records.is_empty() {
+            return Ok(0);
+        }
+        let num = records.len() as u32;
+        let req = Request::Produce { records };
+        let (tx, mut rx) = self.ep.connect1(self.addr).await?;
+        tx.send(Box::new(req)).await?;
+        let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
+        res?;
+        Ok(num)
     }
 }
 

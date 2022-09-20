@@ -8,7 +8,7 @@ use crate::{
     Message, Offset, TopicPartitionList,
 };
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::*;
 
 #[derive(Debug, Default)]
 pub struct Broker {
@@ -68,9 +68,17 @@ impl Broker {
         Ok(())
     }
 
+    /// Produces records.
+    pub fn produce(&mut self, records: Vec<OwnedRecord>) -> Result<()> {
+        debug!("produce {} records", records.len());
+        for record in records {
+            self.produce_one(record)?;
+        }
+        Ok(())
+    }
+
     /// Produces a record.
-    pub fn produce(&mut self, record: OwnedRecord) -> Result<()> {
-        debug!(?record, "produce");
+    fn produce_one(&mut self, record: OwnedRecord) -> Result<()> {
         let topic = self
             .topics
             .get_mut(&record.topic)
@@ -95,6 +103,7 @@ impl Broker {
             partition.log_end_offset,
             record.headers,
         );
+        trace!(?msg, "produce");
         partition.msgs.push(msg);
         partition.log_end_offset += 1;
         partition.high_watermark = partition.log_end_offset;
@@ -102,10 +111,15 @@ impl Broker {
     }
 
     /// Fetch records.
-    pub fn fetch(&self, consumer: &mut Consumer) -> Result<Vec<OwnedMessage>> {
+    pub fn fetch(
+        &self,
+        tpl: &mut TopicPartitionList,
+        opts: FetchOptions,
+    ) -> Result<Vec<OwnedMessage>> {
+        debug!(list = ?tpl, "fetch");
         let mut rets = vec![];
         let mut total_bytes = 0;
-        for e in &mut consumer.tpl.list {
+        for e in &mut tpl.list {
             let partition = self
                 .get_partition(&e.topic, e.partition)
                 .map_err(Error::MessageConsumption)?;
@@ -116,11 +130,9 @@ impl Broker {
             let start_idx = match e.offset {
                 Offset::Beginning => 0,
                 Offset::End => msgs.len() - 1,
-                Offset::Stored => todo!("stored offset"),
-                Offset::Invalid => todo!("invalid offset"),
-                Offset::Offset(offset) => msgs
-                    .binary_search_by_key(&offset, |msg| msg.offset())
-                    .expect("invalid offset"),
+                Offset::Stored => panic!("stored offset is not available"),
+                Offset::Invalid => return Err(Error::MessageConsumption(ErrorCode::NoOffset)),
+                Offset::Offset(offset) => msgs.partition_point(|msg| msg.offset() < offset),
                 Offset::OffsetTail(_) => todo!("offset tail"),
             };
             let mut total_bytes_in_partition = 0;
@@ -129,8 +141,8 @@ impl Broker {
                 if msg.offset() >= partition.high_watermark {
                     continue;
                 }
-                if total_bytes + size > consumer.fetch_max_bytes as usize
-                    || total_bytes_in_partition + size > consumer.max_partition_fetch_bytes as usize
+                if total_bytes + size > opts.fetch_max_bytes as usize
+                    || total_bytes_in_partition + size > opts.max_partition_fetch_bytes as usize
                 {
                     return Ok(rets);
                 }
@@ -243,7 +255,7 @@ pub struct OwnedRecord {
 }
 
 impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
-    fn to_owned(&self) -> OwnedRecord {
+    pub(crate) fn to_owned(&self) -> OwnedRecord {
         OwnedRecord {
             topic: self.topic.to_owned(),
             partition: self.partition,
@@ -255,24 +267,22 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
     }
 }
 
-pub struct Consumer {
-    tpl: TopicPartitionList,
-
+#[derive(Debug)]
+pub struct FetchOptions {
     /// The maximum amount of data per-partition the server will return.
     ///
     /// Default: 1048576 (1 mebibyte)
-    max_partition_fetch_bytes: u32,
+    pub max_partition_fetch_bytes: u32,
 
     /// The maximum amount of data the server should return for a fetch request.
     ///
     /// Default: 52428800 (50 mebibytes)
-    fetch_max_bytes: u32,
+    pub fetch_max_bytes: u32,
 }
 
-impl Consumer {
-    pub fn new(tpl: TopicPartitionList) -> Self {
-        Consumer {
-            tpl,
+impl Default for FetchOptions {
+    fn default() -> Self {
+        Self {
             max_partition_fetch_bytes: 1048576,
             fetch_max_bytes: 52428800,
         }

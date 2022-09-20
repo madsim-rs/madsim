@@ -1,5 +1,5 @@
 use crate::{
-    broker::{Broker, Consumer, OwnedRecord},
+    broker::{Broker, FetchOptions, OwnedRecord},
     metadata::Metadata,
     TopicPartitionList,
 };
@@ -23,10 +23,10 @@ impl SimBroker {
                     Request::CreateTopic { name, partitions } => {
                         Box::new(service.lock().create_topic(name, partitions))
                     }
-                    Request::Produce { record } => Box::new(service.lock().produce(record)),
-                    Request::Fetch { tpl } => {
-                        let mut consumer = Consumer::new(tpl);
-                        Box::new(service.lock().fetch(&mut consumer))
+                    Request::Produce { records } => Box::new(service.lock().produce(records)),
+                    Request::Fetch { mut tpl, opts } => {
+                        let ret = service.lock().fetch(&mut tpl, opts);
+                        Box::new(ret.map(|msgs| (msgs, tpl)))
                     }
                     Request::FetchMetadata { topic } => Box::new(match topic {
                         Some(topic) => service
@@ -52,10 +52,25 @@ impl SimBroker {
 /// Request to `SimBroker`.
 #[derive(Debug)]
 pub enum Request {
-    CreateTopic { name: String, partitions: usize },
-    Produce { record: OwnedRecord },
-    Fetch { tpl: TopicPartitionList },
-    FetchMetadata { topic: Option<String> },
-    FetchWatermarks { topic: String, partition: i32 },
-    OffsetsForTimes { tpl: TopicPartitionList },
+    CreateTopic {
+        name: String,
+        partitions: usize,
+    },
+    Produce {
+        records: Vec<OwnedRecord>,
+    },
+    Fetch {
+        tpl: TopicPartitionList,
+        opts: FetchOptions,
+    },
+    FetchMetadata {
+        topic: Option<String>,
+    },
+    FetchWatermarks {
+        topic: String,
+        partition: i32,
+    },
+    OffsetsForTimes {
+        tpl: TopicPartitionList,
+    },
 }

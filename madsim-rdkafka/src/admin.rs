@@ -36,8 +36,8 @@ use crate::{
 };
 
 pub struct AdminClient<C: ClientContext> {
-    context: C,
-    config: AdminClientConfig,
+    _context: C,
+    _config: AdminClientConfig,
     ep: Endpoint,
     addr: SocketAddr,
 }
@@ -53,7 +53,7 @@ impl FromClientConfig for AdminClient<DefaultClientContext> {
 impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
     async fn from_config_and_context(
         config: &ClientConfig,
-        context: C,
+        _context: C,
     ) -> KafkaResult<AdminClient<C>> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
@@ -64,8 +64,8 @@ impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
             .parse::<SocketAddr>()
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         Ok(AdminClient {
-            context,
-            config,
+            _context,
+            _config: config,
             ep: Endpoint::bind("0.0.0.0:0").await?,
             addr,
         })

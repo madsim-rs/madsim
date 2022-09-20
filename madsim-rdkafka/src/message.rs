@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 /// A cheap conversion from a byte slice to typed data.
 pub trait FromBytes {
     /// The error type that will be returned if the conversion fails.
@@ -165,6 +167,13 @@ impl OwnedMessage {
         }
         size
     }
+
+    pub(crate) fn borrow(self) -> BorrowedMessage<'static> {
+        BorrowedMessage {
+            msg: self,
+            _mark: PhantomData,
+        }
+    }
 }
 
 impl Message for OwnedMessage {
@@ -204,7 +213,8 @@ impl Message for OwnedMessage {
 
 /// A zero-copy Kafka message.
 pub struct BorrowedMessage<'a> {
-    msg: &'a OwnedMessage,
+    msg: OwnedMessage,
+    _mark: PhantomData<&'a ()>,
 }
 
 impl Message for BorrowedMessage<'_> {
