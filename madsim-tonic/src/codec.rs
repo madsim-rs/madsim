@@ -64,6 +64,6 @@ impl<T> Stream for Streaming<T> {
     type Item = Result<T, Status>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.stream).poll_next(cx)
+        self.stream.poll_next_unpin(cx)
     }
 }
