@@ -19,3 +19,14 @@ pub use crate::config::ClientConfig;
 pub use crate::message::Message;
 pub use crate::sim_broker::SimBroker;
 pub use crate::topic_partition_list::{Offset, TopicPartitionList};
+
+// custom deserialize function for serde
+fn from_str<'de, D, T>(de: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    let s: &str = serde::Deserialize::deserialize(de)?;
+    s.parse().map_err(serde::de::Error::custom)
+}

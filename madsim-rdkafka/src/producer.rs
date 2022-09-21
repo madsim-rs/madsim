@@ -252,7 +252,11 @@ struct ProducerConfig {
     transactional_id: Option<String>,
 
     /// Local message timeout.
-    #[serde(rename = "message.timeout.ms", default = "default_message_timeout_ms")]
+    #[serde(
+        rename = "message.timeout.ms",
+        deserialize_with = "super::from_str",
+        default = "default_message_timeout_ms"
+    )]
     message_timeout_ms: u32,
 }
 

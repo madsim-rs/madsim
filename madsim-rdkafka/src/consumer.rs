@@ -1,7 +1,8 @@
 use futures_util::{Stream, StreamExt};
 use madsim::net::Endpoint;
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::Deserialize;
 use spin::Mutex;
+use tracing::*;
 
 use std::{
     collections::VecDeque,
@@ -95,13 +96,13 @@ impl<C: ConsumerContext> FromClientConfigAndContext<C> for BaseConsumer<C> {
         let config: ConsumerConfig = serde_json::from_str(&config_json)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         if config.enable_auto_commit {
-            todo!("auto commit is not supported yet. consider set 'enable.auto.commit' = false");
+            warn!("auto commit is not supported yet. consider set 'enable.auto.commit' = false");
         }
         if config.enable_partition_eof {
-            todo!("partition eof is not supported yet");
+            warn!("partition eof is not supported yet");
         }
         if config.group_id.is_some() {
-            tracing::warn!("group id is ignored");
+            warn!("group id is ignored");
         }
         let addr = config
             .bootstrap_servers
@@ -205,7 +206,7 @@ where
                 .unwrap();
             let (msgs, tpl) = rsp?;
             if msgs.len() > 0 {
-                tracing::debug!("fetched {} messages", msgs.len());
+                debug!("fetched {} messages", msgs.len());
             }
             *self.msgs.lock() = VecDeque::from(msgs);
             *self.tpl.lock() = tpl;
@@ -321,7 +322,7 @@ struct ConsumerConfig {
     /// If true the consumer's offset will be periodically committed in the background.
     #[serde(
         rename = "enable.auto.commit",
-        deserialize_with = "parse_bool",
+        deserialize_with = "super::from_str",
         default = "default_enable_auto_commit"
     )]
     enable_auto_commit: bool,
@@ -346,7 +347,7 @@ struct ConsumerConfig {
     /// Emit `PartitionEOF` event whenever the consumer reaches the end of a partition.
     #[serde(
         rename = "enable.partition.eof",
-        deserialize_with = "parse_bool",
+        deserialize_with = "super::from_str",
         default = "default_enable_partition_eof"
     )]
     enable_partition_eof: bool,
@@ -363,13 +364,6 @@ enum AutoOffsetResetStrategy {
     None,
 }
 
-fn parse_bool<'de, D>(de: D) -> Result<bool, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s: &str = Deserialize::deserialize(de)?;
-    s.parse().map_err(D::Error::custom)
-}
 const fn default_enable_auto_commit() -> bool {
     true
 }
