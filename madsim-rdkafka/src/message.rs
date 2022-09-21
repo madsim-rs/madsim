@@ -34,6 +34,12 @@ impl ToBytes for [u8] {
     }
 }
 
+impl<const N: usize> ToBytes for [u8; N] {
+    fn to_bytes(&self) -> &[u8] {
+        self
+    }
+}
+
 impl ToBytes for str {
     fn to_bytes(&self) -> &[u8] {
         self.as_bytes()

@@ -1,14 +1,21 @@
-// #![cfg(madsim)]
+#![cfg(madsim)]
 
+use futures_util::StreamExt;
 use madsim::runtime::Handle;
 use madsim_rdkafka::{
     admin::*,
     consumer::{BaseConsumer, Consumer, StreamConsumer},
     producer::{BaseProducer, BaseRecord},
-    ClientConfig, SimBroker, TopicPartitionList,
+    ClientConfig, Message, SimBroker, TopicPartitionList,
 };
-use std::net::SocketAddr;
-use std::time::Duration;
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 #[madsim::test]
 async fn test() {
@@ -58,11 +65,13 @@ async fn test() {
                 .await
                 .expect("failed to create producer");
 
-            for i in 0..100 {
+            // generate an element every 0.1s
+            for i in 1..=30 {
                 let key = format!("1.{}", i);
-                let payload = format!("message {}", i);
+                let payload = [i as u8];
                 let record = BaseRecord::to("topic").key(&key).payload(&payload);
                 producer.send(record).expect("failed to send message");
+                madsim::time::sleep(Duration::from_millis(100)).await;
                 if i % 10 == 0 {
                     producer.poll().await;
                 }
@@ -81,15 +90,24 @@ async fn test() {
                 .await
                 .expect("failed to create producer");
 
-            for i in 0..100 {
+            // generate an element every 0.2s
+            for i in 1..=30 {
                 let key = format!("2.{}", i);
-                let payload = format!("message {}", i);
+                let payload = [i as u8];
                 let record = BaseRecord::to("topic").key(&key).payload(&payload);
                 producer.send(record).expect("failed to send message");
+                madsim::time::sleep(Duration::from_millis(200)).await;
+                if i % 10 == 0 {
+                    producer.poll().await;
+                }
             }
         });
 
-    let h1 = handle
+    let sum = Arc::new(AtomicUsize::new(0));
+    let sum1 = sum.clone();
+    let sum2 = sum.clone();
+
+    handle
         .create_node()
         .name("consumer-1")
         .ip("10.0.2.1".parse().unwrap())
@@ -98,6 +116,7 @@ async fn test() {
             let consumer = ClientConfig::new()
                 .set("bootstrap.servers", broker_addr.to_string())
                 .set("enable.auto.commit", "false")
+                .set("auto.offset.reset", "earliest")
                 .create::<BaseConsumer>()
                 .await
                 .expect("failed to create consumer");
@@ -110,21 +129,20 @@ async fn test() {
                 .await
                 .expect("failed to assign");
 
-            let mut count = 0;
-            // while count < 100 {
-            for _ in 0..100 {
+            loop {
                 let msg = match consumer.poll().await {
                     None => {
-                        madsim::time::sleep(Duration::from_secs(1)).await;
+                        madsim::time::sleep(Duration::from_millis(100)).await;
                         continue;
                     }
                     Some(res) => res.unwrap(),
                 };
-                count += 1;
+                let value = msg.payload().unwrap()[0];
+                sum1.fetch_add(value as usize, Ordering::Relaxed);
             }
         });
 
-    let h2 = handle
+    handle
         .create_node()
         .name("consumer-2")
         .ip("10.0.2.2".parse().unwrap())
@@ -133,19 +151,25 @@ async fn test() {
             let consumer = ClientConfig::new()
                 .set("bootstrap.servers", broker_addr.to_string())
                 .set("enable.auto.commit", "false")
+                .set("auto.offset.reset", "earliest")
                 .create::<StreamConsumer>()
                 .await
                 .expect("failed to create consumer");
 
             let mut assignment = TopicPartitionList::new();
-            assignment.add_partition("topic", 1);
             assignment.add_partition("topic", 2);
             consumer
                 .assign(&assignment)
                 .await
                 .expect("failed to assign");
+
+            let mut stream = consumer.stream();
+            while let Some(msg) = stream.next().await {
+                let value = msg.unwrap().payload().unwrap()[0];
+                sum2.fetch_add(value as usize, Ordering::Relaxed);
+            }
         });
 
-    h1.await.unwrap();
-    h2.await.unwrap();
+    madsim::time::sleep(Duration::from_secs(10)).await;
+    assert_eq!(sum.load(Ordering::Relaxed), (1..=30).sum::<usize>() * 2);
 }
