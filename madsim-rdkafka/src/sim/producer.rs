@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::net::SocketAddr;
 
 use madsim::net::Endpoint;
@@ -206,12 +208,12 @@ where
     C: ProducerContext,
 {
     /// Flushes any pending messages.
-    pub async fn flush<T: Into<Timeout>>(&self, timeout: T) {
+    pub async fn flush<T: Into<Timeout>>(&self, _timeout: T) {
         todo!()
     }
 
     /// Enable sending transactions with this producer.
-    pub async fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    pub async fn init_transactions<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
         todo!()
     }
 
@@ -221,12 +223,12 @@ where
     }
 
     /// Commits the current transaction.
-    pub async fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    pub async fn commit_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
         todo!()
     }
 
     /// Aborts the current transaction.
-    pub async fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    pub async fn abort_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
         todo!()
     }
 }

@@ -98,16 +98,6 @@ where
         }
         Ok(results)
     }
-
-    /// Adds additional partitions to existing topics according to the provided
-    /// [`NewPartitions`] specifications.
-    pub async fn create_partitions<'a>(
-        &self,
-        partitions: impl IntoIterator<Item = &'a NewPartitions<'a>>,
-        opts: &AdminOptions,
-    ) -> KafkaResult<Vec<TopicResult>> {
-        todo!()
-    }
 }
 
 /// Options for an admin API request.
