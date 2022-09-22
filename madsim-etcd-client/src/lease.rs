@@ -1,5 +1,5 @@
 use super::{server::Request, ResponseHeader, Result};
-use futures_util::stream::Stream;
+use futures_util::stream::{Stream, StreamExt};
 use madsim::net::{Endpoint, Receiver, Sender};
 use std::{
     net::SocketAddr,
@@ -211,7 +211,7 @@ impl Stream for LeaseKeepAliveStream {
 
     #[inline]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.rx).poll_next(cx) {
+        match self.rx.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(payload))) => Poll::Ready(Some(
                 *payload
                     .downcast::<Result<LeaseKeepAliveResponse>>()

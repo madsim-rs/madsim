@@ -24,8 +24,9 @@ pub enum Offset {
 }
 
 /// A structure to store and manipulate a list of topics and partitions with optional offsets.
+#[derive(Debug, Clone)]
 pub struct TopicPartitionList {
-    list: Vec<Elem>,
+    pub(crate) list: Vec<Elem>,
 }
 
 impl Default for TopicPartitionList {
@@ -47,24 +48,25 @@ impl TopicPartitionList {
         }
     }
 
+    /// Returns the number of elements in the list.
+    pub fn count(&self) -> usize {
+        self.list.len()
+    }
+
     /// Adds a topic and partition to the list.
     pub fn add_partition<'a>(
         &'a mut self,
         topic: &str,
         partition: i32,
     ) -> TopicPartitionListElem<'a> {
-        todo!()
-    }
-
-    /// Sets the offset for an already created topic partition. It will fail if the topic partition
-    /// isn't in the list.
-    pub fn set_partition_offset(
-        &mut self,
-        topic: &str,
-        partition: i32,
-        offset: Offset,
-    ) -> KafkaResult<()> {
-        todo!()
+        self.list.push(Elem {
+            topic: topic.into(),
+            partition,
+            offset: Offset::Invalid,
+        });
+        TopicPartitionListElem {
+            e: self.list.last().unwrap(),
+        }
     }
 
     /// Adds a topic and partition to the list, with the specified offset.
@@ -74,8 +76,12 @@ impl TopicPartitionList {
         partition: i32,
         offset: Offset,
     ) -> KafkaResult<()> {
-        self.add_partition(topic, partition);
-        self.set_partition_offset(topic, partition, offset)
+        self.list.push(Elem {
+            topic: topic.into(),
+            partition,
+            offset,
+        });
+        Ok(())
     }
 
     /// Returns all the elements of the list that belong to the specified topic.
@@ -93,10 +99,11 @@ pub struct TopicPartitionListElem<'a> {
     e: &'a Elem,
 }
 
-struct Elem {
-    topic: String,
-    partition: i32,
-    offset: Offset,
+#[derive(Debug, Clone)]
+pub(crate) struct Elem {
+    pub(crate) topic: String,
+    pub(crate) partition: i32,
+    pub(crate) offset: Offset,
 }
 
 impl TopicPartitionListElem<'_> {
