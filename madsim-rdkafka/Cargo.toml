@@ -1,7 +1,15 @@
 [package]
 name = "madsim-rdkafka"
-version = "0.1.0"
+version = "0.2.8-alpha"
 edition = "2021"
+authors = ["Runji Wang <wangrunji0408@163.com>"]
+description = "The rdkafka simulator on madsim."
+homepage = "https://github.com/madsim-rs/madsim"
+repository = "https://github.com/madsim-rs/madsim"
+categories = ["asynchronous", "simulation"]
+keywords = ["kafka", "rdkafka", "async", "simulator"]
+readme = "README.md"
+license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [target.'cfg(madsim)'.dependencies]
