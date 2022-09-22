@@ -196,7 +196,7 @@ where
                 .downcast::<KafkaResult<(Vec<OwnedMessage>, TopicPartitionList)>>()
                 .unwrap();
             let (msgs, tpl) = rsp?;
-            if msgs.len() > 0 {
+            if !msgs.is_empty() {
                 debug!("fetched {} messages", msgs.len());
             }
             *self.msgs.lock() = VecDeque::from(msgs);
