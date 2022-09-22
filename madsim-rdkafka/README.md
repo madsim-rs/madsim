@@ -1,0 +1,45 @@
+# madsim-rdkafka
+
+[![Crate](https://img.shields.io/crates/v/madsim-rdkafka.svg)](https://crates.io/crates/madsim-rdkafka)
+[![Docs](https://docs.rs/madsim-rdkafka/badge.svg)](https://docs.rs/madsim-rdkafka)
+
+The `rdkafka` simulator on madsim.
+
+## Usage
+
+Replace all `rdkafka` entries in your Cargo.toml:
+
+```toml
+[dependencies]
+rdkafka = { version = "0.2.8-alpha", package = "madsim-rdkafka" }
+```
+
+## API Modification
+
+This crate roughly follows the rdkafka API but is NOT exactly the same.
+
+The following functions are modified to be `async`:
+
+- `FromClientConfig::from_config`
+- `FromClientConfigAndContext::from_config_and_context`
+- `ClientConfig::create`
+- `ClientConfig::create_with_context`
+- `Client::fetch_metadata`
+- `Client::fetch_watermarks`
+- `Client::fetch_group_list`
+- `Consumer::seek`
+- `Consumer::commit`
+- `Consumer::commit_consumer_state`
+- `Consumer::commit_message`
+- `Consumer::committed`
+- `Consumer::committed_offsets`
+- `Consumer::offsets_for_timestamp`
+- `Consumer::offsets_for_times`
+- `Consumer::fetch_metadata`
+- `Consumer::fetch_watermarks`
+- `Consumer::fetch_group_list`
+- `Producer::flush`
+- `Producer::init_transactions`
+- `Producer::send_offsets_to_transaction`
+- `Producer::commit_transaction`
+- `Producer::abort_transaction`
