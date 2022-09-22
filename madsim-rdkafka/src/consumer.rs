@@ -21,34 +21,15 @@ use crate::{
     message::{BorrowedMessage, OwnedMessage},
     metadata::Metadata,
     sim_broker::Request,
+    util::Timeout,
     ClientConfig, Offset, TopicPartitionList,
 };
 
 /// Common trait for all consumers.
-#[async_trait::async_trait]
 pub trait Consumer<C = DefaultConsumerContext>
 where
     C: ConsumerContext,
 {
-    /// Manually assigns topics and partitions to the consumer. If used,
-    /// automatic consumer rebalance won't be activated.
-    async fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()>;
-
-    /// Returns the low and high watermarks for a specific topic and partition.
-    async fn fetch_watermarks(&self, topic: &str, partition: i32) -> KafkaResult<(i64, i64)>;
-
-    /// Looks up the offsets for the specified partitions by timestamp.
-    ///
-    /// The returned offset for each partition is the earliest offset whose timestamp
-    /// is greater than or equal to the given timestamp in the corresponding partition.
-    async fn offsets_for_times(
-        &self,
-        timestamps: TopicPartitionList,
-    ) -> KafkaResult<TopicPartitionList>;
-
-    /// Returns the metadata information for the specified topic, or for all
-    /// topics in the cluster if no topic is specified.
-    async fn fetch_metadata(&self, topic: Option<&str>) -> KafkaResult<Metadata>;
 }
 
 /// Consumer-specific context.
@@ -122,12 +103,11 @@ impl<C: ConsumerContext> FromClientConfigAndContext<C> for BaseConsumer<C> {
     }
 }
 
-#[async_trait::async_trait]
-impl<C> Consumer for BaseConsumer<C>
+impl<C> BaseConsumer<C>
 where
     C: ConsumerContext,
 {
-    async fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+    pub fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
         let mut tpl = assignment.clone();
         // auto offset reset
         for e in &mut tpl.list {
@@ -143,7 +123,13 @@ where
         Ok(())
     }
 
-    async fn fetch_watermarks(&self, topic: &str, partition: i32) -> KafkaResult<(i64, i64)> {
+    /// Returns the low and high watermarks for a specific topic and partition.
+    pub async fn fetch_watermarks(
+        &self,
+        topic: &str,
+        partition: i32,
+        _timeout: impl Into<Timeout>, // TODO: timeout
+    ) -> KafkaResult<(i64, i64)> {
         let req = Request::FetchWatermarks {
             topic: topic.to_string(),
             partition,
@@ -153,9 +139,10 @@ where
         *rx.recv().await?.downcast().unwrap()
     }
 
-    async fn offsets_for_times(
+    pub async fn offsets_for_times(
         &self,
         timestamps: TopicPartitionList,
+        _timeout: impl Into<Timeout>, // TODO: timeout
     ) -> KafkaResult<TopicPartitionList> {
         let req = Request::OffsetsForTimes { tpl: timestamps };
         let (tx, mut rx) = self.ep.connect1(self.addr).await?;
@@ -163,7 +150,11 @@ where
         *rx.recv().await?.downcast().unwrap()
     }
 
-    async fn fetch_metadata(&self, topic: Option<&str>) -> KafkaResult<Metadata> {
+    pub async fn fetch_metadata(
+        &self,
+        topic: Option<&str>,
+        _timeout: impl Into<Timeout>, // TODO: timeout
+    ) -> KafkaResult<Metadata> {
         let req = Request::FetchMetadata {
             topic: topic.map(|s| s.to_string()),
         };
@@ -260,28 +251,37 @@ impl<C: ConsumerContext> FromClientConfigAndContext<C> for StreamConsumer<C> {
     }
 }
 
-#[async_trait::async_trait]
-impl<C> Consumer for StreamConsumer<C>
+impl<C> StreamConsumer<C>
 where
     C: ConsumerContext,
 {
-    async fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
-        self.base.assign(assignment).await
+    pub fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.assign(assignment)
     }
 
-    async fn fetch_watermarks(&self, topic: &str, partition: i32) -> KafkaResult<(i64, i64)> {
-        self.base.fetch_watermarks(topic, partition).await
+    pub async fn fetch_watermarks(
+        &self,
+        topic: &str,
+        partition: i32,
+        timeout: impl Into<Timeout>,
+    ) -> KafkaResult<(i64, i64)> {
+        self.base.fetch_watermarks(topic, partition, timeout).await
     }
 
-    async fn offsets_for_times(
+    pub async fn offsets_for_times(
         &self,
         timestamps: TopicPartitionList,
+        timeout: impl Into<Timeout>,
     ) -> KafkaResult<TopicPartitionList> {
-        self.base.offsets_for_times(timestamps).await
+        self.base.offsets_for_times(timestamps, timeout).await
     }
 
-    async fn fetch_metadata(&self, topic: Option<&str>) -> KafkaResult<Metadata> {
-        self.base.fetch_metadata(topic).await
+    pub async fn fetch_metadata(
+        &self,
+        topic: Option<&str>,
+        timeout: impl Into<Timeout>,
+    ) -> KafkaResult<Metadata> {
+        self.base.fetch_metadata(topic, timeout).await
     }
 }
 

@@ -91,20 +91,6 @@ pub trait Producer<C = DefaultProducerContext>
 where
     C: ProducerContext,
 {
-    /// Flushes any pending messages.
-    fn flush<T: Into<Timeout>>(&self, timeout: T);
-
-    /// Enable sending transactions with this producer.
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
-
-    /// Begins a new transaction.
-    fn begin_transaction(&self) -> KafkaResult<()>;
-
-    /// Commits the current transaction.
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
-
-    /// Aborts the current transaction.
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
 }
 
 /// Producer-specific context.
@@ -215,27 +201,32 @@ where
     }
 }
 
-impl<C> Producer<C> for BaseProducer<C>
+impl<C> BaseProducer<C>
 where
     C: ProducerContext,
 {
-    fn flush<T: Into<Timeout>>(&self, timeout: T) {
+    /// Flushes any pending messages.
+    pub async fn flush<T: Into<Timeout>>(&self, timeout: T) {
         todo!()
     }
 
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    /// Enable sending transactions with this producer.
+    pub async fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         todo!()
     }
 
-    fn begin_transaction(&self) -> KafkaResult<()> {
+    /// Begins a new transaction.
+    pub fn begin_transaction(&self) -> KafkaResult<()> {
         todo!()
     }
 
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    /// Commits the current transaction.
+    pub async fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         todo!()
     }
 
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    /// Aborts the current transaction.
+    pub async fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         todo!()
     }
 }

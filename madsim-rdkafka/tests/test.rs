@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use madsim::runtime::Handle;
 use madsim_rdkafka::{
     admin::*,
-    consumer::{BaseConsumer, Consumer, StreamConsumer},
+    consumer::{BaseConsumer, StreamConsumer},
     producer::{BaseProducer, BaseRecord},
     ClientConfig, Message, SimBroker, TopicPartitionList,
 };
@@ -124,10 +124,7 @@ async fn test() {
             let mut assignment = TopicPartitionList::new();
             assignment.add_partition("topic", 0);
             assignment.add_partition("topic", 1);
-            consumer
-                .assign(&assignment)
-                .await
-                .expect("failed to assign");
+            consumer.assign(&assignment).expect("failed to assign");
 
             loop {
                 let msg = match consumer.poll().await {
@@ -158,10 +155,7 @@ async fn test() {
 
             let mut assignment = TopicPartitionList::new();
             assignment.add_partition("topic", 2);
-            consumer
-                .assign(&assignment)
-                .await
-                .expect("failed to assign");
+            consumer.assign(&assignment).expect("failed to assign");
 
             let mut stream = consumer.stream();
             while let Some(msg) = stream.next().await {
