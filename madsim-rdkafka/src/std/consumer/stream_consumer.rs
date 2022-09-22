@@ -284,7 +284,7 @@ where
     ///
     /// ```
     /// use futures::stream::StreamExt;
-    /// # use rdkafka::consumer::StreamConsumer;
+    /// # use madsim_rdkafka::consumer::StreamConsumer;
     ///
     /// # async fn example(consumer: StreamConsumer) {
     /// consumer.stream().next().await.expect("MessageStream never returns None");
@@ -313,7 +313,7 @@ where
     /// are expected, to serve callbacks. Consider using a background task like:
     ///
     /// ```
-    /// # use rdkafka::consumer::StreamConsumer;
+    /// # use madsim_rdkafka::consumer::StreamConsumer;
     /// # use tokio::task::JoinHandle;
     /// # async fn example(stream_consumer: StreamConsumer) -> JoinHandle<()> {
     /// tokio::spawn(async move {
@@ -570,8 +570,8 @@ where
     ///
     /// ```
     /// use futures::stream::StreamExt;
-    /// # use rdkafka::consumer::ConsumerContext;
-    /// # use rdkafka::consumer::stream_consumer::StreamPartitionQueue;
+    /// # use madsim_rdkafka::consumer::ConsumerContext;
+    /// # use madsim_rdkafka::consumer::stream_consumer::StreamPartitionQueue;
     //
     /// # async fn example<C>(partition_queue: StreamPartitionQueue<C>)
     /// # where

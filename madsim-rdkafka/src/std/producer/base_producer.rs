@@ -104,8 +104,8 @@ unsafe extern "C" fn delivery_cb<C: ProducerContext>(
 /// [`DeliveryOpaque`](ProducerContext::DeliveryOpaque):
 ///
 /// ```rust,no_run
-/// # use rdkafka::producer::BaseRecord;
-/// # use rdkafka::message::ToBytes;
+/// # use madsim_rdkafka::producer::BaseRecord;
+/// # use madsim_rdkafka::message::ToBytes;
 /// let record = BaseRecord::to("topic_name")  // destination topic
 ///     .key(&[1, 2, 3, 4])                    // message key
 ///     .payload("content")                    // message payload
@@ -116,8 +116,8 @@ unsafe extern "C" fn delivery_cb<C: ProducerContext>(
 /// as the `DeliveryOpaque` for the message:
 ///
 /// ```rust,no_run
-/// # use rdkafka::producer::BaseRecord;
-/// # use rdkafka::message::ToBytes;
+/// # use madsim_rdkafka::producer::BaseRecord;
+/// # use madsim_rdkafka::message::ToBytes;
 /// let record = BaseRecord::with_opaque_to("topic_name", 123) // destination topic and message id
 ///     .key(&[1, 2, 3, 4])                                    // message key
 ///     .payload("content")                                    // message payload
@@ -253,14 +253,15 @@ where
 /// specified, so the [`DefaultProducerContext`] will be used. To see how to use
 /// a producer context, refer to the examples in the [`examples`] folder.
 ///
-/// ```rust
-/// use rdkafka::config::ClientConfig;
-/// use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
+/// ```rust,ignore
+/// use madsim_rdkafka::config::ClientConfig;
+/// use madsim_rdkafka::producer::{BaseProducer, BaseRecord, Producer};
 /// use std::time::Duration;
 ///
 /// let producer: BaseProducer = ClientConfig::new()
 ///     .set("bootstrap.servers", "kafka:9092")
 ///     .create()
+///     .await
 ///     .expect("Producer creation error");
 ///
 /// producer.send(

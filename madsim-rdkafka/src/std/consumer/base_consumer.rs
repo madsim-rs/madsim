@@ -174,9 +174,10 @@ where
     ///
     /// All these are equivalent and will receive messages without timing out.
     ///
-    /// ```rust,no_run
-    /// # let consumer: rdkafka::consumer::BaseConsumer<_> = rdkafka::ClientConfig::new()
+    /// ```rust,ignore
+    /// # let consumer: madsim_rdkafka::consumer::BaseConsumer<_> = madsim_rdkafka::ClientConfig::new()
     /// #    .create()
+    /// #    .await
     /// #    .unwrap();
     /// #
     /// loop {
@@ -185,9 +186,10 @@ where
     /// }
     /// ```
     ///
-    /// ```rust,no_run
-    /// # let consumer: rdkafka::consumer::BaseConsumer<_> = rdkafka::ClientConfig::new()
+    /// ```rust,ignore
+    /// # let consumer: madsim_rdkafka::consumer::BaseConsumer<_> = madsim_rdkafka::ClientConfig::new()
     /// #    .create()
+    /// #    .await
     /// #    .unwrap();
     /// #
     /// for message in consumer.iter() {
@@ -195,9 +197,10 @@ where
     /// }
     /// ```
     ///
-    /// ```rust,no_run
-    /// # let consumer: rdkafka::consumer::BaseConsumer<_> = rdkafka::ClientConfig::new()
+    /// ```rust,ignore
+    /// # let consumer: madsim_rdkafka::consumer::BaseConsumer<_> = madsim_rdkafka::ClientConfig::new()
     /// #    .create()
+    /// #    .await
     /// #    .unwrap();
     /// #
     /// for message in &consumer {
