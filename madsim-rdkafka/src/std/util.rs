@@ -267,6 +267,7 @@ where
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub(crate) unsafe trait KafkaDrop {
     const TYPE: &'static str;
     const DROP: unsafe extern "C" fn(*mut Self);
