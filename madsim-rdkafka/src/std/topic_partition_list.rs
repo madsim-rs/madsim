@@ -84,6 +84,9 @@ pub struct TopicPartitionListElem<'a> {
     ptr: &'a mut RDKafkaTopicPartition,
 }
 
+unsafe impl Send for TopicPartitionListElem<'_> {}
+unsafe impl Sync for TopicPartitionListElem<'_> {}
+
 impl<'a> TopicPartitionListElem<'a> {
     // _owner_list serves as a marker so that the lifetime isn't too long
     fn from_ptr(

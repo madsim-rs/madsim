@@ -294,14 +294,19 @@ impl<C: ClientContext> AdminClient<C> {
     }
 }
 
+#[async_trait::async_trait]
 impl FromClientConfig for AdminClient<DefaultClientContext> {
-    fn from_config(config: &ClientConfig) -> KafkaResult<AdminClient<DefaultClientContext>> {
-        AdminClient::from_config_and_context(config, DefaultClientContext)
+    async fn from_config(config: &ClientConfig) -> KafkaResult<AdminClient<DefaultClientContext>> {
+        AdminClient::from_config_and_context(config, DefaultClientContext).await
     }
 }
 
+#[async_trait::async_trait]
 impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
-    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<AdminClient<C>> {
+    async fn from_config_and_context(
+        config: &ClientConfig,
+        context: C,
+    ) -> KafkaResult<AdminClient<C>> {
         let native_config = config.create_native_config()?;
         // librdkafka only provides consumer and producer types. We follow the
         // example of the Python bindings in choosing to pretend to be a

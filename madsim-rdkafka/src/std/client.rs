@@ -47,7 +47,7 @@ use crate::util::{ErrBuf, KafkaDrop, NativePtr, Timeout};
 ///
 /// [`ConsumerContext`]: crate::consumer::ConsumerContext
 /// [`ProducerContext`]: crate::producer::ProducerContext
-pub trait ClientContext: Send + Sync {
+pub trait ClientContext: Send + Sync + 'static {
     /// Receives log lines from librdkafka.
     ///
     /// The default implementation forwards the log lines to the appropriate
@@ -245,7 +245,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the metadata information for the specified topic, or for all topics in the cluster
     /// if no topic is specified.
-    pub fn fetch_metadata<T: Into<Timeout>>(
+    pub async fn fetch_metadata<T: Into<Timeout>>(
         &self,
         topic: Option<&str>,
         timeout: T,
@@ -275,7 +275,7 @@ impl<C: ClientContext> Client<C> {
     }
 
     /// Returns high and low watermark for the specified topic and partition.
-    pub fn fetch_watermarks<T: Into<Timeout>>(
+    pub async fn fetch_watermarks<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
@@ -302,7 +302,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    pub fn fetch_group_list<T: Into<Timeout>>(
+    pub async fn fetch_group_list<T: Into<Timeout>>(
         &self,
         group: Option<&str>,
         timeout: T,

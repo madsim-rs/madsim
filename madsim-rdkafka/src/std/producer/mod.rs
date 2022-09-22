@@ -214,6 +214,7 @@ impl ProducerContext for DefaultProducerContext {
 }
 
 /// Common trait for all producers.
+#[async_trait::async_trait]
 pub trait Producer<C = DefaultProducerContext>
 where
     C: ProducerContext,
@@ -235,7 +236,7 @@ where
     ///
     /// This method should be called before termination to ensure delivery of
     /// all enqueued messages. It will call `poll()` internally.
-    fn flush<T: Into<Timeout>>(&self, timeout: T);
+    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T);
 
     /// Enable sending transactions with this producer.
     ///
@@ -261,7 +262,7 @@ where
     /// [`Producer::begin_transaction`].
     ///
     /// This function may block for the specified `timeout`.
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Begins a new transaction.
     ///
@@ -319,7 +320,7 @@ where
     /// The consumer must not have automatic commits enabled.
     ///
     /// [`Consumer::group_metadata`]: crate::consumer::Consumer::group_metadata
-    fn send_offsets_to_transaction<T: Into<Timeout>>(
+    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -345,7 +346,7 @@ where
     /// transaction.
     ///
     /// This function may block for the specified `timeout`.
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Aborts the current transaction.
     ///
@@ -366,5 +367,5 @@ where
     ///
     /// [`RDKafkaErrorCode::PurgeInflight`]: crate::error::RDKafkaErrorCode::PurgeInflight
     /// [`RDKafkaErrorCode::PurgeQueue`]: crate::error::RDKafkaErrorCode::PurgeQueue
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 }

@@ -207,20 +207,27 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P, ()> {
     }
 }
 
+#[async_trait::async_trait]
 impl FromClientConfig for BaseProducer<DefaultProducerContext> {
     /// Creates a new `BaseProducer` starting from a configuration.
-    fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer<DefaultProducerContext>> {
-        BaseProducer::from_config_and_context(config, DefaultProducerContext)
+    async fn from_config(
+        config: &ClientConfig,
+    ) -> KafkaResult<BaseProducer<DefaultProducerContext>> {
+        BaseProducer::from_config_and_context(config, DefaultProducerContext).await
     }
 }
 
+#[async_trait::async_trait]
 impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
     /// Creates a new `BaseProducer` starting from a configuration and a
     /// context.
-    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<BaseProducer<C>> {
+    async fn from_config_and_context(
+        config: &ClientConfig,
+        context: C,
+    ) -> KafkaResult<BaseProducer<C>> {
         let native_config = config.create_native_config()?;
         unsafe { rdsys::rd_kafka_conf_set_dr_msg_cb(native_config.ptr(), Some(delivery_cb::<C>)) };
         let client = Client::new(
@@ -294,7 +301,7 @@ where
     ///
     /// Regular calls to `poll` are required to process the events and execute
     /// the message delivery callbacks.
-    pub fn poll<T: Into<Timeout>>(&self, timeout: T) -> i32 {
+    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) -> i32 {
         unsafe { rdsys::rd_kafka_poll(self.native_ptr(), timeout.into().as_millis()) }
     }
 
@@ -377,6 +384,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<C> Producer<C> for BaseProducer<C>
 where
     C: ProducerContext,
@@ -385,7 +393,7 @@ where
         &*self.client_arc
     }
 
-    fn flush<T: Into<Timeout>>(&self, timeout: T) {
+    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) {
         unsafe { rdsys::rd_kafka_flush(self.native_ptr(), timeout.into().as_millis()) };
     }
 
@@ -393,7 +401,7 @@ where
         unsafe { rdsys::rd_kafka_outq_len(self.native_ptr()) }
     }
 
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_init_transactions(
                 self.native_ptr(),
@@ -417,7 +425,7 @@ where
         }
     }
 
-    fn send_offsets_to_transaction<T: Into<Timeout>>(
+    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -438,7 +446,7 @@ where
         }
     }
 
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_commit_transaction(
                 self.native_ptr(),
@@ -452,7 +460,7 @@ where
         }
     }
 
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_abort_transaction(
                 self.native_ptr(),
@@ -498,21 +506,25 @@ where
     handle: Option<JoinHandle<()>>,
 }
 
+#[async_trait::async_trait]
 impl FromClientConfig for ThreadedProducer<DefaultProducerContext> {
-    fn from_config(config: &ClientConfig) -> KafkaResult<ThreadedProducer<DefaultProducerContext>> {
-        ThreadedProducer::from_config_and_context(config, DefaultProducerContext)
+    async fn from_config(
+        config: &ClientConfig,
+    ) -> KafkaResult<ThreadedProducer<DefaultProducerContext>> {
+        ThreadedProducer::from_config_and_context(config, DefaultProducerContext).await
     }
 }
 
+#[async_trait::async_trait]
 impl<C> FromClientConfigAndContext<C> for ThreadedProducer<C>
 where
     C: ProducerContext + 'static,
 {
-    fn from_config_and_context(
+    async fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<ThreadedProducer<C>> {
-        let producer = BaseProducer::from_config_and_context(config, context)?;
+        let producer = BaseProducer::from_config_and_context(config, context).await?;
         let should_stop = Arc::new(AtomicBool::new(false));
         let thread = {
             let producer = producer.clone();
@@ -569,11 +581,12 @@ where
     ///
     /// This is not normally required since the `ThreadedProducer` has a thread
     /// dedicated to calling `poll` regularly.
-    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
+    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) {
         self.producer.poll(timeout);
     }
 }
 
+#[async_trait::async_trait]
 impl<C> Producer<C> for ThreadedProducer<C>
 where
     C: ProducerContext + 'static,
@@ -582,23 +595,23 @@ where
         self.producer.client()
     }
 
-    fn flush<T: Into<Timeout>>(&self, timeout: T) {
-        self.producer.flush(timeout);
+    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) {
+        self.producer.flush(timeout).await;
     }
 
     fn in_flight_count(&self) -> i32 {
         self.producer.in_flight_count()
     }
 
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.init_transactions(timeout)
+    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.init_transactions(timeout).await
     }
 
     fn begin_transaction(&self) -> KafkaResult<()> {
         self.producer.begin_transaction()
     }
 
-    fn send_offsets_to_transaction<T: Into<Timeout>>(
+    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -606,14 +619,15 @@ where
     ) -> KafkaResult<()> {
         self.producer
             .send_offsets_to_transaction(offsets, cgm, timeout)
+            .await
     }
 
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.commit_transaction(timeout)
+    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.commit_transaction(timeout).await
     }
 
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.abort_transaction(timeout)
+    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.abort_transaction(timeout).await
     }
 }
 
@@ -645,9 +659,12 @@ mod tests {
     use crate::config::ClientConfig;
 
     // Verify that the producer is clone, according to documentation.
-    #[test]
-    fn test_base_producer_clone() {
-        let producer = ClientConfig::new().create::<BaseProducer<_>>().unwrap();
+    #[tokio::test]
+    async fn test_base_producer_clone() {
+        let producer = ClientConfig::new()
+            .create::<BaseProducer<_>>()
+            .await
+            .unwrap();
         let _producer_clone = producer.clone();
     }
 }
