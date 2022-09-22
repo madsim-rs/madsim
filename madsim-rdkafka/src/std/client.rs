@@ -46,7 +46,7 @@ use crate::util::{self, ErrBuf, KafkaDrop, NativePtr, Timeout};
 ///
 /// [`ConsumerContext`]: crate::consumer::ConsumerContext
 /// [`ProducerContext`]: crate::producer::ProducerContext
-pub trait ClientContext: Send + Sync {
+pub trait ClientContext: Send + Sync + 'static {
     /// Whether to periodically refresh the SASL `OAUTHBEARER` token
     /// by calling [`ClientContext::generate_oauth_token`].
     ///
@@ -102,7 +102,7 @@ pub trait ClientContext: Send + Sync {
     /// The default implementation calls [`ClientContext::stats`] with the
     /// decoded statistics, logging an error if the decoding fails.
     fn stats_raw(&self, statistics: &[u8]) {
-        match serde_json::from_slice(&statistics) {
+        match serde_json::from_slice(statistics) {
             Ok(stats) => self.stats(stats),
             Err(e) => error!("Could not parse statistics JSON: {}", e),
         }
@@ -285,7 +285,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the metadata information for the specified topic, or for all topics in the cluster
     /// if no topic is specified.
-    pub fn fetch_metadata<T: Into<Timeout>>(
+    pub async fn fetch_metadata<T: Into<Timeout>>(
         &self,
         topic: Option<&str>,
         timeout: T,
@@ -315,7 +315,7 @@ impl<C: ClientContext> Client<C> {
     }
 
     /// Returns high and low watermark for the specified topic and partition.
-    pub fn fetch_watermarks<T: Into<Timeout>>(
+    pub async fn fetch_watermarks<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
@@ -353,7 +353,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    pub fn fetch_group_list<T: Into<Timeout>>(
+    pub async fn fetch_group_list<T: Into<Timeout>>(
         &self,
         group: Option<&str>,
         timeout: T,

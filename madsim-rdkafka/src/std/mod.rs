@@ -266,11 +266,10 @@
 //! [Tokio]: https://tokio.rs/
 
 #![forbid(missing_docs)]
-#![deny(rust_2018_idioms)]
 #![allow(clippy::type_complexity)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod log;
+pub(crate) mod log;
 
 pub use rdkafka_sys::types;
 
