@@ -34,7 +34,7 @@ pub enum KafkaError {
     /// No message was received.
     NoMessageReceived,
     /// Unexpected null pointer
-    // Nul(ffi::NulError),
+    Nul(std::ffi::NulError),
     /// Offset fetch failed.
     OffsetFetch(#[source] RDKafkaErrorCode),
     /// End of partition reached.
@@ -49,8 +49,8 @@ pub enum KafkaError {
     StoreOffset(#[source] RDKafkaErrorCode),
     /// Subscription creation failed.
     Subscription(String),
-    // Transaction error.
-    // Transaction(RDKafkaError),
+    /// Transaction error.
+    Transaction(RDKafkaError),
     /// IO error.
     Io(#[from] std::io::Error),
 }
@@ -76,7 +76,7 @@ impl fmt::Display for KafkaError {
             KafkaError::NoMessageReceived => {
                 write!(f, "No message received within the given poll interval")
             }
-            // KafkaError::Nul(_) => write!(f, "FFI nul error"),
+            KafkaError::Nul(_) => write!(f, "FFI nul error"),
             KafkaError::OffsetFetch(err) => write!(f, "Offset fetch error: {}", err),
             KafkaError::PartitionEOF(part_n) => write!(f, "Partition EOF: {}", part_n),
             KafkaError::PauseResume(ref err) => write!(f, "Pause/resume error: {}", err),
@@ -84,9 +84,42 @@ impl fmt::Display for KafkaError {
             KafkaError::SetPartitionOffset(err) => write!(f, "Set partition offset error: {}", err),
             KafkaError::StoreOffset(err) => write!(f, "Store offset error: {}", err),
             KafkaError::Subscription(ref err) => write!(f, "Subscription error: {}", err),
-            // KafkaError::Transaction(err) => write!(f, "Transaction error: {}", err),
+            KafkaError::Transaction(err) => write!(f, "Transaction error: {}", err),
             KafkaError::Io(err) => write!(f, "IO error: {}", err),
         }
+    }
+}
+
+/// Native rdkafka error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RDKafkaError {
+    code: RDKafkaErrorCode,
+    message: String,
+}
+
+impl RDKafkaError {
+    pub(crate) fn new(code: RDKafkaErrorCode, message: &str) -> Self {
+        RDKafkaError {
+            code,
+            message: message.to_owned(),
+        }
+    }
+
+    /// Returns the error code or [`RDKafkaErrorCode::NoError`] if the error is
+    /// null.
+    pub fn code(&self) -> RDKafkaErrorCode {
+        self.code
+    }
+
+    /// Returns a human readable error string or an empty string if the error is null.
+    pub fn string(&self) -> String {
+        self.message.clone()
+    }
+}
+
+impl fmt::Display for RDKafkaError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
     }
 }
 

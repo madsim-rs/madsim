@@ -1,6 +1,4 @@
-#![allow(dead_code)]
-
-use std::net::SocketAddr;
+use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use madsim::net::Endpoint;
 use serde::Deserialize;
@@ -11,7 +9,7 @@ use crate::{
     broker::OwnedRecord,
     client::ClientContext,
     config::{FromClientConfig, FromClientConfigAndContext},
-    error::{KafkaError, KafkaResult},
+    error::{KafkaError, KafkaResult, RDKafkaError, RDKafkaErrorCode},
     message::{OwnedHeaders, ToBytes},
     sim_broker::Request,
     util::Timeout,
@@ -108,7 +106,7 @@ impl ProducerContext for DefaultProducerContext {}
 
 #[async_trait::async_trait]
 impl FromClientConfig for BaseProducer {
-    async fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer> {
+    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
         BaseProducer::from_config_and_context(config, DefaultProducerContext).await
     }
 }
@@ -118,10 +116,7 @@ impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
-    async fn from_config_and_context(
-        config: &ClientConfig,
-        _context: C,
-    ) -> KafkaResult<BaseProducer<C>> {
+    async fn from_config_and_context(config: &ClientConfig, _context: C) -> KafkaResult<Self> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let config: ProducerConfig = serde_json::from_str(&config_json)
@@ -132,12 +127,12 @@ where
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let p = BaseProducer {
             _context,
-            _config: config,
+            config,
             ep: Endpoint::bind("0.0.0.0:0")
                 .await
                 .map_err(|e| KafkaError::ClientCreation(e.to_string()))?,
             addr,
-            buffer: Mutex::new(vec![]),
+            inner: Mutex::new(Inner::default()),
         };
         Ok(p)
     }
@@ -149,14 +144,26 @@ where
     C: ProducerContext,
 {
     _context: C,
-    _config: ProducerConfig,
+    config: ProducerConfig,
     ep: Endpoint,
     addr: SocketAddr,
-    buffer: Mutex<Vec<OwnedRecord>>,
+    inner: Mutex<Inner>,
 }
 
-/// A low-level Kafka producer with a separate thread for event handling.
-pub type ThreadedProducer<C> = BaseProducer<C>;
+#[derive(Debug, Default)]
+enum Inner {
+    #[default]
+    Init,
+    NonTxn {
+        buffer: Vec<OwnedRecord>,
+    },
+    Txn {
+        /// Indicate whether the producer is in a transaction.
+        in_txn: bool,
+        // We simulate transaction by buffering all records and sending them in a batch.
+        buffer: Vec<OwnedRecord>,
+    },
+}
 
 impl<C> BaseProducer<C>
 where
@@ -171,65 +178,182 @@ where
         K: ToBytes + ?Sized,
         P: ToBytes + ?Sized,
     {
-        // TODO: simulate queue full
-        self.buffer.lock().push(record.to_owned());
+        let mut inner = self.inner.lock();
+        if matches!(&*inner, Inner::Init) {
+            *inner = Inner::NonTxn { buffer: vec![] };
+        }
+        match &mut *inner {
+            Inner::NonTxn { buffer } => {
+                if buffer.len() > 10 {
+                    // simulate queue full
+                    return Err((
+                        KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull),
+                        record,
+                    ));
+                }
+                buffer.push(record.to_owned());
+            }
+            Inner::Txn { in_txn, buffer } => {
+                assert!(
+                    *in_txn,
+                    "messages should only be sent when a transaction is active"
+                );
+                buffer.push(record.to_owned());
+            }
+            Inner::Init => unreachable!(),
+        }
         Ok(())
     }
 
     /// Polls the producer, returning the number of events served.
-    pub async fn poll(&self) -> i32 {
-        match self.poll_internal().await {
-            Ok(num) => num as _,
-            Err(e) => {
-                error!("poll producer error: {}", e);
-                0
-            }
-        }
+    pub async fn poll<T: Into<Timeout>>(&self, timeout: T) -> i32 {
+        self.flush(timeout).await;
+        0
     }
 
-    /// Polls the producer, returning the number of events served.
-    async fn poll_internal(&self) -> KafkaResult<u32> {
-        let records = std::mem::take(&mut *self.buffer.lock());
-        if records.is_empty() {
-            return Ok(0);
-        }
-        let num = records.len() as u32;
+    async fn flush_internal(&self) -> KafkaResult<()> {
+        let records = match &mut *self.inner.lock() {
+            Inner::NonTxn { buffer } if !buffer.is_empty() => std::mem::take(buffer),
+            _ => return Ok(()),
+        };
+        debug!("flushing {} records", records.len());
         let req = Request::Produce { records };
         let (tx, mut rx) = self.ep.connect1(self.addr).await?;
         tx.send(Box::new(req)).await?;
-        let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
-        res?;
-        Ok(num)
+        *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap()
     }
-}
 
-impl<C> BaseProducer<C>
-where
-    C: ProducerContext,
-{
     /// Flushes any pending messages.
-    pub async fn flush<T: Into<Timeout>>(&self, _timeout: T) {
-        todo!()
+    pub async fn flush<T: Into<Timeout>>(&self, timeout: T) {
+        let future = async {
+            if let Err(e) = self.flush_internal().await {
+                error!("failed to flush: {}", e);
+            }
+        };
+        match timeout.into() {
+            Timeout::After(dur) => _ = madsim::time::timeout(dur, future).await,
+            Timeout::Never => future.await,
+        }
     }
 
     /// Enable sending transactions with this producer.
     pub async fn init_transactions<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
-        todo!()
+        debug!("init transactions");
+        if self.config.transactional_id.is_none() {
+            return Err(invalid_transaction_state("transactional ID not set"));
+        }
+        match &mut *self.inner.lock() {
+            inner @ Inner::Init => {
+                *inner = Inner::Txn {
+                    in_txn: false,
+                    buffer: vec![],
+                };
+                Ok(())
+            }
+            _ => Err(invalid_transaction_state(
+                "init_transactions must be called before any operations",
+            )),
+        }
     }
 
     /// Begins a new transaction.
     pub fn begin_transaction(&self) -> KafkaResult<()> {
-        todo!()
+        debug!("begin transaction");
+        match &mut *self.inner.lock() {
+            Inner::Txn { in_txn, .. } if !*in_txn => *in_txn = true,
+            Inner::Txn { .. } => {
+                return Err(invalid_transaction_state("transaction already in progress"));
+            }
+            _ => return Err(invalid_transaction_state("transaction not initialized")),
+        }
+        Ok(())
     }
 
     /// Commits the current transaction.
     pub async fn commit_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
-        todo!()
+        debug!("commit transaction");
+        let records = match &mut *self.inner.lock() {
+            Inner::Txn { in_txn, buffer } if *in_txn => std::mem::take(buffer),
+            _ => return Err(invalid_transaction_state("no opened transaction")),
+        };
+        let req = Request::Produce { records };
+        let (tx, mut rx) = self.ep.connect1(self.addr).await?;
+        tx.send(Box::new(req)).await?;
+        let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
+        // TODO: simulate transaction aborted
+        match &mut *self.inner.lock() {
+            Inner::Txn { in_txn, .. } if *in_txn => *in_txn = false,
+            _ => panic!("state changed during commit"),
+        }
+        res
     }
 
     /// Aborts the current transaction.
     pub async fn abort_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
-        todo!()
+        debug!("abort transaction");
+        match &mut *self.inner.lock() {
+            Inner::Txn { in_txn, buffer } if *in_txn => {
+                buffer.clear();
+                *in_txn = false;
+            }
+            _ => return Err(invalid_transaction_state("no opened transaction")),
+        }
+        Ok(())
+    }
+}
+
+fn invalid_transaction_state(msg: &str) -> KafkaError {
+    KafkaError::Transaction(RDKafkaError::new(
+        RDKafkaErrorCode::InvalidTransactionalState,
+        msg,
+    ))
+}
+
+/// A low-level Kafka producer with a separate thread for event handling.
+pub struct ThreadedProducer<C>
+where
+    C: ProducerContext + 'static,
+{
+    base: Arc<BaseProducer<C>>,
+    _task: madsim::task::FallibleTask<()>,
+}
+
+#[async_trait::async_trait]
+impl FromClientConfig for ThreadedProducer<DefaultProducerContext> {
+    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
+        Self::from_config_and_context(config, DefaultProducerContext).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<C> FromClientConfigAndContext<C> for ThreadedProducer<C>
+where
+    C: ProducerContext + 'static,
+{
+    async fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
+        let base = Arc::new(BaseProducer::from_config_and_context(config, context).await?);
+        let producer = base.clone();
+        let _task = madsim::task::Builder::new()
+            .name("kafka producer polling thread")
+            .spawn(async move {
+                loop {
+                    producer.poll(None).await;
+                    madsim::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+            .cancel_on_drop();
+        Ok(ThreadedProducer { base, _task })
+    }
+}
+
+impl<C> Deref for ThreadedProducer<C>
+where
+    C: ProducerContext + 'static,
+{
+    type Target = BaseProducer<C>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
     }
 }
 
@@ -250,6 +374,7 @@ struct ProducerConfig {
         deserialize_with = "super::from_str",
         default = "default_message_timeout_ms"
     )]
+    #[allow(dead_code)]
     message_timeout_ms: u32,
 }
 
