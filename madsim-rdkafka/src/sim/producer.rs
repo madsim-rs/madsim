@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use madsim::net::Endpoint;
 use serde::Deserialize;
@@ -106,7 +106,7 @@ impl ProducerContext for DefaultProducerContext {}
 
 #[async_trait::async_trait]
 impl FromClientConfig for BaseProducer {
-    async fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer> {
+    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
         BaseProducer::from_config_and_context(config, DefaultProducerContext).await
     }
 }
@@ -116,10 +116,7 @@ impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
-    async fn from_config_and_context(
-        config: &ClientConfig,
-        _context: C,
-    ) -> KafkaResult<BaseProducer<C>> {
+    async fn from_config_and_context(config: &ClientConfig, _context: C) -> KafkaResult<Self> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let config: ProducerConfig = serde_json::from_str(&config_json)
@@ -152,9 +149,6 @@ where
     addr: SocketAddr,
     inner: Mutex<Inner>,
 }
-
-/// A low-level Kafka producer with a separate thread for event handling.
-pub type ThreadedProducer<C> = BaseProducer<C>;
 
 #[derive(Debug, Default)]
 enum Inner {
@@ -212,8 +206,8 @@ where
     }
 
     /// Polls the producer, returning the number of events served.
-    pub async fn poll(&self) -> i32 {
-        self.flush(None).await;
+    pub async fn poll<T: Into<Timeout>>(&self, timeout: T) -> i32 {
+        self.flush(timeout).await;
         0
     }
 
@@ -228,17 +222,17 @@ where
         tx.send(Box::new(req)).await?;
         *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap()
     }
-}
 
-impl<C> BaseProducer<C>
-where
-    C: ProducerContext,
-{
     /// Flushes any pending messages.
-    pub async fn flush<T: Into<Timeout>>(&self, _timeout: T) {
-        match self.flush_internal().await {
-            Ok(()) => {}
-            Err(e) => error!("failed to flush: {}", e),
+    pub async fn flush<T: Into<Timeout>>(&self, timeout: T) {
+        let future = async {
+            if let Err(e) = self.flush_internal().await {
+                error!("failed to flush: {}", e);
+            }
+        };
+        match timeout.into() {
+            Timeout::After(dur) => _ = madsim::time::timeout(dur, future).await,
+            Timeout::Never => future.await,
         }
     }
 
@@ -313,6 +307,54 @@ fn invalid_transaction_state(msg: &str) -> KafkaError {
         RDKafkaErrorCode::InvalidTransactionalState,
         msg,
     ))
+}
+
+/// A low-level Kafka producer with a separate thread for event handling.
+pub struct ThreadedProducer<C>
+where
+    C: ProducerContext + 'static,
+{
+    base: Arc<BaseProducer<C>>,
+    _task: madsim::task::FallibleTask<()>,
+}
+
+#[async_trait::async_trait]
+impl FromClientConfig for ThreadedProducer<DefaultProducerContext> {
+    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
+        Self::from_config_and_context(config, DefaultProducerContext).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<C> FromClientConfigAndContext<C> for ThreadedProducer<C>
+where
+    C: ProducerContext + 'static,
+{
+    async fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
+        let base = Arc::new(BaseProducer::from_config_and_context(config, context).await?);
+        let producer = base.clone();
+        let _task = madsim::task::Builder::new()
+            .name("kafka producer polling thread")
+            .spawn(async move {
+                loop {
+                    producer.poll(None).await;
+                    madsim::time::sleep(Duration::from_millis(100)).await;
+                }
+            })
+            .cancel_on_drop();
+        Ok(ThreadedProducer { base, _task })
+    }
+}
+
+impl<C> Deref for ThreadedProducer<C>
+where
+    C: ProducerContext + 'static,
+{
+    type Target = BaseProducer<C>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
 }
 
 /// Producer configs.
