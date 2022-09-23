@@ -272,20 +272,20 @@ where
     /// Commits the current transaction.
     pub async fn commit_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
         debug!("commit transaction");
+        let records = match &mut *self.inner.lock() {
+            Inner::Txn { in_txn, buffer } if *in_txn => std::mem::take(buffer),
+            _ => return Err(invalid_transaction_state("no opened transaction")),
+        };
+        let req = Request::Produce { records };
+        let (tx, mut rx) = self.ep.connect1(self.addr).await?;
+        tx.send(Box::new(req)).await?;
+        let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
+        // TODO: simulate transaction aborted
         match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, buffer } if *in_txn => {
-                let req = Request::Produce {
-                    records: std::mem::take(buffer),
-                };
-                let (tx, mut rx) = self.ep.connect1(self.addr).await?;
-                tx.send(Box::new(req)).await?;
-                let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
-                // TODO: simulate transaction aborted
-                *in_txn = false;
-                res
-            }
-            _ => Err(invalid_transaction_state("no opened transaction")),
+            Inner::Txn { in_txn, .. } if *in_txn => *in_txn = false,
+            _ => panic!("state changed during commit"),
         }
+        res
     }
 
     /// Aborts the current transaction.
