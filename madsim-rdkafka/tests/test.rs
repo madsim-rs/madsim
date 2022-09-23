@@ -73,7 +73,7 @@ async fn test() {
                 producer.send(record).expect("failed to send message");
                 madsim::time::sleep(Duration::from_millis(100)).await;
                 if i % 10 == 0 {
-                    producer.poll().await;
+                    producer.flush(None).await;
                 }
             }
         });
@@ -98,7 +98,7 @@ async fn test() {
                 producer.send(record).expect("failed to send message");
                 madsim::time::sleep(Duration::from_millis(200)).await;
                 if i % 10 == 0 {
-                    producer.poll().await;
+                    producer.flush(None).await;
                 }
             }
         });
