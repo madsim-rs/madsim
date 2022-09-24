@@ -1,13 +1,16 @@
 use bytes::Bytes;
 
 use crate::{
-    model::{CompletedPart, Delete},
+    input::{
+        AbortMultipartUploadInput, CompleteMultipartUploadInput, CreateMultipartUploadInput,
+        DeleteObjectInput, DeleteObjectsInput, GetObjectInput, HeadObjectInput, ListObjectsV2Input,
+        PutObjectInput, UploadPartInput,
+    },
     output::{
         AbortMultipartUploadOutput, CreateMultipartUploadOutput, DeleteObjectOutput,
         DeleteObjectsOutput, GetObjectOutput, HeadObjectOutput, ListObjectsV2Output,
         PutObjectOutput, UploadPartOutput,
     },
-    types::ByteStream,
 };
 use std::{
     collections::{
@@ -64,6 +67,7 @@ impl From<ObjectHead> for HeadObjectOutput {
 
 struct S3 {
     buckets: Arc<Mutex<HashMap<String, Bucket>>>,
+    multipart: Arc<Mutex<HashMap<String, Vec<UploadPartInput>>>>,
 }
 
 impl S3 {
@@ -75,62 +79,95 @@ impl S3 {
         }
     }
 
-    pub fn get_object(&self, bucket: &String, key: &String) -> Result<GetObjectOutput> {
-        let bucket = self.get_bucket(bucket)?;
+    pub fn get_object(&self, input: GetObjectInput) -> Result<GetObjectOutput> {
+        if input.bucket.is_none() {
+            return Err(InvalidBucket(
+                "Bucket is necessary to get object".to_string(),
+            ));
+        } else if input.key.is_none() {
+            return Err(InvalidKey("Key is necessary to get object".to_string()));
+        }
+        let bucket = self.get_bucket(input.bucket.as_ref().unwrap())?;
         let bucket = bucket.lock().unwrap();
-        match bucket.get(key) {
+        match bucket.get(input.key.as_ref().unwrap()) {
             Some(object) => {
                 return Ok(GetObjectOutput {
                     body: object.bytes.clone().into(),
                 })
             }
-            None => return Err(InvalidBucket(key.clone())),
+            None => return Err(InvalidBucket(input.key.unwrap().clone())),
         }
     }
 
-    pub fn put_object(
-        &self,
-        bucket: &String,
-        key: String,
-        body: ByteStream,
-    ) -> Result<PutObjectOutput> {
-        let bucket = self.get_bucket(bucket)?;
+    pub fn put_object(&self, input: PutObjectInput) -> Result<PutObjectOutput> {
+        if input.bucket.is_none() {
+            return Err(InvalidBucket(
+                "Bucket is necessary to put object".to_string(),
+            ));
+        } else if input.key.is_none() {
+            return Err(InvalidKey("Key is necessary to put object".to_string()));
+        }
+        let bucket = self.get_bucket(input.bucket.as_ref().unwrap())?;
         let mut bucket = bucket.lock().unwrap();
-        match bucket.entry(key) {
+        match bucket.entry(input.key.clone().unwrap()) {
             Occupied(mut o) => {
                 let object = o.get_mut();
-                object.update(body);
+                object.update(input.body);
                 return Ok(PutObjectOutput {});
             }
             Vacant(v) => {
-                v.insert(Object::new(body));
+                v.insert(Object::new(input.body));
                 return Ok(PutObjectOutput {});
             }
         }
     }
 
-    pub fn head_object(&self, bucket: &String, key: &String) -> Result<HeadObjectOutput> {
-        let bucket = self.get_bucket(bucket)?;
+    pub fn head_object(&self, input: HeadObjectInput) -> Result<HeadObjectOutput> {
+        if input.bucket.is_none() {
+            return Err(InvalidBucket(
+                "Bucket is necessary to get object head".to_string(),
+            ));
+        } else if input.key.is_none() {
+            return Err(InvalidKey(
+                "Key is necessary to get object head".to_string(),
+            ));
+        }
+        let bucket = self.get_bucket(input.bucket.as_ref().unwrap())?;
         let bucket = bucket.lock().unwrap();
-        match bucket.get(key) {
+        match bucket.get(input.key.as_ref().unwrap()) {
             Some(object) => return Ok(object.head().into()),
-            None => return Err(InvalidKey(key.clone())),
+            None => return Err(InvalidKey(input.key.clone().unwrap())),
         }
     }
 
-    pub fn delete_object(&self, bucket: &String, key: &String) -> Result<DeleteObjectOutput> {
-        let bucket = self.get_bucket(bucket)?;
+    pub fn delete_object(&self, input: DeleteObjectInput) -> Result<DeleteObjectOutput> {
+        if input.bucket.is_none() {
+            return Err(InvalidBucket(
+                "Bucket is necessary to delete object".to_string(),
+            ));
+        } else if input.key.is_none() {
+            return Err(InvalidKey("Key is necessary to delete object".to_string()));
+        }
+        let bucket = self.get_bucket(input.bucket.as_ref().unwrap())?;
         let mut bucket = bucket.lock().unwrap();
-        match bucket.remove(key) {
+        match bucket.remove(input.key.as_ref().unwrap()) {
             Some(_) => return Ok(DeleteObjectOutput {}),
-            None => return Err(InvalidKey(key.clone())),
+            None => return Err(InvalidKey(input.key.clone().unwrap())),
         }
     }
 
-    pub fn delete_objects(&self, bucket: &String, delete: Delete) -> Result<DeleteObjectsOutput> {
-        let bucket = self.get_bucket(bucket)?;
+    pub fn delete_objects(&self, input: DeleteObjectsInput) -> Result<DeleteObjectsOutput> {
+        if input.bucket.is_none() {
+            return Err(InvalidBucket(
+                "Bucket is necessary to delete objects".to_string(),
+            ));
+        }
+        if input.delete.is_none() {
+            return Ok(DeleteObjectsOutput { errors: None });
+        }
+        let bucket = self.get_bucket(input.bucket.as_ref().unwrap())?;
         let mut bucket = bucket.lock().unwrap();
-        match delete.objects {
+        match input.delete.unwrap().objects {
             Some(objects) => {
                 let mut err = vec![];
                 for obj in objects {
@@ -155,46 +192,27 @@ impl S3 {
 
     pub fn create_multipart_upload(
         &self,
-        _bucket: &String,
-        _key: &String,
+        _input: CreateMultipartUploadInput,
     ) -> Result<CreateMultipartUploadOutput> {
         todo!();
     }
     pub fn abort_multipart_upload(
         &self,
-        _bucket: &String,
-        _key: &String,
-        _upload_id: &String,
+        _input: AbortMultipartUploadInput,
     ) -> Result<AbortMultipartUploadOutput> {
         todo!();
     }
-    pub fn upload_part(
-        &self,
-        _bucket: &String,
-        _key: &String,
-        _upload_id: &String,
-        _part_number: i32,
-        _content_length: i64,
-        _body: ByteStream,
-    ) -> Result<UploadPartOutput> {
+    pub fn upload_part(&self, _input: UploadPartInput) -> Result<UploadPartOutput> {
         todo!();
     }
     pub fn complete_multipart_upload(
         &self,
-        _bucket: &String,
-        _key: &String,
-        _upload_id: &String,
-        _completed_part: &CompletedPart,
+        _input: CompleteMultipartUploadInput,
     ) -> Result<CreateMultipartUploadOutput> {
         todo!();
     }
 
-    pub fn list_objects_v2(
-        &self,
-        _bucket: &String,
-        _prefix: &String,
-        _continuation_token: &String,
-    ) -> Result<ListObjectsV2Output> {
+    pub fn list_objects_v2(&self, _input: ListObjectsV2Input) -> Result<ListObjectsV2Output> {
         todo!();
     }
 }
