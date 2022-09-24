@@ -3,7 +3,7 @@ pub mod upload_part_input {
 
     #[derive(Default, Debug)]
     pub struct Builder {
-        pub(crate) body: Option<aws_smithy_http::byte_stream::ByteStream>,
+        pub(crate) body: Option<crate::types::ByteStream>,
         pub(crate) bucket: Option<String>,
         pub(crate) content_length: Option<i64>,
         pub(crate) key: Option<String>,
@@ -11,11 +11,11 @@ pub mod upload_part_input {
         pub(crate) upload_id: Option<String>,
     }
     impl Builder {
-        pub fn body(mut self, input: aws_smithy_http::byte_stream::ByteStream) -> Self {
+        pub fn body(mut self, input: crate::types::ByteStream) -> Self {
             self.body = Some(input);
             self
         }
-        pub fn set_body(mut self, input: Option<aws_smithy_http::byte_stream::ByteStream>) -> Self {
+        pub fn set_body(mut self, input: Option<crate::types::ByteStream>) -> Self {
             self.body = input;
             self
         }
@@ -251,19 +251,16 @@ pub mod put_object_input {
 
     #[derive(std::default::Default, std::fmt::Debug)]
     pub struct Builder {
-        pub(crate) body: std::option::Option<aws_smithy_http::byte_stream::ByteStream>,
+        pub(crate) body: std::option::Option<crate::types::ByteStream>,
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
     }
     impl Builder {
-        pub fn body(mut self, input: aws_smithy_http::byte_stream::ByteStream) -> Self {
+        pub fn body(mut self, input: crate::types::ByteStream) -> Self {
             self.body = Some(input);
             self
         }
-        pub fn set_body(
-            mut self,
-            input: std::option::Option<aws_smithy_http::byte_stream::ByteStream>,
-        ) -> Self {
+        pub fn set_body(mut self, input: std::option::Option<crate::types::ByteStream>) -> Self {
             self.body = input;
             self
         }
@@ -527,7 +524,7 @@ impl ListObjectsV2Input {
 
 #[non_exhaustive]
 pub struct UploadPartInput {
-    pub body: aws_smithy_http::byte_stream::ByteStream,
+    pub body: crate::types::ByteStream,
     pub bucket: std::option::Option<std::string::String>,
     pub content_length: i64,
     pub key: std::option::Option<std::string::String>,
@@ -535,7 +532,7 @@ pub struct UploadPartInput {
     pub upload_id: std::option::Option<std::string::String>,
 }
 impl UploadPartInput {
-    pub fn body(&self) -> &aws_smithy_http::byte_stream::ByteStream {
+    pub fn body(&self) -> &crate::types::ByteStream {
         &self.body
     }
     pub fn bucket(&self) -> std::option::Option<&str> {
@@ -659,12 +656,12 @@ impl std::fmt::Debug for GetObjectInput {
 
 #[non_exhaustive]
 pub struct PutObjectInput {
-    pub body: aws_smithy_http::byte_stream::ByteStream,
+    pub body: crate::types::ByteStream,
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
 }
 impl PutObjectInput {
-    pub fn body(&self) -> &aws_smithy_http::byte_stream::ByteStream {
+    pub fn body(&self) -> &crate::types::ByteStream {
         &self.body
     }
     pub fn bucket(&self) -> std::option::Option<&str> {

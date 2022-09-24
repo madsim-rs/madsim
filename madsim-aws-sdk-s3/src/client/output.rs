@@ -141,7 +141,7 @@ impl GetObjectOutput {
 #[non_exhaustive]
 #[derive(Clone, PartialEq)]
 pub struct HeadObjectOutput {
-    pub last_modified: Option<aws_smithy_types::DateTime>,
+    pub last_modified: Option<crate::types::DateTime>,
     pub content_length: i64,
 }
 impl HeadObjectOutput {
