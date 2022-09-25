@@ -1,4 +1,4 @@
-pub mod client;
+mod client;
 pub use client::*;
 pub mod config;
 pub use config::Config;
@@ -9,6 +9,3 @@ pub mod model;
 pub mod no_credentials;
 pub mod operation;
 pub mod output;
-
-
-

@@ -93,8 +93,8 @@ pub mod fluent_builders {
         },
         output::{
             AbortMultipartUploadOutput, CreateMultipartUploadOutput, DeleteObjectOutput,
-            GetObjectOutput, HeadObjectOutput, ListObjectsV2Output, PutObjectOutput,
-            UploadPartOutput,
+            DeleteObjectsOutput, GetObjectOutput, HeadObjectOutput, ListObjectsV2Output,
+            PutObjectOutput, UploadPartOutput,
         },
         types::ByteStream,
         Handle,
@@ -326,7 +326,7 @@ pub mod fluent_builders {
             }
         }
 
-        pub async fn send(self) -> Result<DeleteObjectOutput, SdkError<DeleteObjectsError>> {
+        pub async fn send(self) -> Result<DeleteObjectsOutput, SdkError<DeleteObjectsError>> {
             todo!();
         }
 

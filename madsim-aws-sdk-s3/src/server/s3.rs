@@ -120,7 +120,7 @@ impl S3 {
         }
     }
 
-    pub fn put_object(&self, input: PutObjectInput) -> Result<PutObjectOutput> {
+    pub async fn put_object(&self, input: PutObjectInput) -> Result<PutObjectOutput> {
         if input.bucket.is_none() {
             return Err(InvalidBucket(
                 "Bucket is necessary to put object".to_string(),
@@ -133,11 +133,25 @@ impl S3 {
         match bucket.entry(input.key.clone().unwrap()) {
             Occupied(mut o) => {
                 let object = o.get_mut();
-                object.update(input.body);
+                let bytes = input
+                    .body
+                    .collect()
+                    .await
+                    .expect("Error Read Data")
+                    .into_bytes();
+                object.update(bytes);
                 return Ok(PutObjectOutput {});
             }
             Vacant(v) => {
-                v.insert(Object::new(input.body, None));
+                v.insert(Object::new(
+                    input
+                        .body
+                        .collect()
+                        .await
+                        .expect("Error Read Data")
+                        .into_bytes(),
+                    None,
+                ));
                 return Ok(PutObjectOutput {});
             }
         }
@@ -366,7 +380,7 @@ impl S3 {
             Vacant(_) => Err(InvalidKey(input.key.unwrap())),
         }
     }
-    pub fn complete_multipart_upload(
+    pub async fn complete_multipart_upload(
         &self,
         input: CompleteMultipartUploadInput,
     ) -> Result<CompleteMultipartUploadOutput> {
@@ -413,8 +427,14 @@ impl S3 {
                         }
                         completed_part.sort_by_key(|part| part.part_number);
                         let mut bytes = vec![];
-                        for part in &completed_part {
-                            bytes.push(part.body.as_ref());
+                        for part in completed_part {
+                            bytes.push(
+                                part.body
+                                    .collect()
+                                    .await
+                                    .expect("Error Read Data")
+                                    .into_bytes(),
+                            );
                         }
                         object.update(bytes.concat().into());
                         Ok(CompleteMultipartUploadOutput {})
