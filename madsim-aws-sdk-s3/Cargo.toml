@@ -1,5 +1,5 @@
 [package]
-name = "aws-sdk-s3"
+name = "madsim-aws-sdk-s3"
 version = "0.2.6"
 edition = "2021"
 authors = ["Kevin Axel <kevinaxel@163.com>"]

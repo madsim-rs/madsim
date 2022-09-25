@@ -6,6 +6,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     InvalidKey(String),
     InvalidBucket(String),
+    InvalidUploadId(String),
 }
 
 impl Display for Error {
@@ -14,6 +15,7 @@ impl Display for Error {
         match self {
             Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
             Error::InvalidBucket(e) => write!(f, "invalid bucket: {}", e),
+            Error::InvalidUploadId(e) => write!(f, "invalid upload_id: {}", e),
         }
     }
 }
