@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2022-09-26
+
+### Added
+
+- Add simulation crate of `rdkafka`.
+- etcd: Add lease and election API.
+- madsim: Expose `JoinHandle::cancel_on_drop`.
+
 ## [0.2.7] - 2022-09-13
 
 ### Added
