@@ -1,6 +1,6 @@
 /// Metadata container.
 pub struct Metadata {
-    topics: Vec<MetadataTopic>,
+    pub(crate) topics: Vec<MetadataTopic>,
 }
 
 impl Metadata {
@@ -12,8 +12,8 @@ impl Metadata {
 
 /// Topic metadata information.
 pub struct MetadataTopic {
-    name: String,
-    partitions: Vec<MetadataPartition>,
+    pub(crate) name: String,
+    pub(crate) partitions: Vec<MetadataPartition>,
 }
 
 impl MetadataTopic {
@@ -30,7 +30,7 @@ impl MetadataTopic {
 
 /// Partition metadata information.
 pub struct MetadataPartition {
-    id: i32,
+    pub(crate) id: i32,
 }
 
 impl MetadataPartition {

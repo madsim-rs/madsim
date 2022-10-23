@@ -6,7 +6,10 @@ use super::{
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
-use async_task::{FallibleTask, Runnable};
+#[doc(hidden)]
+pub use async_task::FallibleTask;
+use async_task::Runnable;
+use futures_util::FutureExt;
 use rand::Rng;
 use spin::Mutex;
 use std::{
@@ -154,7 +157,7 @@ impl Executor {
 
         loop {
             self.run_all_ready();
-            if let Poll::Ready(val) = Pin::new(&mut task).poll(&mut cx) {
+            if let Poll::Ready(val) = task.poll_unpin(&mut cx) {
                 return val;
             }
             let going = self.time.advance_to_next_event();
@@ -575,7 +578,6 @@ impl<T> JoinHandle<T> {
     }
 
     /// Cancel the task when this handle is dropped.
-    #[doc(hidden)]
     pub fn cancel_on_drop(self) -> FallibleTask<T> {
         self.task.lock().take().unwrap()
     }
@@ -584,12 +586,9 @@ impl<T> JoinHandle<T> {
 impl<T> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        std::pin::Pin::new(self.task.lock().as_mut().unwrap())
-            .poll(cx)
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        (self.task.lock().as_mut().unwrap())
+            .poll_unpin(cx)
             .map(|res| {
                 res.ok_or(JoinError {
                     id: self.id,

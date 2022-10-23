@@ -268,7 +268,7 @@ impl sealed::ToSocketAddrsPriv for String {
     type Future = <str as sealed::ToSocketAddrsPriv>::Future;
 
     fn to_socket_addrs(&self, _: sealed::Internal) -> Self::Future {
-        (&self[..]).to_socket_addrs(sealed::Internal)
+        self.as_str().to_socket_addrs(sealed::Internal)
     }
 }
 

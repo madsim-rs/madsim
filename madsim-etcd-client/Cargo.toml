@@ -1,6 +1,6 @@
 [package]
 name = "madsim-etcd-client"
-version = "0.2.6"
+version = "0.2.8"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The etcd simulator on madsim."
@@ -18,7 +18,8 @@ etcd-client = "0.10"
 
 [target.'cfg(madsim)'.dependencies]
 http = "0.2"
-madsim = { version = "0.2.5", path = "../madsim" }
+futures-util = "0.3"
+madsim = { version = "0.2.8", path = "../madsim" }
 spin = "0.9"
 tonic = { version = "0.8", default-features = false }
 tracing = "0.1"

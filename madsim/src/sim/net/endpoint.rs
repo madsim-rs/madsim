@@ -1,4 +1,10 @@
 use super::{IpProtocol::Udp, *};
+use futures_util::Stream;
+use std::{
+    fmt,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 /// An endpoint.
 ///
@@ -242,6 +248,30 @@ impl Receiver {
     pub async fn recv(&mut self) -> io::Result<Payload> {
         (self.rx.recv().await)
             .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
+    }
+}
+
+impl Stream for Receiver {
+    type Item = io::Result<Payload>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.rx.poll_recv(cx) {
+            Poll::Ready(Some(value)) => Poll::Ready(Some(Ok(value))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl fmt::Debug for Sender {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("Sender").finish()
+    }
+}
+
+impl fmt::Debug for Receiver {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("Receiver").finish()
     }
 }
 

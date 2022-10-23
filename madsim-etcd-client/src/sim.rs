@@ -1,19 +1,25 @@
+mod election;
 mod error;
 mod kv;
+mod lease;
 mod server;
 mod service;
 
 use madsim::net::Endpoint;
 use std::time::Duration;
 
+pub use self::election::*;
 pub use self::error::{Error, Result};
 pub use self::kv::*;
+pub use self::lease::*;
 pub use self::server::SimServer;
 
 /// Asynchronous `etcd` client using v3 API.
 #[derive(Clone)]
 pub struct Client {
     kv: KvClient,
+    lease: LeaseClient,
+    election: ElectionClient,
 }
 
 impl Client {
@@ -24,15 +30,29 @@ impl Client {
     ) -> Result<Self> {
         let addr = endpoints.as_ref()[0].as_ref();
         let ep = Endpoint::connect(addr).await?;
-        let addr = ep.peer_addr().unwrap();
         Ok(Client {
-            kv: KvClient::new(ep, addr),
+            kv: KvClient::new(ep.clone()),
+            lease: LeaseClient::new(ep.clone()),
+            election: ElectionClient::new(ep),
         })
     }
 
     /// Gets a KV client.
+    #[inline]
     pub fn kv_client(&self) -> KvClient {
         self.kv.clone()
+    }
+
+    /// Gets a lease client.
+    #[inline]
+    pub fn lease_client(&self) -> LeaseClient {
+        self.lease.clone()
+    }
+
+    /// Gets a election client.
+    #[inline]
+    pub fn election_client(&self) -> ElectionClient {
+        self.election.clone()
     }
 }
 
@@ -67,5 +87,19 @@ impl ConnectOptions {
     pub fn with_keep_alive(mut self, interval: Duration, timeout: Duration) -> Self {
         self.keep_alive = Some((interval, timeout));
         self
+    }
+}
+
+/// General `etcd` response header.
+#[derive(Debug, Clone)]
+pub struct ResponseHeader {
+    pub(crate) revision: i64,
+}
+
+impl ResponseHeader {
+    /// The key-value store revision when the request was applied.
+    #[inline]
+    pub const fn revision(&self) -> i64 {
+        self.revision
     }
 }

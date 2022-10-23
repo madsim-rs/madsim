@@ -6,13 +6,13 @@ pub type KafkaResult<T> = Result<T, KafkaError>;
 /// Represents all possible Kafka errors.
 ///
 /// If applicable, check the underlying [`RDKafkaErrorCode`] to get details.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum KafkaError {
     /// Creation of admin operation failed.
     AdminOpCreation(String),
     /// The admin operation itself failed.
-    AdminOp(RDKafkaErrorCode),
+    AdminOp(#[source] RDKafkaErrorCode),
     /// The client was dropped before the operation completed.
     Canceled,
     /// Invalid client configuration.
@@ -20,23 +20,23 @@ pub enum KafkaError {
     /// Client creation failed.
     ClientCreation(String),
     /// Consumer commit failed.
-    ConsumerCommit(RDKafkaErrorCode),
+    ConsumerCommit(#[source] RDKafkaErrorCode),
     /// Global error.
-    Global(RDKafkaErrorCode),
+    Global(#[source] RDKafkaErrorCode),
     /// Group list fetch failed.
-    GroupListFetch(RDKafkaErrorCode),
+    GroupListFetch(#[source] RDKafkaErrorCode),
     /// Message consumption failed.
-    MessageConsumption(RDKafkaErrorCode),
+    MessageConsumption(#[source] RDKafkaErrorCode),
     /// Message production error.
-    MessageProduction(RDKafkaErrorCode),
+    MessageProduction(#[source] RDKafkaErrorCode),
     /// Metadata fetch error.
-    MetadataFetch(RDKafkaErrorCode),
+    MetadataFetch(#[source] RDKafkaErrorCode),
     /// No message was received.
     NoMessageReceived,
     /// Unexpected null pointer
-    // Nul(ffi::NulError),
+    Nul(std::ffi::NulError),
     /// Offset fetch failed.
-    OffsetFetch(RDKafkaErrorCode),
+    OffsetFetch(#[source] RDKafkaErrorCode),
     /// End of partition reached.
     PartitionEOF(i32),
     /// Pause/Resume failed.
@@ -44,66 +44,15 @@ pub enum KafkaError {
     /// Seeking a partition failed.
     Seek(String),
     /// Setting partition offset failed.
-    SetPartitionOffset(RDKafkaErrorCode),
+    SetPartitionOffset(#[source] RDKafkaErrorCode),
     /// Offset store failed.
-    StoreOffset(RDKafkaErrorCode),
+    StoreOffset(#[source] RDKafkaErrorCode),
     /// Subscription creation failed.
     Subscription(String),
-    // Transaction error.
-    // Transaction(RDKafkaError),
-}
-
-impl fmt::Debug for KafkaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            KafkaError::AdminOp(err) => write!(f, "KafkaError (Admin operation error: {})", err),
-            KafkaError::AdminOpCreation(ref err) => {
-                write!(f, "KafkaError (Admin operation creation error: {})", err)
-            }
-            KafkaError::Canceled => write!(f, "KafkaError (Client dropped)"),
-            // KafkaError::ClientConfig(_, ref desc, ref key, ref value) => write!(
-            //     f,
-            //     "KafkaError (Client config error: {} {} {})",
-            //     desc, key, value
-            // ),
-            KafkaError::ClientCreation(ref err) => {
-                write!(f, "KafkaError (Client creation error: {})", err)
-            }
-            KafkaError::ConsumerCommit(err) => {
-                write!(f, "KafkaError (Consumer commit error: {})", err)
-            }
-            KafkaError::Global(err) => write!(f, "KafkaError (Global error: {})", err),
-            KafkaError::GroupListFetch(err) => {
-                write!(f, "KafkaError (Group list fetch error: {})", err)
-            }
-            KafkaError::MessageConsumption(err) => {
-                write!(f, "KafkaError (Message consumption error: {})", err)
-            }
-            KafkaError::MessageProduction(err) => {
-                write!(f, "KafkaError (Message production error: {})", err)
-            }
-            KafkaError::MetadataFetch(err) => {
-                write!(f, "KafkaError (Metadata fetch error: {})", err)
-            }
-            KafkaError::NoMessageReceived => {
-                write!(f, "No message received within the given poll interval")
-            }
-            // KafkaError::Nul(_) => write!(f, "FFI null error"),
-            KafkaError::OffsetFetch(err) => write!(f, "KafkaError (Offset fetch error: {})", err),
-            KafkaError::PartitionEOF(part_n) => write!(f, "KafkaError (Partition EOF: {})", part_n),
-            KafkaError::PauseResume(ref err) => {
-                write!(f, "KafkaError (Pause/resume error: {})", err)
-            }
-            KafkaError::Seek(ref err) => write!(f, "KafkaError (Seek error: {})", err),
-            KafkaError::SetPartitionOffset(err) => {
-                write!(f, "KafkaError (Set partition offset error: {})", err)
-            }
-            KafkaError::StoreOffset(err) => write!(f, "KafkaError (Store offset error: {})", err),
-            KafkaError::Subscription(ref err) => {
-                write!(f, "KafkaError (Subscription error: {})", err)
-            } // KafkaError::Transaction(err) => write!(f, "KafkaError (Transaction error: {})", err),
-        }
-    }
+    /// Transaction error.
+    Transaction(RDKafkaError),
+    /// IO error.
+    Io(#[from] std::io::Error),
 }
 
 impl fmt::Display for KafkaError {
@@ -127,7 +76,7 @@ impl fmt::Display for KafkaError {
             KafkaError::NoMessageReceived => {
                 write!(f, "No message received within the given poll interval")
             }
-            // KafkaError::Nul(_) => write!(f, "FFI nul error"),
+            KafkaError::Nul(_) => write!(f, "FFI nul error"),
             KafkaError::OffsetFetch(err) => write!(f, "Offset fetch error: {}", err),
             KafkaError::PartitionEOF(part_n) => write!(f, "Partition EOF: {}", part_n),
             KafkaError::PauseResume(ref err) => write!(f, "Pause/resume error: {}", err),
@@ -135,36 +84,42 @@ impl fmt::Display for KafkaError {
             KafkaError::SetPartitionOffset(err) => write!(f, "Set partition offset error: {}", err),
             KafkaError::StoreOffset(err) => write!(f, "Store offset error: {}", err),
             KafkaError::Subscription(ref err) => write!(f, "Subscription error: {}", err),
-            // KafkaError::Transaction(err) => write!(f, "Transaction error: {}", err),
+            KafkaError::Transaction(err) => write!(f, "Transaction error: {}", err),
+            KafkaError::Io(err) => write!(f, "IO error: {}", err),
         }
     }
 }
 
-impl Error for KafkaError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            KafkaError::AdminOp(_) => None,
-            KafkaError::AdminOpCreation(_) => None,
-            KafkaError::Canceled => None,
-            // KafkaError::ClientConfig(..) => None,
-            KafkaError::ClientCreation(_) => None,
-            KafkaError::ConsumerCommit(err) => Some(err),
-            KafkaError::Global(err) => Some(err),
-            KafkaError::GroupListFetch(err) => Some(err),
-            KafkaError::MessageConsumption(err) => Some(err),
-            KafkaError::MessageProduction(err) => Some(err),
-            KafkaError::MetadataFetch(err) => Some(err),
-            KafkaError::NoMessageReceived => None,
-            // KafkaError::Nul(_) => None,
-            KafkaError::OffsetFetch(err) => Some(err),
-            KafkaError::PartitionEOF(_) => None,
-            KafkaError::PauseResume(_) => None,
-            KafkaError::Seek(_) => None,
-            KafkaError::SetPartitionOffset(err) => Some(err),
-            KafkaError::StoreOffset(err) => Some(err),
-            KafkaError::Subscription(_) => None,
-            // KafkaError::Transaction(err) => Some(err),
+/// Native rdkafka error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RDKafkaError {
+    code: RDKafkaErrorCode,
+    message: String,
+}
+
+impl RDKafkaError {
+    pub(crate) fn new(code: RDKafkaErrorCode, message: &str) -> Self {
+        RDKafkaError {
+            code,
+            message: message.to_owned(),
         }
+    }
+
+    /// Returns the error code or [`RDKafkaErrorCode::NoError`] if the error is
+    /// null.
+    pub fn code(&self) -> RDKafkaErrorCode {
+        self.code
+    }
+
+    /// Returns a human readable error string or an empty string if the error is null.
+    pub fn string(&self) -> String {
+        self.message.clone()
+    }
+}
+
+impl fmt::Display for RDKafkaError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
     }
 }
 

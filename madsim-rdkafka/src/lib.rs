@@ -1,17 +1,10 @@
-#![allow(unused_variables)]
+#[cfg(madsim)]
+mod sim;
+#[cfg(not(madsim))]
+#[path = "std/mod.rs"]
+mod std_;
 
-pub mod client;
-pub mod config;
-pub mod consumer;
-pub mod error;
-pub mod message;
-pub mod metadata;
-pub mod producer;
-pub mod topic_partition_list;
-pub mod types;
-pub mod util;
-
-pub use crate::client::ClientContext;
-pub use crate::config::ClientConfig;
-pub use crate::message::Message;
-pub use crate::topic_partition_list::{Offset, TopicPartitionList};
+#[cfg(madsim)]
+pub use sim::*;
+#[cfg(not(madsim))]
+pub use std_::*;

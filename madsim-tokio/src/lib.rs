@@ -5,8 +5,6 @@ pub use tokio::*;
 pub use self::sim::*;
 #[cfg(madsim)]
 mod sim {
-    // no mod `runtime`
-
     // simulated API
     pub use madsim::net;
     #[cfg(feature = "rt")]
@@ -19,6 +17,8 @@ mod sim {
     #[cfg(all(feature = "rt", feature = "macros"))]
     #[doc(hidden)]
     pub use madsim;
+    #[cfg(feature = "rt")]
+    pub mod runtime;
 
     pub mod task {
         #[cfg(tokio_unstable)]

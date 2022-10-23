@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tokio"
-version = "0.2.2"
+version = "0.2.7"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tokio` simulator on madsim."
@@ -63,4 +63,4 @@ madsim = { version = "0.2.2", path = "../madsim" }
 futures-lite = "1"
 
 [dependencies]
-tokio = "1.20"
+tokio = "1.21"

@@ -28,7 +28,7 @@ pub enum RDKafkaLogLevel {
 /// Client configuration.
 #[derive(Clone, Debug)]
 pub struct ClientConfig {
-    conf_map: HashMap<String, String>,
+    pub(crate) conf_map: HashMap<String, String>,
     /// The librdkafka logging level. Refer to [`RDKafkaLogLevel`] for the list
     /// of available levels.
     pub log_level: RDKafkaLogLevel,
@@ -72,29 +72,31 @@ impl ClientConfig {
     }
 
     /// Uses the current configuration to create a new Consumer or Producer.
-    pub fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
-        T::from_config(self)
+    pub async fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
+        T::from_config(self).await
     }
 
     /// Uses the current configuration and the provided context to create a new Consumer or Producer.
-    pub fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
+    pub async fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
     where
         C: ClientContext,
         T: FromClientConfigAndContext<C>,
     {
-        T::from_config_and_context(self, context)
+        T::from_config_and_context(self, context).await
     }
 }
 
 /// Create a new client based on the provided configuration.
+#[async_trait::async_trait]
 pub trait FromClientConfig: Sized {
     /// Creates a client from a client configuration. The default client context
     /// will be used.
-    fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
+    async fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
 }
 
 /// Create a new client based on the provided configuration and context.
+#[async_trait::async_trait]
 pub trait FromClientConfigAndContext<C: ClientContext>: Sized {
     /// Creates a client from a client configuration and a client context.
-    fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
+    async fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
 }
