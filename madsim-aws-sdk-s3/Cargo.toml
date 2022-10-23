@@ -29,4 +29,7 @@ aws-sig-auth = "0.46.0"
 aws-http = '0.46.0'
 bytes = "1.2.1"
 http = '0.2'
+spin = "0.9"
+tracing = "0.1"
+tonic = { version = "0.8", default-features = false }
 
