@@ -1,7 +1,6 @@
 mod error;
-mod s3;
-mod server;
+mod rpc_server;
 mod service;
 
 pub use error::Result;
-pub use server::*;
+pub use rpc_server::*;

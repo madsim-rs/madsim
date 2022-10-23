@@ -79,7 +79,9 @@ impl UploadPartInput {
 
 pub mod complete_multipart_upload_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
@@ -145,7 +147,9 @@ impl CompleteMultipartUploadInput {
 
 pub mod abort_multipart_upload_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
@@ -198,7 +202,9 @@ impl AbortMultipartUploadInput {
 
 pub mod get_object_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
@@ -300,7 +306,9 @@ impl PutObjectInput {
 
 pub mod delete_object_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
@@ -346,7 +354,9 @@ impl DeleteObjectInput {
 
 pub mod delete_objects_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) delete: std::option::Option<crate::model::Delete>,
@@ -387,7 +397,9 @@ impl DeleteObjectsInput {
 
 pub mod create_multipart_upload_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
@@ -428,7 +440,9 @@ impl CreateMultipartUploadInput {
 
 pub mod head_object_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) key: std::option::Option<std::string::String>,
@@ -468,7 +482,9 @@ impl HeadObjectInput {
 
 pub mod list_objects_v2_input {
 
-    #[derive(std::default::Default, std::clone::Clone, std::cmp::PartialEq, std::fmt::Debug)]
+    #[derive(
+        std::default::Default, std::clone::Clone, std::cmp::PartialEq, Eq, std::fmt::Debug,
+    )]
     pub struct Builder {
         pub(crate) bucket: std::option::Option<std::string::String>,
         pub(crate) prefix: std::option::Option<std::string::String>,
@@ -566,7 +582,7 @@ impl std::fmt::Debug for UploadPartInput {
 
 #[allow(missing_docs)] // documentation missing in model
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct CompleteMultipartUploadInput {
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
@@ -599,7 +615,7 @@ impl std::fmt::Debug for CompleteMultipartUploadInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct AbortMultipartUploadInput {
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
@@ -627,7 +643,7 @@ impl std::fmt::Debug for AbortMultipartUploadInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct GetObjectInput {
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
@@ -682,7 +698,7 @@ impl std::fmt::Debug for PutObjectInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct DeleteObjectInput {
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
@@ -705,7 +721,7 @@ impl std::fmt::Debug for DeleteObjectInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct DeleteObjectsInput {
     pub bucket: std::option::Option<std::string::String>,
     pub delete: std::option::Option<crate::model::Delete>,
@@ -728,7 +744,7 @@ impl std::fmt::Debug for DeleteObjectsInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct CreateMultipartUploadInput {
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
@@ -751,7 +767,7 @@ impl std::fmt::Debug for CreateMultipartUploadInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct HeadObjectInput {
     pub bucket: std::option::Option<std::string::String>,
     pub key: std::option::Option<std::string::String>,
@@ -774,7 +790,7 @@ impl std::fmt::Debug for HeadObjectInput {
 }
 
 #[non_exhaustive]
-#[derive(std::clone::Clone, std::cmp::PartialEq)]
+#[derive(std::clone::Clone, std::cmp::PartialEq, Eq)]
 pub struct ListObjectsV2Input {
     pub bucket: std::option::Option<std::string::String>,
     pub prefix: std::option::Option<std::string::String>,

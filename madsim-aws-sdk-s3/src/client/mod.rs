@@ -1,5 +1,5 @@
-mod client;
-pub use client::*;
+mod client_;
+pub use client_::*;
 pub mod config;
 pub use config::Config;
 pub mod aws_endpoint;

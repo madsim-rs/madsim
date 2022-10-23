@@ -156,7 +156,7 @@ struct ServiceInner {
     storage: BTreeMap<String, BTreeMap<String, InnerObject>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct InnerObject {
     body: Vec<u8>,
 
@@ -168,19 +168,6 @@ struct InnerObject {
     last_modified: Option<crate::types::DateTime>,
 
     content_length: i64,
-}
-
-impl Default for InnerObject {
-    fn default() -> Self {
-        Self {
-            body: Default::default(),
-            completed: false,
-            parts: Default::default(),
-            // FIX: maybe break the deterministic
-            last_modified: None,
-            content_length: Default::default(),
-        }
-    }
 }
 
 #[derive(Debug, Default)]
@@ -199,8 +186,8 @@ impl ServiceInner {
         let object = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
-            .entry(key.clone())
+            .ok_or(Error::InvalidBucket(bucket))?
+            .entry(key)
             .or_default();
 
         loop {
@@ -228,14 +215,14 @@ impl ServiceInner {
         let object = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
-            .ok_or_else(|| Error::InvalidKey(key))?;
+            .ok_or(Error::InvalidKey(key))?;
 
         let parts = object
             .parts
             .get_mut(&upload_id)
-            .ok_or_else(|| Error::InvalidUploadId(upload_id))?;
+            .ok_or(Error::InvalidUploadId(upload_id))?;
 
         let body = body.collect().await;
         let body = body.expect("error read data").into_bytes().to_vec();
@@ -268,9 +255,9 @@ impl ServiceInner {
         let object = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
-            .ok_or_else(|| Error::InvalidKey(key))?;
+            .ok_or(Error::InvalidKey(key))?;
 
         if !object.parts.contains_key(&upload_id) {
             return Err(Error::InvalidUploadId(upload_id));
@@ -308,13 +295,13 @@ impl ServiceInner {
                 .remove(&upload_id)
                 .expect("multipart completed, remove upload parts failed");
 
-            return Ok(CompleteMultipartUploadOutput {});
+            Ok(CompleteMultipartUploadOutput {})
         } else {
             object
                 .parts
                 .remove(&upload_id)
                 .expect("empty complete multipart request, remove upload_id failed");
-            return Ok(CompleteMultipartUploadOutput {});
+            Ok(CompleteMultipartUploadOutput {})
         }
     }
 
@@ -327,14 +314,14 @@ impl ServiceInner {
         let object = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
-            .ok_or_else(|| Error::InvalidKey(key))?;
+            .ok_or(Error::InvalidKey(key))?;
 
         object
             .parts
             .remove(&upload_id)
-            .ok_or_else(|| Error::InvalidUploadId(upload_id))?;
+            .ok_or(Error::InvalidUploadId(upload_id))?;
         Ok(AbortMultipartUploadOutput {})
     }
 
@@ -347,73 +334,71 @@ impl ServiceInner {
         let object = self
             .storage
             .get(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .get(&key)
             .ok_or_else(|| Error::InvalidKey(key.clone()))?;
 
         if !object.completed {
             Err(Error::InvalidKey(key))
-        } else {
-            if let Some(range) = range {
-                // https://www.rfc-editor.org/rfc/rfc9110.html#name-range
-                let body = object.body.clone();
-                let mut split = range.split("=");
-                let range_unit = split
-                    .next()
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+        } else if let Some(range) = range {
+            // https://www.rfc-editor.org/rfc/rfc9110.html#name-range
+            let body = object.body.clone();
+            let mut split = range.split('=');
+            let range_unit = split
+                .next()
+                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
 
-                if range_unit != "bytes" {
-                    return Err(Error::UnsupportRangeUnit(range_unit.to_string()));
-                }
-
-                let range_set = split
-                    .next()
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                let body = if range_set.starts_with("-") {
-                    let first_pos = range_set
-                        .split("-")
-                        .next()
-                        .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                        .parse::<usize>()
-                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                    // may be just transform the slice, not to_vec()
-                    body[first_pos..].to_vec()
-                } else if range_set.ends_with("-") {
-                    let end_pos = range_set
-                        .split("-")
-                        .next()
-                        .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                        .parse::<usize>()
-                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                    body[..end_pos].to_vec()
-                } else {
-                    let first_pos = range_set
-                        .split("-")
-                        .next()
-                        .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                        .parse::<usize>()
-                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                    let end_pos = range_set
-                        .split("-")
-                        .next()
-                        .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                        .parse::<usize>()
-                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                    body[first_pos..end_pos].to_vec()
-                };
-
-                let body = crate::types::ByteStream::from(body);
-                return Ok(GetObjectOutput { body });
-            } else {
-                Ok(GetObjectOutput {
-                    body: crate::types::ByteStream::from(object.body.clone()),
-                })
+            if range_unit != "bytes" {
+                return Err(Error::UnsupportRangeUnit(range_unit.to_string()));
             }
+
+            let range_set = split
+                .next()
+                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+
+            let body = if range_set.starts_with('-') {
+                let first_pos = range_set
+                    .split('-')
+                    .next()
+                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
+                    .parse::<usize>()
+                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
+
+                // may be just transform the slice, not to_vec()
+                body[first_pos..].to_vec()
+            } else if range_set.ends_with('-') {
+                let end_pos = range_set
+                    .split('-')
+                    .next()
+                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
+                    .parse::<usize>()
+                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
+
+                body[..end_pos].to_vec()
+            } else {
+                let first_pos = range_set
+                    .split('-')
+                    .next()
+                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
+                    .parse::<usize>()
+                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
+
+                let end_pos = range_set
+                    .split('-')
+                    .next()
+                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
+                    .parse::<usize>()
+                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
+
+                body[first_pos..end_pos].to_vec()
+            };
+
+            let body = crate::types::ByteStream::from(body);
+            Ok(GetObjectOutput { body })
+        } else {
+            Ok(GetObjectOutput {
+                body: crate::types::ByteStream::from(object.body.clone()),
+            })
         }
     }
 
@@ -426,7 +411,7 @@ impl ServiceInner {
         let object = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .entry(key)
             .or_default();
 
@@ -443,7 +428,7 @@ impl ServiceInner {
         let object = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
             .ok_or_else(|| Error::InvalidKey(key.clone()))?;
 
@@ -464,7 +449,7 @@ impl ServiceInner {
         let bucket = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?;
+            .ok_or(Error::InvalidBucket(bucket))?;
 
         if let Some(delete) = delete.objects {
             let delete = delete
@@ -500,7 +485,7 @@ impl ServiceInner {
         let object = self
             .storage
             .get(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?
+            .ok_or(Error::InvalidBucket(bucket))?
             .get(&key)
             .ok_or_else(|| Error::InvalidKey(key.clone()))?;
 
@@ -525,7 +510,7 @@ impl ServiceInner {
         let bucket = self
             .storage
             .get_mut(&bucket)
-            .ok_or_else(|| Error::InvalidBucket(bucket))?;
+            .ok_or(Error::InvalidBucket(bucket))?;
 
         if let Some(prefix) = prefix {
             let objects = bucket
