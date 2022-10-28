@@ -47,7 +47,12 @@ unsafe extern "C" fn clock_gettime(
         // inside a madsim context, use the simulated time.
         match clockid {
             // used by SystemTime
-            libc::CLOCK_REALTIME | libc::CLOCK_REALTIME_COARSE => {
+            libc::CLOCK_REALTIME
+            | libc::CLOCK_REALTIME_COARSE
+            // used by Instant
+            | libc::CLOCK_MONOTONIC
+            | libc::CLOCK_MONOTONIC_RAW
+            | libc::CLOCK_MONOTONIC_COARSE => {
                 let dur = time
                     .now_time()
                     .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -56,10 +61,6 @@ unsafe extern "C" fn clock_gettime(
                     tv_sec: dur.as_secs() as _,
                     tv_nsec: dur.subsec_nanos() as _,
                 });
-            }
-            // used by Instant
-            libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW | libc::CLOCK_MONOTONIC_COARSE => {
-                tp.write(std::mem::transmute(time.now_instant()));
             }
             _ => panic!("unsupported clockid: {}", clockid),
         }
