@@ -10,19 +10,16 @@ pub struct SimServer {
 }
 
 impl SimServer {
-    /// Create a new server builder that can configure a [`SimServer`].
     pub fn builder() -> Self {
         SimServer::default()
     }
 
-    /// Set the rate of `etcdserver: request timed out`.
     pub fn timeout_rate(mut self, rate: f32) -> Self {
         assert!((0.0..=1.0).contains(&rate));
         self.timeout_rate = rate;
         self
     }
 
-    /// Consume this [`SimServer`] creating a future that will execute the server.
     pub async fn serve(self, addr: SocketAddr) -> Result<()> {
         let ep = Endpoint::bind(addr).await?;
         let service = Arc::new(S3Service::new(self.timeout_rate));

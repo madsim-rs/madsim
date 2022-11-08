@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use aws_types::SdkConfig;
+use aws_types::sdk_config::SdkConfig;
 use madsim::net::Endpoint;
 
 pub(crate) struct Handle {
@@ -8,6 +8,13 @@ pub(crate) struct Handle {
     pub(crate) conf: crate::Config,
 }
 
+impl std::fmt::Debug for Handle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Handle").field("conf", &self.conf).finish()
+    }
+}
+
+#[derive(Debug)]
 pub struct Client {
     handle: Arc<Handle>,
 }

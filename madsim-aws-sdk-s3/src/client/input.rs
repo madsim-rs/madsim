@@ -342,10 +342,7 @@ pub mod delete_object_input {
         }
     }
 }
-#[doc(hidden)]
-pub type DeleteObjectInputOperationOutputAlias = crate::operation::DeleteObject;
-#[doc(hidden)]
-pub type DeleteObjectInputOperationRetryAlias = aws_http::retry::AwsErrorRetryPolicy;
+
 impl DeleteObjectInput {
     pub fn builder() -> crate::input::delete_object_input::Builder {
         crate::input::delete_object_input::Builder::default()
