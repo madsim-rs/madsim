@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 /// Override the libc `gettimeofday` function. For `SystemTime` on macOS.
 #[no_mangle]
 #[inline(never)]
@@ -12,7 +14,7 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
         // inside a madsim context, use the simulated time.
         let dur = time
             .now_time()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap();
         tp.write(libc::timeval {
             tv_sec: dur.as_secs() as _,
@@ -50,7 +52,7 @@ unsafe extern "C" fn clock_gettime(
             libc::CLOCK_REALTIME | libc::CLOCK_REALTIME_COARSE => {
                 let dur = time
                     .now_time()
-                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
                     .unwrap();
                 tp.write(libc::timespec {
                     tv_sec: dur.as_secs() as _,
@@ -59,7 +61,13 @@ unsafe extern "C" fn clock_gettime(
             }
             // used by Instant
             libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW | libc::CLOCK_MONOTONIC_COARSE => {
-                tp.write(std::mem::transmute(time.now_instant()));
+                let dur = std::mem::transmute::<_, SystemTime>(time.now_instant())
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap();
+                tp.write(libc::timespec {
+                    tv_sec: dur.as_secs() as _,
+                    tv_nsec: dur.subsec_nanos() as _,
+                });
             }
             _ => panic!("unsupported clockid: {}", clockid),
         }
