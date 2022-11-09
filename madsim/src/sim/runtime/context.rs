@@ -16,7 +16,11 @@ pub(crate) fn current<T>(map: impl FnOnce(&Handle) -> T) -> T {
 }
 
 pub(crate) fn try_current<T>(map: impl FnOnce(&Handle) -> T) -> Option<T> {
-    CONTEXT.with(move |ctx| ctx.borrow().as_ref().map(map))
+    // note: TLS may be deallocated
+    CONTEXT
+        .try_with(move |ctx| ctx.borrow().as_ref().map(map))
+        .ok()
+        .flatten()
 }
 
 pub(crate) fn current_task() -> Arc<TaskInfo> {
@@ -24,7 +28,7 @@ pub(crate) fn current_task() -> Arc<TaskInfo> {
 }
 
 pub(crate) fn try_current_task() -> Option<Arc<TaskInfo>> {
-    TASK.with(|task| task.borrow().clone())
+    TASK.try_with(|task| task.borrow().clone()).ok().flatten()
 }
 
 pub(crate) fn current_node() -> NodeId {
