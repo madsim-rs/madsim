@@ -259,6 +259,7 @@
 
 #![forbid(missing_docs)]
 #![allow(clippy::type_complexity)]
+#![allow(clippy::all)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use rdkafka_sys::types;
