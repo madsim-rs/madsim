@@ -5,7 +5,9 @@ use std::{future::Future, io};
 pub struct Builder {}
 
 impl Builder {
-    // NOTE: we don't have `new_current_thread` here because blocking run is not supported in simulation.
+    pub fn new_current_thread() -> Builder {
+        unimplemented!("blocking run is not supported in simulation");
+    }
 
     /// Returns a new builder with the multi thread scheduler selected.
     #[cfg(feature = "rt-multi-thread")]
