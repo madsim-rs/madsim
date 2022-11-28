@@ -500,7 +500,6 @@ where
     since = "0.3.0",
     note = "blocking function is not allowed in simulation"
 )]
-#[track_caller]
 pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
