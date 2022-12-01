@@ -4,21 +4,34 @@ use futures_util::{pin_mut, Stream, StreamExt};
 use tonic::codegen::http::uri::PathAndQuery;
 use tracing::instrument;
 
-use crate::{codegen::BoxMessage, Request, Response, Status, Streaming};
+use crate::{
+    codegen::{BoxMessage, IdentityInterceptor, RequestExt},
+    service::Interceptor,
+    Request, Response, Status, Streaming,
+};
 
 #[derive(Debug, Clone)]
-pub struct Grpc<T> {
+pub struct Grpc<T, F> {
     inner: T,
+    interceptor: F,
 }
 
-impl<T> Grpc<T> {
+impl<T> Grpc<T, IdentityInterceptor> {
     /// Creates a new gRPC client with the provided `GrpcService`.
     pub fn new(inner: T) -> Self {
-        Grpc { inner }
+        Grpc {
+            inner,
+            interceptor: Ok,
+        }
     }
 }
 
-impl Grpc<crate::transport::Channel> {
+impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
+    /// Creates a new gRPC client with the provided `GrpcService` and interceptor.
+    pub fn with_interceptor(inner: crate::transport::Channel, interceptor: F) -> Self {
+        Grpc { inner, interceptor }
+    }
+
     /// Check if the inner GrpcService is able to accept a new request.
     pub async fn ready(&mut self) -> Result<(), crate::transport::Error> {
         Ok(())
@@ -36,6 +49,7 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send request
@@ -64,10 +78,11 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send requests
-        self.send_request_stream(request, tx, path).await?;
+        Self::send_request_stream(request, tx, path).await?;
         // receive response
         let rsp = rx.recv().await?;
         let rsp = *rsp
@@ -91,6 +106,7 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, rx) = self.inner.ep.connect1(addr).await?;
         // send request
@@ -112,19 +128,18 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, rx) = self.inner.ep.connect1(addr).await?;
         // send requests in a background task
-        let this = self.clone();
         let task = madsim::task::spawn(async move {
-            this.send_request_stream(request, tx, path).await.unwrap();
+            Self::send_request_stream(request, tx, path).await.unwrap();
         });
         // receive responses
         Ok(Response::new(Streaming::new(rx, Some(task))))
     }
 
     async fn send_request_stream<M1>(
-        &self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,
         tx: madsim::net::Sender,
         path: PathAndQuery,

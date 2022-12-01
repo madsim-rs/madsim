@@ -1,6 +1,7 @@
 pub use self::codec::Streaming;
 pub use tonic::{
-    async_trait, metadata, Code, IntoRequest, IntoStreamingRequest, Request, Response, Status,
+    async_trait, metadata, service, Code, IntoRequest, IntoStreamingRequest, Request, Response,
+    Status,
 };
 
 #[macro_export]
@@ -19,6 +20,7 @@ pub mod transport;
 pub mod codegen {
     use std::any::Any;
     pub use std::net::SocketAddr;
+    use tonic::Status;
 
     pub use futures_util as futures;
     pub use tonic::codegen::*;
@@ -27,9 +29,15 @@ pub mod codegen {
     pub type BoxMessage = Box<dyn Any + Send + Sync>;
     /// A type-erased stream of messages.
     pub type BoxMessageStream = BoxStream<BoxMessage>;
+    /// An identity interceptor.
+    pub type IdentityInterceptor = fn(tonic::Request<()>) -> Result<tonic::Request<()>, Status>;
 
-    pub trait RequestExt {
+    pub trait RequestExt: Sized {
         fn set_remote_addr(&mut self, addr: SocketAddr);
+        fn intercept<F: tonic::service::Interceptor>(
+            self,
+            interceptor: &mut F,
+        ) -> Result<Self, Status>;
     }
 
     impl<T> RequestExt for tonic::Request<T> {
@@ -38,6 +46,18 @@ pub mod codegen {
             let tcp_info: tonic::transport::server::TcpConnectInfo =
                 unsafe { std::mem::transmute(Some(addr)) };
             self.extensions_mut().insert(tcp_info);
+        }
+
+        /// Intercept the request.
+        fn intercept<F: tonic::service::Interceptor>(
+            self,
+            interceptor: &mut F,
+        ) -> Result<Self, Status> {
+            let (metadata, extensions, inner) = self.into_parts();
+            let request = tonic::Request::from_parts(metadata, extensions, ());
+            let request = interceptor.call(request)?;
+            let (metadata, extensions, _) = request.into_parts();
+            Ok(Self::from_parts(metadata, extensions, inner))
         }
     }
 }

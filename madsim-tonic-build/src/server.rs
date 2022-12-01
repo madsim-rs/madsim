@@ -86,11 +86,12 @@ pub fn generate<T: Service>(
             // #service_doc
             // #(#struct_attributes)*
             #[derive(Debug)]
-            pub struct #server_service<T: #server_trait> {
+            pub struct #server_service<T: #server_trait, F> {
                 inner: Arc<T>,
+                interceptor: F,
             }
 
-            impl<T: #server_trait> #server_service<T> {
+            impl<T: #server_trait> #server_service<T, IdentityInterceptor> {
                 pub fn new(inner: T) -> Self {
                     Self::from_arc(Arc::new(inner))
                 }
@@ -98,15 +99,29 @@ pub fn generate<T: Service>(
                 pub fn from_arc(inner: Arc<T>) -> Self {
                     Self {
                         inner,
+                        interceptor: Ok,
+                    }
+                }
+            }
+
+            impl<T: #server_trait, F> #server_service<T, F>
+            where
+                F: tonic::service::Interceptor,
+            {
+                pub fn with_interceptor(inner: T, interceptor: F) -> Self {
+                    Self {
+                        inner: Arc::new(inner),
+                        interceptor,
                     }
                 }
 
                 #configure_compression_methods
             }
 
-            impl<T> tonic::codegen::Service<(SocketAddr, PathAndQuery, BoxMessageStream)> for #server_service<T>
-                where
-                    T: #server_trait,
+            impl<T, F> tonic::codegen::Service<(SocketAddr, PathAndQuery, BoxMessageStream)> for #server_service<T, F>
+            where
+                T: #server_trait,
+                F: tonic::service::Interceptor,
             {
                 type Response = BoxMessageStream;
                 type Error = std::convert::Infallible;
@@ -127,11 +142,15 @@ pub fn generate<T: Service>(
                 }
             }
 
-            impl<T: #server_trait> Clone for #server_service<T> {
+            impl<T, F> Clone for #server_service<T, F>
+            where
+                T: #server_trait,
+                F: Clone,
+            {
                 fn clone(&self) -> Self {
-                    let inner = self.inner.clone();
                     Self {
-                        inner,
+                        inner: self.inner.clone(),
+                        interceptor: self.interceptor.clone(),
                     }
                 }
             }
@@ -241,7 +260,11 @@ fn generate_transport(
     let service_name = syn::LitStr::new(service_name, proc_macro2::Span::call_site());
 
     quote! {
-        impl<T: #server_trait> tonic::transport::NamedService for #server_service<T> {
+        impl<T, F> tonic::transport::NamedService for #server_service<T, F>
+        where
+            T: #server_trait,
+            F: tonic::service::Interceptor,
+        {
             const NAME: &'static str = #service_name;
         }
     }
