@@ -1,7 +1,7 @@
 pub use self::codec::Streaming;
 pub use tonic::{
-    async_trait, metadata, service, Code, IntoRequest, IntoStreamingRequest, Request, Response,
-    Status,
+    async_trait, metadata, service, Code, Extensions, IntoRequest, IntoStreamingRequest, Request,
+    Response, Status,
 };
 
 #[macro_export]
@@ -20,7 +20,9 @@ pub mod transport;
 pub mod codegen {
     use std::any::Any;
     pub use std::net::SocketAddr;
-    use tonic::Status;
+    use tonic::{
+        metadata::MetadataMap, service::Interceptor, Extensions, Request, Response, Status,
+    };
 
     pub use futures_util as futures;
     pub use tonic::codegen::*;
@@ -30,17 +32,21 @@ pub mod codegen {
     /// A type-erased stream of messages.
     pub type BoxMessageStream = BoxStream<BoxMessage>;
     /// An identity interceptor.
-    pub type IdentityInterceptor = fn(tonic::Request<()>) -> Result<tonic::Request<()>, Status>;
+    pub type IdentityInterceptor = fn(Request<()>) -> Result<Request<()>, Status>;
 
-    pub trait RequestExt: Sized {
+    pub trait RequestExt<T>: Sized {
         fn set_remote_addr(&mut self, addr: SocketAddr);
-        fn intercept<F: tonic::service::Interceptor>(
-            self,
-            interceptor: &mut F,
-        ) -> Result<Self, Status>;
+        fn intercept<F: Interceptor>(self, interceptor: &mut F) -> Result<Self, Status>;
+        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Request<U>;
+        fn boxed(self) -> Request<BoxMessage>
+        where
+            T: Send + Sync + 'static,
+        {
+            self.map(|inner| Box::new(inner) as BoxMessage)
+        }
     }
 
-    impl<T> RequestExt for tonic::Request<T> {
+    impl<T> RequestExt<T> for Request<T> {
         /// Set the remote address of Request.
         fn set_remote_addr(&mut self, addr: SocketAddr) {
             let tcp_info: tonic::transport::server::TcpConnectInfo =
@@ -49,15 +55,44 @@ pub mod codegen {
         }
 
         /// Intercept the request.
-        fn intercept<F: tonic::service::Interceptor>(
-            self,
-            interceptor: &mut F,
-        ) -> Result<Self, Status> {
+        fn intercept<F: Interceptor>(self, interceptor: &mut F) -> Result<Self, Status> {
             let (metadata, extensions, inner) = self.into_parts();
-            let request = tonic::Request::from_parts(metadata, extensions, ());
+            let request = Request::from_parts(metadata, extensions, ());
             let request = interceptor.call(request)?;
             let (metadata, extensions, _) = request.into_parts();
             Ok(Self::from_parts(metadata, extensions, inner))
+        }
+
+        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Request<U> {
+            let (metadata, extensions, inner) = self.into_parts();
+            Request::<U>::from_parts(metadata, extensions, f(inner))
+        }
+    }
+
+    pub trait ResponseExt<T>: Sized {
+        fn into_parts(self) -> (MetadataMap, Extensions, T);
+        fn from_parts(metadata: MetadataMap, extensions: Extensions, inner: T) -> Self;
+        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Response<U>;
+    }
+
+    impl<T> ResponseExt<T> for Response<T> {
+        fn into_parts(mut self) -> (MetadataMap, Extensions, T) {
+            let metadata = std::mem::take(self.metadata_mut());
+            let extensions = std::mem::take(self.extensions_mut());
+            let inner = self.into_inner();
+            (metadata, extensions, inner)
+        }
+
+        fn from_parts(metadata: MetadataMap, extensions: Extensions, inner: T) -> Self {
+            let mut rsp = Response::new(inner);
+            *rsp.metadata_mut() = metadata;
+            *rsp.extensions_mut() = extensions;
+            rsp
+        }
+
+        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Response<U> {
+            let (metadata, extensions, inner) = self.into_parts();
+            Response::<U>::from_parts(metadata, extensions, f(inner))
         }
     }
 }

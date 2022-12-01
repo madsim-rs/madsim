@@ -1,14 +1,14 @@
 //! Server implementation and builder.
 
 use super::{Error, NamedService};
-use crate::codegen::{BoxMessage, BoxMessageStream};
+use crate::codegen::{BoxMessage, BoxMessageStream, RequestExt, ResponseExt};
 use crate::tower::layer::util::{Identity, Stack};
+use crate::{Request, Response, Status};
 use async_stream::try_stream;
 use futures_util::{future::poll_fn, select_biased, FutureExt, StreamExt};
 use madsim::net::Endpoint;
 use std::{
     collections::HashMap,
-    convert::Infallible,
     future::{pending, Future},
     marker::PhantomData,
     net::SocketAddr,
@@ -44,10 +44,10 @@ impl<L> Server<L> {
     pub fn add_service<S>(&mut self, svc: S) -> Router<L>
     where
         S: Service<
-                (SocketAddr, PathAndQuery, BoxMessageStream),
-                Response = BoxMessageStream,
-                Error = Infallible,
-                Future = BoxFuture<BoxMessageStream, Infallible>,
+                (PathAndQuery, Request<BoxMessageStream>),
+                Response = Response<BoxMessageStream>,
+                Error = Status,
+                Future = BoxFuture<Response<BoxMessageStream>, Status>,
             > + NamedService
             + Send
             + 'static,
@@ -163,10 +163,10 @@ pub struct Router<L = Identity> {
         &'static str,
         Box<
             dyn Service<
-                    (SocketAddr, PathAndQuery, BoxMessageStream),
-                    Response = BoxMessageStream,
-                    Error = Infallible,
-                    Future = BoxFuture<BoxMessageStream, Infallible>,
+                    (PathAndQuery, Request<BoxMessageStream>),
+                    Response = Response<BoxMessageStream>,
+                    Error = Status,
+                    Future = BoxFuture<Response<BoxMessageStream>, Status>,
                 > + Send
                 + 'static,
         >,
@@ -178,10 +178,10 @@ impl<L> Router<L> {
     pub fn add_service<S>(mut self, svc: S) -> Self
     where
         S: Service<
-                (SocketAddr, PathAndQuery, BoxMessageStream),
-                Response = BoxMessageStream,
-                Error = Infallible,
-                Future = BoxFuture<BoxMessageStream, Infallible>,
+                (PathAndQuery, Request<BoxMessageStream>),
+                Response = Response<BoxMessageStream>,
+                Error = Status,
+                Future = BoxFuture<Response<BoxMessageStream>, Status>,
             > + NamedService
             + Send
             + 'static,
@@ -216,45 +216,70 @@ impl<L> Router<L> {
                 Ok(msg) => msg,
                 Err(_) => continue, // maybe handshake or error
             };
-            let (path, msg) = *msg
-                .downcast::<(PathAndQuery, BoxMessage)>()
+            let (path, server_streaming, request) = *msg
+                .downcast::<(PathAndQuery, bool, Request<BoxMessage>)>()
                 .expect("invalid type");
             let span = debug_span!("request", ?addr, ?path);
             debug!(parent: &span, "received");
 
-            let requests: BoxMessageStream = if msg.downcast_ref::<()>().is_none() {
-                // single request
-                futures_util::stream::once(async move { Ok(msg) }).boxed()
-            } else {
-                // request stream
-                try_stream! {
-                    while let Ok(msg) = rx.recv().await {
-                        yield msg;
+            let mut requests: Request<BoxMessageStream> = request.map(move |msg| {
+                if msg.downcast_ref::<()>().is_none() {
+                    // single request
+                    try_stream! { yield msg; }.boxed()
+                } else {
+                    // request stream
+                    try_stream! {
+                        while let Ok(msg) = rx.recv().await {
+                            yield msg;
+                        }
                     }
+                    .boxed()
                 }
-                .boxed()
-            };
+            });
+            requests.set_remote_addr(addr);
 
             // call the service in a new spawned task
             // TODO: handle error
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let rsp_future = svc.call((addr, path, requests));
+            let rsp_future = svc.call((path, requests));
             madsim::task::spawn(async move {
-                let mut stream = rsp_future.instrument(span.clone()).await.unwrap();
-                // send the response
-                let mut count = 0;
-                while let Some(rsp) = stream.next().await {
-                    // rsp: Result<BoxMessage, Status>
-                    let res = tx.send(Box::new(rsp)).await;
-                    if res.is_err() {
-                        // client has closed the stream
-                        break;
+                let result: Result<Response<BoxMessageStream>, Status> =
+                    rsp_future.instrument(span.clone()).await;
+                if server_streaming {
+                    let (header, stream) = match result {
+                        Ok(response) => {
+                            let (metadata, extensions, stream) = response.into_parts();
+                            let header = Response::from_parts(metadata, extensions, ());
+                            (Ok(header), Some(stream))
+                        }
+                        Err(e) => (Err(e), None),
+                    };
+                    // send the header
+                    tx.send(Box::new(header)).await?;
+                    // send the stream
+                    let Some(mut stream) = stream else { return Ok::<(), std::io::Error>(()); };
+                    let mut count = 0;
+                    while let Some(rsp) = stream.next().await {
+                        // rsp: Result<BoxMessage, Status>
+                        tx.send(Box::new(rsp)).await?;
+                        count += 1;
                     }
-                    count += 1;
+                    debug!(parent: &span, "completed {count}");
+                } else {
+                    let rsp: Result<Response<BoxMessage>, Status> = match result {
+                        Ok(response) => {
+                            let (metadata, extensions, mut stream) = response.into_parts();
+                            let inner: BoxMessage = stream.next().await.unwrap().unwrap();
+                            Ok(Response::from_parts(metadata, extensions, inner))
+                        }
+                        Err(e) => Err(e),
+                    };
+                    tx.send(Box::new(rsp)).await?;
+                    debug!(parent: &span, "completed");
                 }
-                debug!(parent: &span, "completed {count}");
+                Ok(())
             });
         }
     }
