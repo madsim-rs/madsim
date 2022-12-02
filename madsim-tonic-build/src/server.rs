@@ -79,18 +79,19 @@ pub fn generate<T: Service>(
                 // will trigger if compression is disabled
                 clippy::let_unit_value,
             )]
-            use tonic::codegen::{http::uri::PathAndQuery, futures::stream::{self, StreamExt}, *};
+            use tonic::codegen::{http::uri::PathAndQuery, futures::{stream::{self, StreamExt}, future::FutureExt}, *};
 
             #generated_trait
 
             // #service_doc
             // #(#struct_attributes)*
             #[derive(Debug)]
-            pub struct #server_service<T: #server_trait> {
+            pub struct #server_service<T: #server_trait, F> {
                 inner: Arc<T>,
+                interceptor: F,
             }
 
-            impl<T: #server_trait> #server_service<T> {
+            impl<T: #server_trait> #server_service<T, IdentityInterceptor> {
                 pub fn new(inner: T) -> Self {
                     Self::from_arc(Arc::new(inner))
                 }
@@ -98,40 +99,62 @@ pub fn generate<T: Service>(
                 pub fn from_arc(inner: Arc<T>) -> Self {
                     Self {
                         inner,
+                        interceptor: Ok,
+                    }
+                }
+            }
+
+            impl<T: #server_trait, F> #server_service<T, F>
+            where
+                F: tonic::service::Interceptor,
+            {
+                pub fn with_interceptor(inner: T, interceptor: F) -> Self {
+                    Self {
+                        inner: Arc::new(inner),
+                        interceptor,
                     }
                 }
 
                 #configure_compression_methods
             }
 
-            impl<T> tonic::codegen::Service<(SocketAddr, PathAndQuery, BoxMessageStream)> for #server_service<T>
-                where
-                    T: #server_trait,
+            impl<T, F> tonic::codegen::Service<(PathAndQuery, tonic::Request<BoxMessageStream>)> for #server_service<T, F>
+            where
+                T: #server_trait,
+                F: tonic::service::Interceptor,
             {
-                type Response = BoxMessageStream;
-                type Error = std::convert::Infallible;
+                type Response = tonic::Response<BoxMessageStream>;
+                type Error = tonic::Status;
                 type Future = BoxFuture<Self::Response, Self::Error>;
 
                 fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
                     Poll::Ready(Ok(()))
                 }
 
-                fn call(&mut self, (remote_addr, path, mut req): (SocketAddr, PathAndQuery, BoxMessageStream)) -> Self::Future {
+                fn call(&mut self, (path, request): (PathAndQuery, tonic::Request<BoxMessageStream>)) -> Self::Future {
                     let inner = self.inner.clone();
+                    let mut request = match request.intercept(&mut self.interceptor) {
+                        Ok(r) => r,
+                        Err(e) => return Box::pin(async move { Err(e) }),
+                    };
 
                     match path.path() {
                         #methods
 
-                        _ => Box::pin(async move { Ok(stream::empty().boxed()) }),
+                        _ => Box::pin(async move { Err(tonic::Status::invalid_argument(format!("no path: {path}"))) }),
                     }
                 }
             }
 
-            impl<T: #server_trait> Clone for #server_service<T> {
+            impl<T, F> Clone for #server_service<T, F>
+            where
+                T: #server_trait,
+                F: Clone,
+            {
                 fn clone(&self) -> Self {
-                    let inner = self.inner.clone();
                     Self {
-                        inner,
+                        inner: self.inner.clone(),
+                        interceptor: self.interceptor.clone(),
                     }
                 }
             }
@@ -241,7 +264,11 @@ fn generate_transport(
     let service_name = syn::LitStr::new(service_name, proc_macro2::Span::call_site());
 
     quote! {
-        impl<T: #server_trait> tonic::transport::NamedService for #server_service<T> {
+        impl<T, F> tonic::transport::NamedService for #server_service<T, F>
+        where
+            T: #server_trait,
+            F: tonic::service::Interceptor,
+        {
             const NAME: &'static str = #service_name;
         }
     }
@@ -335,12 +362,12 @@ fn generate_unary<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let mut request = *req.next().await.unwrap().unwrap()
-                .downcast::<tonic::Request<#request>>()
-                .unwrap();
-            request.set_remote_addr(remote_addr);
-            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
-            Ok(stream::once(async move { res.map(|rsp| Box::new(rsp) as BoxMessage) }).boxed())
+            let request = request.map(|mut stream| {
+                let first = stream.next().now_or_never().unwrap().unwrap();
+                *first.unwrap().downcast::<#request>().unwrap()
+            });
+            let response: tonic::Response<_> = (*inner).#method_ident(request).await?;
+            Ok(response.map(|msg| stream::once(async move { Ok(Box::new(msg) as BoxMessage) }).boxed()))
         })
     }
 }
@@ -357,15 +384,12 @@ fn generate_server_streaming<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let mut request = *req.next().await.unwrap().unwrap()
-                .downcast::<tonic::Request<#request>>()
-                .unwrap();
-            request.set_remote_addr(remote_addr);
-            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
-            match res {
-                Ok(rsp) => Ok(rsp.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed()),
-                Err(err) => Ok(stream::once(async move { Err(err) }).boxed()),
-            }
+            let request = request.map(|mut stream| {
+                let first = stream.next().now_or_never().unwrap().unwrap();
+                *first.unwrap().downcast::<#request>().unwrap()
+            });
+            let response: tonic::Response<_> = (*inner).#method_ident(request).await?;
+            Ok(response.map(|stream| stream.map(|res| res.map(|msg| Box::new(msg) as BoxMessage)).boxed()))
         })
     }
 }
@@ -382,13 +406,13 @@ fn generate_client_streaming<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let stream = req
-                .map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap()))
-                .boxed();
-            let mut request = tonic::Request::new(tonic::Streaming::from_stream(stream));
-            request.set_remote_addr(remote_addr);
-            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
-            Ok(stream::once(async move { res.map(|rsp| Box::new(rsp) as BoxMessage) }).boxed())
+            let request = request.map(|stream| {
+                tonic::Streaming::from_stream(
+                    stream.map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap())).boxed()
+                )
+            });
+            let response: tonic::Response<_> = (*inner).#method_ident(request).await?;
+            Ok(response.map(|msg| stream::once(async move { Ok(Box::new(msg) as BoxMessage) }).boxed()))
         })
     }
 }
@@ -405,16 +429,13 @@ fn generate_streaming<T: Method>(
     quote! {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let stream = req
-                .map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap()))
-                .boxed();
-            let mut request = tonic::Request::new(tonic::Streaming::from_stream(stream));
-            request.set_remote_addr(remote_addr);
-            let res: Result<tonic::Response<_>, tonic::Status> = (*inner).#method_ident(request).await;
-            match res {
-                Ok(rsp) => Ok(rsp.into_inner().map(|res| res.map(|rsp| Box::new(rsp) as BoxMessage)).boxed()),
-                Err(err) => Ok(stream::once(async move { Err(err) }).boxed()),
-            }
+            let request = request.map(|stream| {
+                tonic::Streaming::from_stream(
+                    stream.map(|res| res.map(|msg| *msg.downcast::<#request>().unwrap())).boxed()
+                )
+            });
+            let response: tonic::Response<_> = (*inner).#method_ident(request).await?;
+            Ok(response.map(|stream| stream.map(|res| res.map(|msg| Box::new(msg) as BoxMessage)).boxed()))
         })
     }
 }

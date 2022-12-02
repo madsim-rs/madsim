@@ -48,8 +48,8 @@ pub fn generate<T: Service>(
             // #service_doc
             // #(#struct_attributes)*
             #[derive(Debug, Clone)]
-            pub struct #service_ident<T> {
-                inner: tonic::client::Grpc<T>,
+            pub struct #service_ident<T, F = IdentityInterceptor> {
+                inner: tonic::client::Grpc<T, F>,
             }
 
             #connect
@@ -57,6 +57,15 @@ pub fn generate<T: Service>(
             impl #service_ident<tonic::transport::Channel> {
                 pub fn new(inner: tonic::transport::Channel) -> Self {
                     let inner = tonic::client::Grpc::new(inner);
+                    Self { inner }
+                }
+            }
+
+            impl<F: tonic::service::Interceptor> #service_ident<tonic::transport::Channel, F> {
+                pub fn with_interceptor(inner: tonic::transport::Channel, interceptor: F)
+                    -> #service_ident<tonic::transport::Channel, F>
+                {
+                    let inner = tonic::client::Grpc::with_interceptor(inner, interceptor);
                     Self { inner }
                 }
 

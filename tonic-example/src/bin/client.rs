@@ -6,12 +6,8 @@ use std::time::Duration;
 use async_stream::stream;
 use madsim::time::sleep;
 
-use hello_world::greeter_client::GreeterClient;
-use hello_world::HelloRequest;
-
-pub mod hello_world {
-    tonic::include_proto!("helloworld");
-}
+use tonic_example::hello_world::greeter_client::GreeterClient;
+use tonic_example::hello_world::HelloRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
