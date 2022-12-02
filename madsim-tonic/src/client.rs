@@ -5,7 +5,7 @@ use tonic::codegen::http::uri::PathAndQuery;
 use tracing::instrument;
 
 use crate::{
-    codegen::{BoxMessage, IdentityInterceptor, RequestExt, ResponseExt},
+    codegen::{BoxMessage, IdentityInterceptor, RequestExt},
     service::Interceptor,
     Request, Response, Status, Streaming,
 };

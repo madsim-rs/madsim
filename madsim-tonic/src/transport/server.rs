@@ -216,13 +216,14 @@ impl<L> Router<L> {
                 Ok(msg) => msg,
                 Err(_) => continue, // maybe handshake or error
             };
-            let (path, server_streaming, request) = *msg
+            let (path, server_streaming, mut request) = *msg
                 .downcast::<(PathAndQuery, bool, Request<BoxMessage>)>()
                 .expect("invalid type");
             let span = debug_span!("request", ?addr, ?path);
             debug!(parent: &span, "received");
 
-            let mut requests: Request<BoxMessageStream> = request.map(move |msg| {
+            request.set_remote_addr(addr);
+            let request: Request<BoxMessageStream> = request.map(move |msg| {
                 if msg.downcast_ref::<()>().is_none() {
                     // single request
                     try_stream! { yield msg; }.boxed()
@@ -236,14 +237,13 @@ impl<L> Router<L> {
                     .boxed()
                 }
             });
-            requests.set_remote_addr(addr);
 
             // call the service in a new spawned task
             // TODO: handle error
             let svc_name = path.path().split('/').nth(1).unwrap();
             let svc = &mut self.services.get_mut(svc_name).unwrap();
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
-            let rsp_future = svc.call((path, requests));
+            let rsp_future = svc.call((path, request));
             madsim::task::spawn(async move {
                 let result: Result<Response<BoxMessageStream>, Status> =
                     rsp_future.instrument(span.clone()).await;

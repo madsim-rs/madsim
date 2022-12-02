@@ -131,8 +131,12 @@ pub fn generate<T: Service>(
                     Poll::Ready(Ok(()))
                 }
 
-                fn call(&mut self, (path, mut request): (PathAndQuery, tonic::Request<BoxMessageStream>)) -> Self::Future {
+                fn call(&mut self, (path, request): (PathAndQuery, tonic::Request<BoxMessageStream>)) -> Self::Future {
                     let inner = self.inner.clone();
+                    let mut request = match request.intercept(&mut self.interceptor) {
+                        Ok(r) => r,
+                        Err(e) => return Box::pin(async move { Err(e) }),
+                    };
 
                     match path.path() {
                         #methods

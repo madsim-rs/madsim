@@ -37,13 +37,9 @@ pub mod codegen {
     pub trait RequestExt<T>: Sized {
         fn set_remote_addr(&mut self, addr: SocketAddr);
         fn intercept<F: Interceptor>(self, interceptor: &mut F) -> Result<Self, Status>;
-        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Request<U>;
         fn boxed(self) -> Request<BoxMessage>
         where
-            T: Send + Sync + 'static,
-        {
-            self.map(|inner| Box::new(inner) as BoxMessage)
-        }
+            T: Send + Sync + 'static;
     }
 
     impl<T> RequestExt<T> for Request<T> {
@@ -63,16 +59,17 @@ pub mod codegen {
             Ok(Self::from_parts(metadata, extensions, inner))
         }
 
-        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Request<U> {
-            let (metadata, extensions, inner) = self.into_parts();
-            Request::<U>::from_parts(metadata, extensions, f(inner))
+        fn boxed(self) -> Request<BoxMessage>
+        where
+            T: Send + Sync + 'static,
+        {
+            self.map(|inner| Box::new(inner) as BoxMessage)
         }
     }
 
     pub trait ResponseExt<T>: Sized {
         fn into_parts(self) -> (MetadataMap, Extensions, T);
         fn from_parts(metadata: MetadataMap, extensions: Extensions, inner: T) -> Self;
-        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Response<U>;
     }
 
     impl<T> ResponseExt<T> for Response<T> {
@@ -88,11 +85,6 @@ pub mod codegen {
             *rsp.metadata_mut() = metadata;
             *rsp.extensions_mut() = extensions;
             rsp
-        }
-
-        fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Response<U> {
-            let (metadata, extensions, inner) = self.into_parts();
-            Response::<U>::from_parts(metadata, extensions, f(inner))
         }
     }
 }
