@@ -286,6 +286,10 @@ async fn unimplemented_service() {
 
             let error = client.say_hello(request()).await.unwrap_err();
             assert_eq!(error.code(), tonic::Code::Unimplemented);
+            assert_eq!(
+                error.metadata().get("content-type").unwrap(),
+                "application/grpc"
+            );
 
             let error = client.lots_of_replies(request()).await.unwrap_err();
             assert_eq!(error.code(), tonic::Code::Unimplemented);

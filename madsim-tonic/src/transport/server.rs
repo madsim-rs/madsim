@@ -2,6 +2,7 @@
 
 use super::{Error, NamedService};
 use crate::codegen::{BoxMessage, BoxMessageStream, RequestExt, ResponseExt};
+use crate::sim::AppendMetadata;
 use crate::tower::layer::util::{Identity, Stack};
 use crate::{Request, Response, Status};
 use async_stream::try_stream;
@@ -243,7 +244,8 @@ impl<L> Router<L> {
             let Some(svc) = &mut self.services.get_mut(svc_name) else {
                 // return error Unimplemented
                 madsim::task::spawn(async move {
-                    let err = Status::unimplemented(format!("service not found: {path}"));
+                    let mut err = Status::unimplemented(format!("service not found: {path}"));
+                    err.metadata_mut().append_metadata();
                     let msg: BoxMessage = if server_streaming {
                         Box::new(Err(err) as Result<Response<()>, Status>)
                     } else {
@@ -256,8 +258,9 @@ impl<L> Router<L> {
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
             let rsp_future = svc.call((path, request));
             madsim::task::spawn(async move {
-                let result: Result<Response<BoxMessageStream>, Status> =
+                let mut result: Result<Response<BoxMessageStream>, Status> =
                     rsp_future.instrument(span.clone()).await;
+                result.append_metadata();
                 if server_streaming {
                     let (header, stream) = match result {
                         Ok(response) => {

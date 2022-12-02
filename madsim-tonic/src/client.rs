@@ -7,6 +7,7 @@ use tracing::instrument;
 use crate::{
     codegen::{BoxMessage, IdentityInterceptor, RequestExt},
     service::Interceptor,
+    sim::AppendMetadata,
     Request, Response, Status, Streaming,
 };
 
@@ -47,7 +48,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn unary<M1, M2, C>(
         &mut self,
-        request: Request<M1>,
+        mut request: Request<M1>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<M2>, Status>
@@ -55,6 +56,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
         let request = request.intercept(&mut self.interceptor)?.boxed();
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
@@ -73,7 +75,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn client_streaming<M1, M2, C>(
         &mut self,
-        request: Request<impl Stream<Item = M1> + Send + 'static>,
+        mut request: Request<impl Stream<Item = M1> + Send + 'static>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<M2>, Status>
@@ -81,6 +83,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
         let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
@@ -99,7 +102,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn server_streaming<M1, M2, C>(
         &mut self,
-        request: Request<M1>,
+        mut request: Request<M1>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<Streaming<M2>>, Status>
@@ -107,6 +110,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
         let request = request.intercept(&mut self.interceptor)?.boxed();
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
@@ -124,7 +128,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn streaming<M1, M2, C>(
         &mut self,
-        request: Request<impl Stream<Item = M1> + Send + 'static>,
+        mut request: Request<impl Stream<Item = M1> + Send + 'static>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<Streaming<M2>>, Status>
@@ -132,6 +136,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
         let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;

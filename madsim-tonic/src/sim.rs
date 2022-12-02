@@ -16,6 +16,31 @@ pub mod codec;
 pub(crate) mod tower;
 pub mod transport;
 
+/// Append header to metadata.
+trait AppendMetadata {
+    fn append_metadata(&mut self);
+}
+impl AppendMetadata for metadata::MetadataMap {
+    fn append_metadata(&mut self) {
+        self.append("content-type", "application/grpc".parse().unwrap());
+        self.append("date", chrono::Utc::now().to_rfc2822().parse().unwrap());
+    }
+}
+impl<T> AppendMetadata for Request<T> {
+    fn append_metadata(&mut self) {
+        let metadata = self.metadata_mut();
+        metadata.append("content-type", "application/grpc".parse().unwrap());
+    }
+}
+impl<T> AppendMetadata for Result<Response<T>, Status> {
+    fn append_metadata(&mut self) {
+        match self {
+            Ok(r) => r.metadata_mut().append_metadata(),
+            Err(e) => e.metadata_mut().append_metadata(),
+        }
+    }
+}
+
 /// Codegen exports used by `madsim-tonic-build`.
 pub mod codegen {
     use std::any::Any;
