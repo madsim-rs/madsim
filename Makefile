@@ -15,10 +15,10 @@ stest:
 	$(SIM_FLAGS) cargo test
 
 clippy:
-	cargo clippy
+	cargo clippy --all-targets
 
 sclippy:
-	$(SIM_FLAGS) cargo clippy
+	$(SIM_FLAGS) cargo clippy --all-targets
 
 doc:
 	$(SIM_FLAGS) cargo doc --no-deps
