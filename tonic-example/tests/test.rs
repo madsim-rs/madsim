@@ -1,3 +1,5 @@
+#![cfg(madsim)]
+
 use async_stream::stream;
 use futures_core::Stream;
 use madsim::{
@@ -44,10 +46,7 @@ async fn basic() {
         let mut client = GreeterClient::connect("http://10.0.0.1:50051")
             .await
             .unwrap();
-        let request = tonic::Request::new(HelloRequest {
-            name: "Tonic".into(),
-        });
-        let response = client.say_hello(request).await.unwrap();
+        let response = client.say_hello(request()).await.unwrap();
         assert_eq!(response.into_inner().message, "Hello Tonic! (10.0.0.2)");
 
         let request = tonic::Request::new(HelloRequest {
@@ -63,10 +62,7 @@ async fn basic() {
         let mut client = AnotherGreeterClient::connect("http://10.0.0.1:50051")
             .await
             .unwrap();
-        let request = tonic::Request::new(HelloRequest {
-            name: "Tonic".into(),
-        });
-        let response = client.say_hello(request).await.unwrap();
+        let response = client.say_hello(request()).await.unwrap();
         assert_eq!(response.into_inner().message, "Hi Tonic!");
     });
 
@@ -76,10 +72,7 @@ async fn basic() {
         let mut client = GreeterClient::connect("http://10.0.0.1:50051")
             .await
             .unwrap();
-        let request = tonic::Request::new(HelloRequest {
-            name: "Tonic".into(),
-        });
-        let response = client.lots_of_replies(request).await.unwrap();
+        let response = client.lots_of_replies(request()).await.unwrap();
         let mut stream = response.into_inner();
         for i in 0..3 {
             let reply = stream.message().await.unwrap().unwrap();
@@ -125,6 +118,7 @@ async fn basic() {
     task5.await.unwrap();
 }
 
+/// Returns a stream of hello request.
 fn hello_stream() -> impl Stream<Item = HelloRequest> {
     stream! {
         for i in 0..3 {
@@ -134,6 +128,13 @@ fn hello_stream() -> impl Stream<Item = HelloRequest> {
             sleep(Duration::from_secs(1)).await;
         }
     }
+}
+
+/// Returns a hello request.
+fn request() -> tonic::Request<HelloRequest> {
+    tonic::Request::new(HelloRequest {
+        name: "Tonic".into(),
+    })
 }
 
 #[madsim::test]
@@ -181,10 +182,7 @@ async fn client_crash() {
                 sleep(Duration::from_secs(1)).await;
 
                 // unary
-                let request = tonic::Request::new(HelloRequest {
-                    name: "Tonic".into(),
-                });
-                let response = client.say_hello(request).await.unwrap();
+                let response = client.say_hello(request()).await.unwrap();
                 assert_eq!(response.into_inner().message, "Hello Tonic! (10.0.0.2)");
 
                 let mut i = 0;
@@ -218,19 +216,13 @@ async fn client_drops_response_stream() {
     });
     sleep(Duration::from_secs(1)).await;
 
-    handle
-        .create_node()
-        .name("client1")
-        .ip(ip1)
-        .build()
+    let node1 = handle.create_node().name("client1").ip(ip1).build();
+    node1
         .spawn(async move {
             let mut client = GreeterClient::connect("http://10.0.0.1:50051")
                 .await
                 .unwrap();
-            let request = tonic::Request::new(HelloRequest {
-                name: "Tonic".into(),
-            });
-            let _ = client.lots_of_replies(request).await.unwrap();
+            let _ = client.lots_of_replies(request()).await.unwrap();
             // ^ drop response stream
             sleep(Duration::from_secs(10)).await;
         })
@@ -259,18 +251,44 @@ async fn server_crash() {
             let mut client = GreeterClient::connect("http://10.0.0.1:50051")
                 .await
                 .unwrap();
-            let request = tonic::Request::new(HelloRequest {
-                name: "Tonic".into(),
-            });
-            client.say_hello(request).await.unwrap();
+            client.say_hello(request()).await.unwrap();
 
             Handle::current().kill(node0.id());
 
-            let request = tonic::Request::new(HelloRequest {
-                name: "Tonic".into(),
-            });
-            let error = client.say_hello(request).await.unwrap_err();
+            let error = client.say_hello(request()).await.unwrap_err();
             assert_eq!(error.code(), tonic::Code::Unavailable);
+        })
+        .await
+        .unwrap();
+}
+
+#[madsim::test]
+async fn unimplemented_service() {
+    let handle = Handle::current();
+    let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+    let ip1 = "10.0.0.2".parse().unwrap();
+    let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
+    node0.spawn(async move {
+        Server::builder()
+            .add_service(AnotherGreeterServer::new(MyGreeter::default()))
+            .serve(addr0)
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    let node1 = handle.create_node().name("client1").ip(ip1).build();
+    node1
+        .spawn(async move {
+            let mut client = GreeterClient::connect("http://10.0.0.1:50051")
+                .await
+                .unwrap();
+
+            let error = client.say_hello(request()).await.unwrap_err();
+            assert_eq!(error.code(), tonic::Code::Unimplemented);
+
+            let error = client.lots_of_replies(request()).await.unwrap_err();
+            assert_eq!(error.code(), tonic::Code::Unimplemented);
         })
         .await
         .unwrap();

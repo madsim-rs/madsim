@@ -239,9 +239,20 @@ impl<L> Router<L> {
             });
 
             // call the service in a new spawned task
-            // TODO: handle error
             let svc_name = path.path().split('/').nth(1).unwrap();
-            let svc = &mut self.services.get_mut(svc_name).unwrap();
+            let Some(svc) = &mut self.services.get_mut(svc_name) else {
+                // return error Unimplemented
+                madsim::task::spawn(async move {
+                    let err = Status::unimplemented(format!("service not found: {path}"));
+                    let msg: BoxMessage = if server_streaming {
+                        Box::new(Err(err) as Result<Response<()>, Status>)
+                    } else {
+                        Box::new(Err(err) as Result<Response<BoxMessage>, Status>)
+                    };
+                    _ = tx.send(msg).await;
+                });
+                continue;
+            };
             poll_fn(|cx| svc.poll_ready(cx)).await.unwrap();
             let rsp_future = svc.call((path, request));
             madsim::task::spawn(async move {
