@@ -8,7 +8,7 @@ use madsim::{
     time::sleep,
 };
 use std::{net::SocketAddr, time::Duration};
-use tonic::transport::Server;
+use tonic::transport::{Endpoint, Server};
 use tonic_example::hello_world::{
     another_greeter_client::AnotherGreeterClient, another_greeter_server::AnotherGreeterServer,
     greeter_client::GreeterClient, greeter_server::GreeterServer, HelloRequest,
@@ -293,6 +293,58 @@ async fn unimplemented_service() {
 
             let error = client.lots_of_replies(request()).await.unwrap_err();
             assert_eq!(error.code(), tonic::Code::Unimplemented);
+        })
+        .await
+        .unwrap();
+}
+
+#[madsim::test]
+async fn interceptor() {
+    let handle = Handle::current();
+    let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+    let ip1 = "10.0.0.2".parse().unwrap();
+    let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
+    node0.spawn(async move {
+        let mut i = 0;
+        Server::builder()
+            .add_service(GreeterServer::with_interceptor(
+                MyGreeter::default(),
+                move |req| {
+                    i += 1;
+                    if i % 2 == 0 {
+                        Err(tonic::Status::unavailable("intercepted"))
+                    } else {
+                        Ok(req)
+                    }
+                },
+            ))
+            .serve(addr0)
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    let node1 = handle.create_node().name("client1").ip(ip1).build();
+    node1
+        .spawn(async move {
+            let channel = Endpoint::from_static("http://10.0.0.1:50051")
+                .connect()
+                .await
+                .unwrap();
+            let mut i = 0;
+            let mut client = GreeterClient::with_interceptor(channel, move |req| {
+                i += 1;
+                if i % 2 == 0 {
+                    Err(tonic::Status::unavailable("intercepted"))
+                } else {
+                    Ok(req)
+                }
+            });
+            client.say_hello(request()).await.unwrap(); // (1, 1)
+            client.say_hello(request()).await.unwrap_err(); // (2, 1)
+            client.say_hello(request()).await.unwrap_err(); // (3, 2)
+            client.say_hello(request()).await.unwrap_err(); // (4, 2)
+            client.say_hello(request()).await.unwrap(); // (5, 3)
         })
         .await
         .unwrap();
