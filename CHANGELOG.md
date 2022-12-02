@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.11] - 2022-12-02
+
+### Added
+
+- tokio: Add `task::Builder::new_current_thread` but panic inside.
+- tonic: Add `service` module and `Extensions`.
+- tonic: Support interceptor.
+
+### Fixed
+
+- tonic: Fix passing metadata in request and response. Add `content-type` and `date` field.
+- tonic: Fix panic on unimplemented error.
+
 ## [0.2.10] - 2022-11-09
 
 ### Fixed

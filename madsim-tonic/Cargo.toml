@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.2.4"
+version = "0.2.11"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."

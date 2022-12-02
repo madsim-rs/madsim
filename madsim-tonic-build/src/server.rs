@@ -72,6 +72,7 @@ pub fn generate<T: Service>(
         // #(#mod_attributes)*
         pub mod #server_mod {
             #![allow(
+                unused_imports,
                 unused_variables,
                 dead_code,
                 missing_docs,
