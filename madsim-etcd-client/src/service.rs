@@ -2,7 +2,6 @@ use super::*;
 use futures_util::future::poll_fn;
 use madsim::rand::{random, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use serde_with::{hex::Hex, serde_as};
 use spin::Mutex;
 use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -35,24 +34,19 @@ impl EtcdService {
         }
     }
 
-    pub async fn put(
-        &self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        options: PutOptions,
-    ) -> Result<PutResponse> {
+    pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().put(key, value, options);
         Ok(rsp)
     }
 
-    pub async fn get(&self, key: Vec<u8>, options: GetOptions) -> Result<GetResponse> {
+    pub async fn get(&self, key: Key, options: GetOptions) -> Result<GetResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().get(key, options);
         Ok(rsp)
     }
 
-    pub async fn delete(&self, key: Vec<u8>, options: DeleteOptions) -> Result<DeleteResponse> {
+    pub async fn delete(&self, key: Key, options: DeleteOptions) -> Result<DeleteResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().delete(key, options);
         Ok(rsp)
@@ -134,11 +128,9 @@ impl EtcdService {
     }
 }
 
-#[serde_as]
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
-    #[serde_as(as = "BTreeMap<Hex, Hex>")]
     kv: BTreeMap<Key, Value>,
     lease: HashMap<LeaseId, Lease>,
     /// Waiters for election.
@@ -147,15 +139,13 @@ struct ServiceInner {
 }
 
 type LeaseId = i64;
-type Key = Vec<u8>;
-type Value = Vec<u8>;
+type Key = Bytes;
+type Value = Bytes;
 
-#[serde_as]
 #[derive(Debug, Serialize, Deserialize)]
 struct Lease {
     ttl: i64,
     granted_ttl: i64,
-    #[serde_as(as = "HashSet<Hex>")]
     keys: HashSet<Key>,
 }
 
@@ -176,11 +166,15 @@ impl ServiceInner {
         }
     }
 
-    fn put(&mut self, key: Vec<u8>, value: Vec<u8>, options: PutOptions) -> PutResponse {
+    fn put(&mut self, key: Key, value: Value, options: PutOptions) -> PutResponse {
         tracing::trace!(
-            key = ?String::from_utf8_lossy(&key),
-            value = ?String::from_utf8_lossy(&value),
-            lease = if options.lease == 0 { None } else { Some(options.lease) },
+            ?key,
+            ?value,
+            lease = if options.lease == 0 {
+                None
+            } else {
+                Some(options.lease)
+            },
             "put"
         );
         if options.lease != 0 {
@@ -200,12 +194,8 @@ impl ServiceInner {
         }
     }
 
-    fn get(&mut self, key: Vec<u8>, options: GetOptions) -> GetResponse {
-        tracing::trace!(
-            key = ?String::from_utf8_lossy(&key),
-            ?options,
-            "get"
-        );
+    fn get(&mut self, key: Key, options: GetOptions) -> GetResponse {
+        tracing::trace!(?key, ?options, "get");
         if options.revision > 0 {
             todo!("get with revision");
         }
@@ -238,11 +228,8 @@ impl ServiceInner {
         self.kv.range(key..end)
     }
 
-    fn delete(&mut self, key: Vec<u8>, _options: DeleteOptions) -> DeleteResponse {
-        tracing::trace!(
-            key = ?String::from_utf8_lossy(&key),
-            "delete"
-        );
+    fn delete(&mut self, key: Key, _options: DeleteOptions) -> DeleteResponse {
+        tracing::trace!(?key, "delete");
         let deleted = self.kv.remove(&key).map_or(0, |_| 1);
         if deleted > 0 {
             self.revision += 1;
@@ -350,7 +337,7 @@ impl ServiceInner {
             ttl: lease.ttl,
             granted_ttl: lease.granted_ttl,
             keys: if keys {
-                lease.keys.iter().cloned().collect()
+                lease.keys.iter().map(|k| k.to_vec()).collect()
             } else {
                 vec![]
             },
@@ -386,36 +373,31 @@ impl ServiceInner {
 
     fn poll_campaign(
         &mut self,
-        name: &[u8],
-        value: &[u8],
+        name: &Key,
+        value: &Value,
         lease: i64,
         cx: &mut Context<'_>,
     ) -> Poll<CampaignResponse> {
-        if self.get_prefix_range(name.to_vec()).next().is_some() {
+        if self.get_prefix_range(name.clone()).next().is_some() {
             // the election name is occupied
             self.waiting_candidates
-                .push((name.to_vec(), cx.waker().clone()));
+                .push((name.clone(), cx.waker().clone()));
             return Poll::Pending;
         }
 
         // name = format!("{name}/{lease:016x}")
-        let mut key = name.to_vec();
+        let mut key = name.clone();
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
-        self.kv.insert(key.clone(), value.to_vec());
+        self.kv.insert(key.clone(), value.clone());
         self.revision += 1;
 
-        tracing::trace!(
-            name = ?String::from_utf8_lossy(name),
-            value = ?String::from_utf8_lossy(value),
-            lease,
-            "new leader",
-        );
+        tracing::trace!(?name, ?value, lease, "new leader",);
         Poll::Ready(CampaignResponse {
             header: self.header(),
             leader: LeaderKey {
-                name: name.to_vec(),
+                name: name.clone(),
                 key,
                 rev: 0, // TODO: key revision
                 lease,
@@ -423,12 +405,8 @@ impl ServiceInner {
         })
     }
 
-    fn proclaim(&mut self, leader: LeaderKey, value: Vec<u8>) -> Result<ProclaimResponse> {
-        tracing::trace!(
-            name = ?String::from_utf8_lossy(&leader.name),
-            value = ?String::from_utf8_lossy(&value),
-            "proclaim",
-        );
+    fn proclaim(&mut self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
+        tracing::trace!(name = ?leader.name, ?value, "proclaim");
         (self.kv.insert(leader.key, value))
             .ok_or_else(|| Error::ElectError("session expired".into()))?;
         self.revision += 1;

@@ -1,7 +1,7 @@
 use madsim::net::{Endpoint, Payload};
 use std::{io::Result, net::SocketAddr, sync::Arc};
 
-use super::{election::*, kv::*, service::EtcdService};
+use super::{election::*, kv::*, service::EtcdService, Bytes};
 
 /// A simulated etcd server.
 #[derive(Default, Clone)]
@@ -79,16 +79,16 @@ impl SimServer {
 pub(crate) enum Request {
     // kv API
     Put {
-        key: Vec<u8>,
-        value: Vec<u8>,
+        key: Bytes,
+        value: Bytes,
         options: PutOptions,
     },
     Get {
-        key: Vec<u8>,
+        key: Bytes,
         options: GetOptions,
     },
     Delete {
-        key: Vec<u8>,
+        key: Bytes,
         options: DeleteOptions,
     },
     Txn {
@@ -114,20 +114,20 @@ pub(crate) enum Request {
 
     // election API
     Campaign {
-        name: Vec<u8>,
-        value: Vec<u8>,
+        name: Bytes,
+        value: Bytes,
         lease: i64,
     },
     Proclaim {
         leader: LeaderKey,
-        value: Vec<u8>,
+        value: Bytes,
     },
     Leader {
-        name: Vec<u8>,
+        name: Bytes,
     },
     Observe {
         #[allow(dead_code)]
-        name: Vec<u8>,
+        name: Bytes,
     },
     Resign {
         leader: LeaderKey,

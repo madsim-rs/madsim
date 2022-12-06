@@ -1,3 +1,4 @@
+mod bytes;
 mod election;
 mod error;
 mod kv;
@@ -9,6 +10,7 @@ use madsim::net::Endpoint;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+pub use self::bytes::Bytes;
 pub use self::election::*;
 pub use self::error::{Error, Result};
 pub use self::kv::*;
