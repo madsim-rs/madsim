@@ -1,6 +1,8 @@
 use super::*;
 use futures_util::future::poll_fn;
 use madsim::rand::{random, thread_rng, Rng};
+use serde::{Deserialize, Serialize};
+use serde_with::{hex::Hex, serde_as};
 use spin::Mutex;
 use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -14,8 +16,11 @@ pub struct EtcdService {
 }
 
 impl EtcdService {
-    pub fn new(timeout_rate: f32) -> Self {
-        let inner = Arc::new(Mutex::new(ServiceInner::default()));
+    pub fn new(timeout_rate: f32, data: Option<String>) -> Self {
+        let inner = Arc::new(Mutex::new(data.map_or_else(
+            || ServiceInner::default(),
+            |data| serde_json::from_str(&data).expect("failed to deserialize dump"),
+        )));
         let weak = Arc::downgrade(&inner);
         madsim::task::spawn(async move {
             while let Some(inner) = weak.upgrade() {
@@ -110,6 +115,11 @@ impl EtcdService {
         self.inner.lock().resign(leader)
     }
 
+    pub async fn dump(&self) -> Result<String> {
+        let inner = &*self.inner.lock();
+        Ok(serde_json::to_string(inner).expect("failed to serialize dump"))
+    }
+
     async fn timeout(&self) -> Result<()> {
         if thread_rng().gen_bool(self.timeout_rate as f64) {
             let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
@@ -124,12 +134,15 @@ impl EtcdService {
     }
 }
 
-#[derive(Debug, Default)]
+#[serde_as]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
+    #[serde_as(as = "BTreeMap<Hex, Hex>")]
     kv: BTreeMap<Key, Value>,
     lease: HashMap<LeaseId, Lease>,
     /// Waiters for election.
+    #[serde(skip)]
     waiting_candidates: Vec<(Key, Waker)>,
 }
 
@@ -137,10 +150,12 @@ type LeaseId = i64;
 type Key = Vec<u8>;
 type Value = Vec<u8>;
 
-#[derive(Debug)]
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize)]
 struct Lease {
     ttl: i64,
     granted_ttl: i64,
+    #[serde_as(as = "HashSet<Hex>")]
     keys: HashSet<Key>,
 }
 

@@ -7,6 +7,7 @@ use super::{election::*, kv::*, service::EtcdService};
 #[derive(Default, Clone)]
 pub struct SimServer {
     timeout_rate: f32,
+    load: Option<String>,
 }
 
 impl SimServer {
@@ -22,10 +23,16 @@ impl SimServer {
         self
     }
 
+    /// Load data from dump.
+    pub fn load(mut self, data: String) -> Self {
+        self.load = Some(data);
+        self
+    }
+
     /// Consume this [`SimServer`] creating a future that will execute the server.
     pub async fn serve(self, addr: SocketAddr) -> Result<()> {
         let ep = Endpoint::bind(addr).await?;
-        let service = Arc::new(EtcdService::new(self.timeout_rate));
+        let service = Arc::new(EtcdService::new(self.timeout_rate, self.load));
         loop {
             let (tx, mut rx, _) = ep.accept1().await?;
             let service = service.clone();
@@ -58,6 +65,7 @@ impl SimServer {
                     Request::Leader { name } => Box::new(service.leader(name).await),
                     Request::Observe { name: _ } => todo!(),
                     Request::Resign { leader } => Box::new(service.resign(leader).await),
+                    Request::Dump => Box::new(service.dump().await),
                 };
                 tx.send(response).await?;
                 Ok(()) as Result<()>
@@ -124,4 +132,7 @@ pub(crate) enum Request {
     Resign {
         leader: LeaderKey,
     },
+
+    // internal API
+    Dump,
 }

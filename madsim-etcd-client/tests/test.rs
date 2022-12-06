@@ -33,3 +33,47 @@ async fn kv() {
     });
     task1.await.unwrap();
 }
+
+#[madsim::test]
+async fn load_dump() {
+    let handle = Handle::current();
+    let ip1 = "10.0.0.1".parse().unwrap();
+    let ip2 = "10.0.0.2".parse().unwrap();
+    let server = handle.create_node().name("server").ip(ip1).build();
+    let client = handle.create_node().name("client").ip(ip2).build();
+
+    server.spawn(async move {
+        SimServer::builder()
+            .serve("10.0.0.1:2379".parse().unwrap())
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    let dump = client
+        .spawn(async move {
+            let mut client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+            client.kv_client().put("foo", "bar", None).await.unwrap();
+            client.dump().await.unwrap()
+        })
+        .await
+        .unwrap();
+
+    server.spawn(async move {
+        SimServer::builder()
+            .load(dump)
+            .serve("10.0.0.1:2380".parse().unwrap())
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    client
+        .spawn(async move {
+            let client = Client::connect(["10.0.0.1:2380"], None).await.unwrap();
+            let resp = client.kv_client().get("foo", None).await.unwrap();
+            assert_eq!(resp.kvs()[0].value(), b"bar");
+        })
+        .await
+        .unwrap();
+}
