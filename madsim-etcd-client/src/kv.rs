@@ -277,7 +277,7 @@ impl Txn {
         assert!(!self.c_else, "cannot call when after or_else");
 
         self.c_when = true;
-        self.compare = compares.into().into();
+        self.compare = compares.into();
         self
     }
 
@@ -289,7 +289,7 @@ impl Txn {
         assert!(!self.c_else, "cannot call and_then after or_else");
 
         self.c_then = true;
-        self.success = operations.into().into();
+        self.success = operations.into();
         self
     }
 
@@ -300,7 +300,7 @@ impl Txn {
         assert!(!self.c_else, "cannot call or_else twice");
 
         self.c_else = true;
-        self.failure = operations.into().into();
+        self.failure = operations.into();
         self
     }
 }

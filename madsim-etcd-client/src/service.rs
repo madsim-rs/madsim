@@ -16,10 +16,11 @@ pub struct EtcdService {
 
 impl EtcdService {
     pub fn new(timeout_rate: f32, data: Option<String>) -> Self {
-        let inner = Arc::new(Mutex::new(data.map_or_else(
-            || ServiceInner::default(),
-            |data| serde_json::from_str(&data).expect("failed to deserialize dump"),
-        )));
+        let inner = Arc::new(Mutex::new(
+            data.map_or_else(ServiceInner::default, |data| {
+                serde_json::from_str(&data).expect("failed to deserialize dump")
+            }),
+        ));
         let weak = Arc::downgrade(&inner);
         madsim::task::spawn(async move {
             while let Some(inner) = weak.upgrade() {
