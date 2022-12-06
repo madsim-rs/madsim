@@ -111,7 +111,7 @@ impl EtcdService {
 
     pub async fn dump(&self) -> Result<String> {
         let inner = &*self.inner.lock();
-        Ok(serde_json::to_string(inner).expect("failed to serialize dump"))
+        Ok(serde_json::to_string_pretty(inner).expect("failed to serialize dump"))
     }
 
     async fn timeout(&self) -> Result<()> {
