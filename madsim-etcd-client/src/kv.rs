@@ -1,4 +1,4 @@
-use super::{server::Request, ResponseHeader, Result};
+use super::{server::Request, Bytes, ResponseHeader, Result};
 use madsim::net::Endpoint;
 use std::{fmt::Display, net::SocketAddr};
 
@@ -29,8 +29,8 @@ impl KvClient {
         options: Option<PutOptions>,
     ) -> Result<PutResponse> {
         let req = Request::Put {
-            key: key.into(),
-            value: value.into(),
+            key: key.into().into(),
+            value: value.into().into(),
             options: options.unwrap_or_default(),
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
@@ -46,7 +46,7 @@ impl KvClient {
         options: Option<GetOptions>,
     ) -> Result<GetResponse> {
         let req = Request::Get {
-            key: key.into(),
+            key: key.into().into(),
             options: options.unwrap_or_default(),
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
@@ -62,7 +62,7 @@ impl KvClient {
         options: Option<DeleteOptions>,
     ) -> Result<DeleteResponse> {
         let req = Request::Delete {
-            key: key.into(),
+            key: key.into().into(),
             options: options.unwrap_or_default(),
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
@@ -308,8 +308,8 @@ impl Txn {
 /// Transaction comparision.
 #[derive(Debug, Clone)]
 pub struct Compare {
-    pub(crate) key: Vec<u8>,
-    pub(crate) value: Vec<u8>,
+    pub(crate) key: Bytes,
+    pub(crate) value: Bytes,
     pub(crate) op: CompareOp,
 }
 
@@ -328,8 +328,8 @@ impl Compare {
     #[inline]
     pub fn value(key: impl Into<Vec<u8>>, cmp: CompareOp, value: impl Into<Vec<u8>>) -> Self {
         Compare {
-            key: key.into(),
-            value: value.into(),
+            key: key.into().into(),
+            value: value.into().into(),
             op: cmp,
         }
     }
@@ -339,16 +339,16 @@ impl Compare {
 #[derive(Debug, Clone)]
 pub enum TxnOp {
     Put {
-        key: Vec<u8>,
-        value: Vec<u8>,
+        key: Bytes,
+        value: Bytes,
         options: PutOptions,
     },
     Get {
-        key: Vec<u8>,
+        key: Bytes,
         options: GetOptions,
     },
     Delete {
-        key: Vec<u8>,
+        key: Bytes,
         options: DeleteOptions,
     },
     Txn {
@@ -365,8 +365,8 @@ impl TxnOp {
         options: Option<PutOptions>,
     ) -> Self {
         TxnOp::Put {
-            key: key.into(),
-            value: value.into(),
+            key: key.into().into(),
+            value: value.into().into(),
             options: options.unwrap_or_default(),
         }
     }
@@ -375,7 +375,7 @@ impl TxnOp {
     #[inline]
     pub fn get(key: impl Into<Vec<u8>>, options: Option<GetOptions>) -> Self {
         TxnOp::Get {
-            key: key.into(),
+            key: key.into().into(),
             options: options.unwrap_or_default(),
         }
     }
@@ -384,7 +384,7 @@ impl TxnOp {
     #[inline]
     pub fn delete(key: impl Into<Vec<u8>>, options: Option<DeleteOptions>) -> Self {
         TxnOp::Delete {
-            key: key.into(),
+            key: key.into().into(),
             options: options.unwrap_or_default(),
         }
     }
@@ -486,8 +486,8 @@ impl TxnResponse {
 /// Key-value pair.
 #[derive(Debug, Clone)]
 pub struct KeyValue {
-    pub(crate) key: Vec<u8>,
-    pub(crate) value: Vec<u8>,
+    pub(crate) key: Bytes,
+    pub(crate) value: Bytes,
 }
 
 impl KeyValue {
