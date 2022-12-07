@@ -2,6 +2,7 @@ use super::*;
 use futures_util::future::poll_fn;
 use madsim::rand::{random, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use spin::Mutex;
 use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -18,7 +19,7 @@ impl EtcdService {
     pub fn new(timeout_rate: f32, data: Option<String>) -> Self {
         let inner = Arc::new(Mutex::new(
             data.map_or_else(ServiceInner::default, |data| {
-                serde_json::from_str(&data).expect("failed to deserialize dump")
+                toml::from_str(&data).expect("failed to deserialize dump")
             }),
         ));
         let weak = Arc::downgrade(&inner);
@@ -112,7 +113,7 @@ impl EtcdService {
 
     pub async fn dump(&self) -> Result<String> {
         let inner = &*self.inner.lock();
-        Ok(serde_json::to_string_pretty(inner).expect("failed to serialize dump"))
+        Ok(toml::to_string(inner).expect("failed to serialize dump"))
     }
 
     async fn timeout(&self) -> Result<()> {
@@ -129,10 +130,12 @@ impl EtcdService {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
     kv: BTreeMap<Key, Value>,
+    #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     lease: HashMap<LeaseId, Lease>,
     /// Waiters for election.
     #[serde(skip)]
@@ -291,11 +294,11 @@ impl ServiceInner {
         // choose an ID if == 0
         if id == 0 {
             while self.lease.contains_key(&id) || id == 0 {
-                id = random();
+                id = random::<i64>().abs();
             }
         }
         let old = self.lease.insert(id, Lease::new(ttl));
-        assert!(old.is_some(), "lease ID already exists");
+        assert!(old.is_none(), "lease ID already exists");
         self.revision += 1;
         LeaseGrantResponse {
             header: self.header(),
@@ -319,9 +322,8 @@ impl ServiceInner {
     fn lease_keep_alive(&mut self, id: i64) -> LeaseKeepAliveResponse {
         tracing::trace!(id, "lease_keep_alive");
         let lease = self.lease.get_mut(&id).expect("no lease");
-        let ttl = 30; // TODO: choose default TTL
+        let ttl = lease.granted_ttl;
         lease.ttl = ttl;
-        lease.granted_ttl = ttl;
         self.revision += 1;
         LeaseKeepAliveResponse {
             header: self.header(),
