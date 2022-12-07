@@ -18,7 +18,7 @@ impl EtcdService {
     pub fn new(timeout_rate: f32, data: Option<String>) -> Self {
         let inner = Arc::new(Mutex::new(
             data.map_or_else(ServiceInner::default, |data| {
-                serde_json::from_str(&data).expect("failed to deserialize dump")
+                toml::from_str(&data).expect("failed to deserialize dump")
             }),
         ));
         let weak = Arc::downgrade(&inner);
@@ -112,7 +112,7 @@ impl EtcdService {
 
     pub async fn dump(&self) -> Result<String> {
         let inner = &*self.inner.lock();
-        Ok(serde_json::to_string_pretty(inner).expect("failed to serialize dump"))
+        Ok(toml::to_string(inner).expect("failed to serialize dump"))
     }
 
     async fn timeout(&self) -> Result<()> {
