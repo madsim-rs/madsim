@@ -17,6 +17,8 @@ use tonic_example::MyGreeter;
 
 #[madsim::test]
 async fn basic() {
+    tracing_subscriber::fmt::init();
+
     let handle = Handle::current();
     let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
     let ip1 = "10.0.0.2".parse().unwrap();
