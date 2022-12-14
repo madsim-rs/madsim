@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.12] - 2022-12-13
 
+### Changed
+
+- madsim: No longer initialize the global logger on `#[main]` or `#[test]`.
+
 ### Fixed
 
 - madsim: Fix `Instant` interception on ARM64 macOS caused by change in Rust nightly.
