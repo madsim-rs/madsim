@@ -7,7 +7,7 @@ use std::str::FromStr;
 ///
 /// The bytes will be display and serialized in escape format.
 /// see [`std::ascii::escape_default`].
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bytes(Vec<u8>);
 
 impl Bytes {

@@ -277,6 +277,12 @@ impl LeaderResponse {
     pub fn kv(&self) -> Option<&KeyValue> {
         self.kv.as_ref()
     }
+
+    /// Takes the kv out of the response, leaving a [`None`] in its place.
+    #[inline]
+    pub fn take_kv(&mut self) -> Option<KeyValue> {
+        self.kv.take()
+    }
 }
 
 /// Response for `Observe` operation.
