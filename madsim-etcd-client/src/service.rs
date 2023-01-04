@@ -4,6 +4,7 @@ use madsim::rand::{random, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use spin::Mutex;
+use std::collections::btree_map::Entry;
 use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
@@ -111,6 +112,11 @@ impl EtcdService {
         self.inner.lock().resign(leader)
     }
 
+    pub async fn status(&self) -> Result<StatusResponse> {
+        self.timeout().await?;
+        self.inner.lock().status()
+    }
+
     pub async fn dump(&self) -> Result<String> {
         let inner = &*self.inner.lock();
         Ok(toml::to_string(inner).expect("failed to serialize dump"))
@@ -134,7 +140,7 @@ impl EtcdService {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
-    kv: BTreeMap<Key, Value>,
+    kv: BTreeMap<Key, (Value, LeaseId)>,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     lease: HashMap<LeaseId, Lease>,
     /// Waiters for election.
@@ -181,17 +187,27 @@ impl ServiceInner {
             },
             "put"
         );
+        let prev_value = self.kv.get(&key).cloned();
+        // add key to the new lease
         if options.lease != 0 {
             let lease = self.lease.get_mut(&options.lease).expect("no lease");
             lease.keys.insert(key.clone());
         }
-        let prev_value = self.kv.insert(key.clone(), value);
-        // TODO: remove key from previous lease
+        // remove key from the old lease
+        if let Some((_, lease)) = prev_value {
+            if lease != 0 {
+                let lease = self.lease.get_mut(&lease).expect("no lease");
+                lease.keys.remove(&key);
+            }
+        }
+        // update main key-value
+        *self.kv.entry(key.clone()).or_default() = (value, options.lease);
+
         self.revision += 1;
         PutResponse {
             header: self.header(),
             prev_kv: if options.prev_kv {
-                prev_value.map(|value| KeyValue { key, value })
+                prev_value.map(|(value, lease)| KeyValue { key, value, lease })
             } else {
                 None
             },
@@ -205,17 +221,19 @@ impl ServiceInner {
         }
         let kvs = if options.prefix {
             self.get_prefix_range(key)
-                .map(|(k, v)| KeyValue {
+                .map(|(k, (v, lease))| KeyValue {
                     key: k.clone(),
                     value: v.clone(),
+                    lease: *lease,
                 })
                 .collect()
         } else {
             self.kv
                 .get(&key)
-                .map(|v| KeyValue {
+                .map(|(v, lease)| KeyValue {
                     key: key.clone(),
                     value: v.clone(),
+                    lease: *lease,
                 })
                 .into_iter()
                 .collect()
@@ -226,7 +244,7 @@ impl ServiceInner {
         }
     }
 
-    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, Value> {
+    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, (Value, LeaseId)> {
         let mut end = key.clone();
         *end.last_mut().unwrap() += 1;
         self.kv.range(key..end)
@@ -234,9 +252,14 @@ impl ServiceInner {
 
     fn delete(&mut self, key: Key, _options: DeleteOptions) -> DeleteResponse {
         tracing::trace!(?key, "delete");
-        let deleted = self.kv.remove(&key).map_or(0, |_| 1);
-        if deleted > 0 {
+        let prev_kv = self.kv.remove(&key);
+        if let Some((_, lease)) = &prev_kv {
             self.revision += 1;
+            // remove key from the lease
+            if *lease != 0 {
+                let lease = self.lease.get_mut(lease).expect("no lease");
+                lease.keys.remove(&key);
+            }
             // TODO: notify one
             self.waiting_candidates.retain(|(prefix, waker)| {
                 if key.starts_with(prefix) {
@@ -249,14 +272,14 @@ impl ServiceInner {
         }
         DeleteResponse {
             header: self.header(),
-            deleted,
+            deleted: prev_kv.map_or(0, |_| 1),
         }
     }
 
     fn txn(&mut self, txn: Txn) -> TxnResponse {
         tracing::trace!(%txn, "transaction");
         let succeeded = txn.compare.iter().all(|cmp| {
-            let value = self.kv.get(&cmp.key);
+            let value = self.kv.get(&cmp.key).map(|(v, _)| v);
             match cmp.op {
                 CompareOp::Equal => value == Some(&cmp.value),
                 CompareOp::Greater => matches!(value, Some(v) if v > &cmp.value),
@@ -276,7 +299,7 @@ impl ServiceInner {
                     options,
                 } => TxnOpResponse::Put(self.put(key, value, options)),
                 TxnOp::Delete { key, options } => TxnOpResponse::Delete(self.delete(key, options)),
-                TxnOp::Txn { txn: _txn } => todo!(),
+                TxnOp::Txn { txn } => TxnOpResponse::Txn(self.txn(txn)),
             };
             op_responses.push(response);
         }
@@ -393,7 +416,7 @@ impl ServiceInner {
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
-        self.kv.insert(key.clone(), value.clone());
+        self.kv.insert(key.clone(), (value.clone(), lease));
         self.revision += 1;
 
         tracing::trace!(?name, ?value, lease, "new leader",);
@@ -410,8 +433,10 @@ impl ServiceInner {
 
     fn proclaim(&mut self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
         tracing::trace!(name = ?leader.name, ?value, "proclaim");
-        (self.kv.insert(leader.key, value))
-            .ok_or_else(|| Error::ElectError("session expired".into()))?;
+        match self.kv.entry(leader.key) {
+            Entry::Occupied(mut entry) => entry.get_mut().0 = value,
+            Entry::Vacant(_) => return Err(Error::ElectError("session expired".into())),
+        }
         self.revision += 1;
         Ok(ProclaimResponse {
             header: self.header(),
@@ -421,10 +446,14 @@ impl ServiceInner {
     fn leader(&self, name: Key) -> Result<LeaderResponse> {
         Ok(LeaderResponse {
             header: self.header(),
-            kv: self.get_prefix_range(name).next().map(|(k, v)| KeyValue {
-                key: k.clone(),
-                value: v.clone(),
-            }),
+            kv: self
+                .get_prefix_range(name)
+                .next()
+                .map(|(k, (v, lease))| KeyValue {
+                    key: k.clone(),
+                    value: v.clone(),
+                    lease: *lease,
+                }),
         })
     }
 
@@ -433,6 +462,13 @@ impl ServiceInner {
         (self.kv.remove(&leader.key)).ok_or_else(|| Error::ElectError("session expired".into()))?;
         self.revision += 1;
         Ok(ResignResponse {
+            header: self.header(),
+        })
+    }
+
+    fn status(&mut self) -> Result<StatusResponse> {
+        tracing::trace!("status");
+        Ok(StatusResponse {
             header: self.header(),
         })
     }

@@ -488,6 +488,7 @@ impl TxnResponse {
 pub struct KeyValue {
     pub(crate) key: Bytes,
     pub(crate) value: Bytes,
+    pub(crate) lease: i64,
 }
 
 impl KeyValue {
@@ -501,5 +502,11 @@ impl KeyValue {
     #[inline]
     pub fn value(&self) -> &[u8] {
         &self.value
+    }
+
+    /// The ID of the lease that attached to key.
+    #[inline]
+    pub const fn lease(&self) -> i64 {
+        self.lease
     }
 }

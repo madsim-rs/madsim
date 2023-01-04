@@ -65,6 +65,7 @@ impl SimServer {
                     Request::Leader { name } => Box::new(service.leader(name).await),
                     Request::Observe { name: _ } => todo!(),
                     Request::Resign { leader } => Box::new(service.resign(leader).await),
+                    Request::Status => Box::new(service.status().await),
                     Request::Dump => Box::new(service.dump().await),
                 };
                 tx.send(response).await?;
@@ -132,6 +133,9 @@ pub(crate) enum Request {
     Resign {
         leader: LeaderKey,
     },
+
+    // maintenance API
+    Status,
 
     // internal API
     Dump,

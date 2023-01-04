@@ -711,7 +711,9 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
 #[inline(never)]
 unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc::c_int {
     if crate::context::try_current_task().is_some() {
-        panic!("attempt to spawn a system thread in simulation");
+        eprintln!("attempt to spawn a system thread in simulation.");
+        eprintln!("note: try to use tokio tasks instead.");
+        return -1;
     }
     lazy_static::lazy_static! {
         static ref PTHREAD_ATTR_INIT: unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int = unsafe {

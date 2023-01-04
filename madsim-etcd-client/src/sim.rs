@@ -3,6 +3,7 @@ mod election;
 mod error;
 mod kv;
 mod lease;
+mod maintenance;
 mod server;
 mod service;
 
@@ -15,6 +16,7 @@ pub use self::election::*;
 pub use self::error::{Error, Result};
 pub use self::kv::*;
 pub use self::lease::*;
+pub use self::maintenance::*;
 pub use self::server::SimServer;
 
 use self::server::Request;
@@ -54,6 +56,12 @@ impl Client {
     #[inline]
     pub fn election_client(&self) -> ElectionClient {
         ElectionClient::new(self.ep.clone())
+    }
+
+    /// Gets a maintenance client.
+    #[inline]
+    pub fn maintenance_client(&self) -> MaintenanceClient {
+        MaintenanceClient::new(self.ep.clone())
     }
 
     /// Dump the data of the etcd server.

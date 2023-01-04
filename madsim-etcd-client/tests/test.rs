@@ -30,6 +30,7 @@ async fn kv() {
         let kv = &resp.kvs()[0];
         assert_eq!(kv.key(), b"foo");
         assert_eq!(kv.value(), b"bar");
+        assert_eq!(kv.lease(), 0);
     });
     task1.await.unwrap();
 }
@@ -62,6 +63,7 @@ async fn lease() {
         // get kv
         let resp = kv_client.get("foo", None).await.unwrap();
         assert_eq!(resp.kvs().len(), 1);
+        assert_eq!(resp.kvs()[0].lease(), lease.id());
         // list leases
         let resp = client.lease_client().leases().await.unwrap();
         assert_eq!(resp.leases().len(), 1);
@@ -81,6 +83,31 @@ async fn lease() {
         // get kv
         let resp = kv_client.get("foo", None).await.unwrap();
         assert!(resp.kvs().is_empty());
+    });
+    task1.await.unwrap();
+}
+
+#[madsim::test]
+async fn maintenance() {
+    let handle = Handle::current();
+    let ip1 = "10.0.0.1".parse().unwrap();
+    let ip2 = "10.0.0.2".parse().unwrap();
+    let server = handle.create_node().name("server").ip(ip1).build();
+    let client = handle.create_node().name("client").ip(ip2).build();
+
+    server.spawn(async move {
+        SimServer::builder()
+            .serve("10.0.0.1:2379".parse().unwrap())
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    let task1 = client.spawn(async move {
+        let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+        let mut client = client.maintenance_client();
+        // get status
+        client.status().await.unwrap();
     });
     task1.await.unwrap();
 }
