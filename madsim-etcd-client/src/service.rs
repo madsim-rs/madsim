@@ -112,6 +112,11 @@ impl EtcdService {
         self.inner.lock().resign(leader)
     }
 
+    pub async fn status(&self) -> Result<StatusResponse> {
+        self.timeout().await?;
+        self.inner.lock().status()
+    }
+
     pub async fn dump(&self) -> Result<String> {
         let inner = &*self.inner.lock();
         Ok(toml::to_string(inner).expect("failed to serialize dump"))
@@ -457,6 +462,13 @@ impl ServiceInner {
         (self.kv.remove(&leader.key)).ok_or_else(|| Error::ElectError("session expired".into()))?;
         self.revision += 1;
         Ok(ResignResponse {
+            header: self.header(),
+        })
+    }
+
+    fn status(&mut self) -> Result<StatusResponse> {
+        tracing::trace!("status");
+        Ok(StatusResponse {
             header: self.header(),
         })
     }
