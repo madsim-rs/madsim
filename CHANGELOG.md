@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- etcd: Add `KeyValue::lease` and maintenance `status` API.
+
+## [0.2.13] - 2023-01-09
+
+### Fixed
+
+- madsim: Fix join cancelled tasks.
+
 ## [0.2.12] - 2022-12-13
 
 ### Changed
