@@ -140,12 +140,33 @@ impl EtcdService {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
-    kv: BTreeMap<Key, (Value, LeaseId)>,
+    kv: BTreeMap<Key, KeyInfo>,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     lease: HashMap<LeaseId, Lease>,
     /// Waiters for election.
     #[serde(skip)]
     waiting_candidates: Vec<(Key, Waker)>,
+}
+
+/// Value and metadata of a key.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct KeyInfo {
+    value: Value,
+    lease: LeaseId,
+    create_revision: i64,
+    modify_revision: i64,
+}
+
+impl KeyInfo {
+    fn into_key_value(self, key: Key) -> KeyValue {
+        KeyValue {
+            key,
+            value: self.value,
+            lease: self.lease,
+            create_revision: self.create_revision,
+            modify_revision: self.modify_revision,
+        }
+    }
 }
 
 type LeaseId = i64;
@@ -194,20 +215,27 @@ impl ServiceInner {
             lease.keys.insert(key.clone());
         }
         // remove key from the old lease
-        if let Some((_, lease)) = prev_value {
-            if lease != 0 {
-                let lease = self.lease.get_mut(&lease).expect("no lease");
+        if let Some(v) = &prev_value {
+            if v.lease != 0 {
+                let lease = self.lease.get_mut(&v.lease).expect("no lease");
                 lease.keys.remove(&key);
             }
         }
         // update main key-value
-        *self.kv.entry(key.clone()).or_default() = (value, options.lease);
-
         self.revision += 1;
+        *self.kv.entry(key.clone()).or_default() = KeyInfo {
+            value,
+            lease: options.lease,
+            create_revision: prev_value
+                .as_ref()
+                .map_or(self.revision, |v| v.create_revision),
+            modify_revision: self.revision,
+        };
+
         PutResponse {
             header: self.header(),
             prev_kv: if options.prev_kv {
-                prev_value.map(|(value, lease)| KeyValue { key, value, lease })
+                prev_value.map(|info| info.into_key_value(key))
             } else {
                 None
             },
@@ -221,20 +249,12 @@ impl ServiceInner {
         }
         let kvs = if options.prefix {
             self.get_prefix_range(key)
-                .map(|(k, (v, lease))| KeyValue {
-                    key: k.clone(),
-                    value: v.clone(),
-                    lease: *lease,
-                })
+                .map(|(k, v)| v.clone().into_key_value(k.clone()))
                 .collect()
         } else {
             self.kv
                 .get(&key)
-                .map(|(v, lease)| KeyValue {
-                    key: key.clone(),
-                    value: v.clone(),
-                    lease: *lease,
-                })
+                .map(|v| v.clone().into_key_value(key))
                 .into_iter()
                 .collect()
         };
@@ -244,7 +264,7 @@ impl ServiceInner {
         }
     }
 
-    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, (Value, LeaseId)> {
+    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, KeyInfo> {
         let mut end = key.clone();
         *end.last_mut().unwrap() += 1;
         self.kv.range(key..end)
@@ -253,11 +273,11 @@ impl ServiceInner {
     fn delete(&mut self, key: Key, _options: DeleteOptions) -> DeleteResponse {
         tracing::trace!(?key, "delete");
         let prev_kv = self.kv.remove(&key);
-        if let Some((_, lease)) = &prev_kv {
+        if let Some(v) = &prev_kv {
             self.revision += 1;
             // remove key from the lease
-            if *lease != 0 {
-                let lease = self.lease.get_mut(lease).expect("no lease");
+            if v.lease != 0 {
+                let lease = self.lease.get_mut(&v.lease).expect("no lease");
                 lease.keys.remove(&key);
             }
             // TODO: notify one
@@ -279,7 +299,7 @@ impl ServiceInner {
     fn txn(&mut self, txn: Txn) -> TxnResponse {
         tracing::trace!(%txn, "transaction");
         let succeeded = txn.compare.iter().all(|cmp| {
-            let value = self.kv.get(&cmp.key).map(|(v, _)| v);
+            let value = self.kv.get(&cmp.key).map(|v| &v.value);
             match cmp.op {
                 CompareOp::Equal => value == Some(&cmp.value),
                 CompareOp::Greater => matches!(value, Some(v) if v > &cmp.value),
@@ -410,22 +430,30 @@ impl ServiceInner {
                 .push((name.clone(), cx.waker().clone()));
             return Poll::Pending;
         }
+        tracing::trace!(?name, ?value, lease, "new leader");
 
         // name = format!("{name}/{lease:016x}")
         let mut key = name.clone();
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
-        self.kv.insert(key.clone(), (value.clone(), lease));
         self.revision += 1;
+        self.kv.insert(
+            key.clone(),
+            KeyInfo {
+                value: value.clone(),
+                lease,
+                create_revision: self.revision,
+                modify_revision: self.revision,
+            },
+        );
 
-        tracing::trace!(?name, ?value, lease, "new leader",);
         Poll::Ready(CampaignResponse {
             header: self.header(),
             leader: LeaderKey {
                 name: name.clone(),
                 key,
-                rev: 0, // TODO: key revision
+                rev: self.revision,
                 lease,
             },
         })
@@ -434,10 +462,13 @@ impl ServiceInner {
     fn proclaim(&mut self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
         tracing::trace!(name = ?leader.name, ?value, "proclaim");
         match self.kv.entry(leader.key) {
-            Entry::Occupied(mut entry) => entry.get_mut().0 = value,
             Entry::Vacant(_) => return Err(Error::ElectError("session expired".into())),
+            Entry::Occupied(mut entry) => {
+                self.revision += 1;
+                entry.get_mut().value = value;
+                entry.get_mut().modify_revision = self.revision;
+            }
         }
-        self.revision += 1;
         Ok(ProclaimResponse {
             header: self.header(),
         })
@@ -449,11 +480,7 @@ impl ServiceInner {
             kv: self
                 .get_prefix_range(name)
                 .next()
-                .map(|(k, (v, lease))| KeyValue {
-                    key: k.clone(),
-                    value: v.clone(),
-                    lease: *lease,
-                }),
+                .map(|(k, v)| v.clone().into_key_value(k.clone())),
         })
     }
 

@@ -28,9 +28,23 @@ async fn kv() {
         // get kv
         let resp = client.get("foo", None).await.unwrap();
         let kv = &resp.kvs()[0];
+        let revision = resp.header().expect("no header").revision();
         assert_eq!(kv.key(), b"foo");
         assert_eq!(kv.value(), b"bar");
         assert_eq!(kv.lease(), 0);
+        assert_eq!(kv.create_revision(), revision);
+        assert_eq!(kv.mod_revision(), revision);
+        // put again
+        client.put("foo", "gg", None).await.unwrap();
+        // get again
+        let resp = client.get("foo", None).await.unwrap();
+        let kv = &resp.kvs()[0];
+        assert_eq!(kv.value(), b"gg");
+        assert_eq!(kv.create_revision(), revision);
+        assert_eq!(
+            kv.mod_revision(),
+            resp.header().expect("no header").revision()
+        );
     });
     task1.await.unwrap();
 }
