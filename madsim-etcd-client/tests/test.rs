@@ -85,9 +85,13 @@ async fn lease() {
 
         // keep alive for 90s
         sleep(Duration::from_secs(45)).await;
-        let (mut keeper, _) = lease_client.keep_alive(lease.id()).await.unwrap();
+        let (mut keeper, mut responses) = lease_client.keep_alive(lease.id()).await.unwrap();
         sleep(Duration::from_secs(45)).await;
         keeper.keep_alive().await.unwrap();
+        let resp = responses.message().await.unwrap().unwrap();
+        assert_eq!(resp.id(), lease.id());
+        assert!(resp.ttl() <= 60 && resp.ttl() > 50);
+
         // get kv
         let resp = kv_client.get("foo", None).await.unwrap();
         assert_eq!(resp.kvs().len(), 1);
