@@ -1,7 +1,7 @@
 #![cfg(madsim)]
 
 use madsim::{runtime::Handle, time::sleep};
-use madsim_etcd_client::{Client, PutOptions, SimServer};
+use madsim_etcd_client::{Client, ProclaimOptions, PutOptions, ResignOptions, SimServer};
 use std::time::Duration;
 
 #[madsim::test]
@@ -85,9 +85,13 @@ async fn lease() {
 
         // keep alive for 90s
         sleep(Duration::from_secs(45)).await;
-        let (mut keeper, _) = lease_client.keep_alive(lease.id()).await.unwrap();
+        let (mut keeper, mut responses) = lease_client.keep_alive(lease.id()).await.unwrap();
         sleep(Duration::from_secs(45)).await;
         keeper.keep_alive().await.unwrap();
+        let resp = responses.message().await.unwrap().unwrap();
+        assert_eq!(resp.id(), lease.id());
+        assert!(resp.ttl() <= 60 && resp.ttl() > 50);
+
         // get kv
         let resp = kv_client.get("foo", None).await.unwrap();
         assert_eq!(resp.kvs().len(), 1);
@@ -99,6 +103,94 @@ async fn lease() {
         assert!(resp.kvs().is_empty());
     });
     task1.await.unwrap();
+}
+
+#[madsim::test]
+async fn election() {
+    // tracing_subscriber::fmt::init();
+
+    let handle = Handle::current();
+    let ip1 = "10.0.0.1".parse().unwrap();
+    let ip2 = "10.0.0.2".parse().unwrap();
+    let ip3 = "10.0.0.3".parse().unwrap();
+    let ip4 = "10.0.0.4".parse().unwrap();
+    let server = handle.create_node().name("server").ip(ip1).build();
+    let client1 = handle.create_node().name("client1").ip(ip2).build();
+    let client2 = handle.create_node().name("client2").ip(ip3).build();
+    let client3 = handle.create_node().name("client3").ip(ip4).build();
+
+    server.spawn(async move {
+        SimServer::builder()
+            .serve("10.0.0.1:2379".parse().unwrap())
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    // first leader
+    let task1 = client1.spawn(async move {
+        let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+        let mut lease_client = client.lease_client();
+        let mut client = client.election_client();
+        // grant lease
+        let lease = lease_client.grant(60, None).await.unwrap();
+        // campaign to be leader
+        let resp = client.campaign("leader", "1", lease.id()).await.unwrap();
+        let leader_key = resp.leader().unwrap();
+        assert_eq!(leader_key.name(), b"leader");
+        assert_eq!(leader_key.lease(), lease.id());
+        // get leader
+        let resp = client.leader("leader").await.unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1");
+        // proclaim
+        let opt = ProclaimOptions::new().with_leader(leader_key.clone());
+        client.proclaim("1.1", Some(opt.clone())).await.unwrap();
+        let resp = client.leader("leader").await.unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1.1");
+        // wait for 30s
+        sleep(Duration::from_secs(30)).await;
+        // revoke lease to release leadership
+        lease_client.revoke(lease.id()).await.unwrap();
+        // proclaim should fail
+        client.proclaim("1.2", Some(opt.clone())).await.unwrap_err();
+    });
+
+    // second leader
+    let task2 = client2.spawn(async move {
+        let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+        let mut lease_client = client.lease_client();
+        let mut client = client.election_client();
+        // sleep for a while to make sure client1 become leader
+        sleep(Duration::from_secs(10)).await;
+        // grant lease
+        let lease = lease_client.grant(60, None).await.unwrap();
+        // to be leader
+        let resp = client.campaign("leader", "2", lease.id()).await.unwrap();
+        let leader_key = resp.leader().unwrap();
+        assert_eq!(leader_key.name(), b"leader");
+        assert_eq!(leader_key.lease(), lease.id());
+        // resign
+        let opt = ResignOptions::new().with_leader(leader_key.clone());
+        client.resign(Some(opt)).await.unwrap();
+    });
+
+    // observer
+    let task3 = client3.spawn(async move {
+        let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+        let mut client = client.election_client();
+
+        let mut leader_stream = client.observe("leader").await.unwrap();
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1");
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1.1");
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"2");
+    });
+
+    task1.await.unwrap();
+    task2.await.unwrap();
+    task3.await.unwrap();
 }
 
 #[madsim::test]

@@ -1,7 +1,7 @@
 use madsim::net::{Endpoint, Payload};
 use std::{io::Result, net::SocketAddr, sync::Arc};
 
-use super::{election::*, kv::*, service::EtcdService, Bytes};
+use super::{election::*, kv::*, service::EtcdService, Bytes, EventType};
 
 /// A simulated etcd server.
 #[derive(Default, Clone)]
@@ -37,38 +37,65 @@ impl SimServer {
             let (tx, mut rx, _) = ep.accept1().await?;
             let service = service.clone();
             madsim::task::spawn(async move {
-                let request = *rx.recv().await?.downcast::<Request>().unwrap();
-                let response: Payload = match request {
-                    Request::Put {
-                        key,
-                        value,
-                        options,
-                    } => Box::new(service.put(key, value, options).await),
-                    Request::Get { key, options } => Box::new(service.get(key, options).await),
-                    Request::Delete { key, options } => {
-                        Box::new(service.delete(key, options).await)
-                    }
-                    Request::Txn { txn } => Box::new(service.txn(txn).await),
-                    Request::LeaseGrant { ttl, id } => Box::new(service.lease_grant(ttl, id).await),
-                    Request::LeaseRevoke { id } => Box::new(service.lease_revoke(id).await),
-                    Request::LeaseKeepAlive { id } => Box::new(service.lease_keep_alive(id).await),
-                    Request::LeaseTimeToLive { id, keys } => {
-                        Box::new(service.lease_time_to_live(id, keys).await)
-                    }
-                    Request::LeaseLeases => Box::new(service.lease_leases().await),
-                    Request::Campaign { name, value, lease } => {
-                        Box::new(service.campaign(name, value, lease).await)
-                    }
-                    Request::Proclaim { leader, value } => {
-                        Box::new(service.proclaim(leader, value).await)
-                    }
-                    Request::Leader { name } => Box::new(service.leader(name).await),
-                    Request::Observe { name: _ } => todo!(),
-                    Request::Resign { leader } => Box::new(service.resign(leader).await),
-                    Request::Status => Box::new(service.status().await),
-                    Request::Dump => Box::new(service.dump().await),
-                };
-                tx.send(response).await?;
+                while let Ok(request) = rx.recv().await {
+                    let request = *request.downcast::<Request>().unwrap();
+                    let response: Payload = match request {
+                        Request::Put {
+                            key,
+                            value,
+                            options,
+                        } => Box::new(service.put(key, value, options).await),
+                        Request::Get { key, options } => Box::new(service.get(key, options).await),
+                        Request::Delete { key, options } => {
+                            Box::new(service.delete(key, options).await)
+                        }
+                        Request::Txn { txn } => Box::new(service.txn(txn).await),
+                        Request::LeaseGrant { ttl, id } => {
+                            Box::new(service.lease_grant(ttl, id).await)
+                        }
+                        Request::LeaseRevoke { id } => Box::new(service.lease_revoke(id).await),
+                        Request::LeaseKeepAlive { id } => {
+                            Box::new(service.lease_keep_alive(id).await)
+                        }
+                        Request::LeaseTimeToLive { id, keys } => {
+                            Box::new(service.lease_time_to_live(id, keys).await)
+                        }
+                        Request::LeaseLeases => Box::new(service.lease_leases().await),
+                        Request::Campaign { name, value, lease } => {
+                            Box::new(service.campaign(name, value, lease).await)
+                        }
+                        Request::Proclaim { leader, value } => {
+                            Box::new(service.proclaim(leader, value).await)
+                        }
+                        Request::Leader { name } => Box::new(service.leader(name).await),
+                        Request::Observe { name } => match service.observe(name).await {
+                            Err(e) => {
+                                let res: super::Result<LeaderResponse> = Err(e);
+                                Box::new(res)
+                            }
+                            Ok(mut stream) => {
+                                while let Some(event) = stream.recv().await {
+                                    if event.event_type != EventType::Put {
+                                        continue;
+                                    }
+                                    let response: super::Result<LeaderResponse> =
+                                        Ok(LeaderResponse {
+                                            header: service.header(),
+                                            kv: Some(event.kv),
+                                        });
+                                    if tx.send(Box::new(response) as Payload).await.is_err() {
+                                        return Ok(());
+                                    }
+                                }
+                                unreachable!();
+                            }
+                        },
+                        Request::Resign { leader } => Box::new(service.resign(leader).await),
+                        Request::Status => Box::new(service.status().await),
+                        Request::Dump => Box::new(service.dump().await),
+                    };
+                    tx.send(response).await?;
+                }
                 Ok(()) as Result<()>
             });
         }

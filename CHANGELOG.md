@@ -8,7 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- etcd: Add `KeyValue::lease` and maintenance `status` API.
+- etcd: Add `KeyValue::{lease, create_revision, mod_revision}` API.
+- etcd: Add maintenance `status` API.
+
+### Fixed
+
+- etcd: Fix response stream of `keep_alive`.
+- etcd: Fix waking up other candidates on leadership resign or lease revoke.
+- etcd: Fix unimplemented election `observe`.
 
 ## [0.2.13] - 2023-01-09
 

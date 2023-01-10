@@ -1,5 +1,4 @@
 use super::*;
-use futures_util::future::poll_fn;
 use madsim::rand::{random, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -7,8 +6,8 @@ use spin::Mutex;
 use std::collections::btree_map::Entry;
 use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub struct EtcdService {
@@ -35,6 +34,10 @@ impl EtcdService {
             timeout_rate,
             inner,
         }
+    }
+
+    pub fn header(&self) -> ResponseHeader {
+        self.inner.lock().header()
     }
 
     pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
@@ -93,8 +96,13 @@ impl EtcdService {
 
     pub async fn campaign(&self, name: Key, value: Value, lease: i64) -> Result<CampaignResponse> {
         self.timeout().await?;
-        let rsp = poll_fn(|cx| self.inner.lock().poll_campaign(&name, &value, lease, cx)).await;
-        Ok(rsp)
+        loop {
+            let mut rx = match self.inner.lock().campaign(&name, &value, lease) {
+                Ok(rsp) => return Ok(rsp),
+                Err(rx) => rx,
+            };
+            rx.recv().await.expect("sender should not drop");
+        }
     }
 
     pub async fn proclaim(&self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
@@ -105,6 +113,11 @@ impl EtcdService {
     pub async fn leader(&self, name: Key) -> Result<LeaderResponse> {
         self.timeout().await?;
         self.inner.lock().leader(name)
+    }
+
+    pub async fn observe(&self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        self.timeout().await?;
+        self.inner.lock().observe(name)
     }
 
     pub async fn resign(&self, leader: LeaderKey) -> Result<ResignResponse> {
@@ -140,32 +153,76 @@ impl EtcdService {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
-    kv: BTreeMap<Key, KeyInfo>,
+    kv: BTreeMap<Key, KeyValue>,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     lease: HashMap<LeaseId, Lease>,
-    /// Waiters for election.
     #[serde(skip)]
-    waiting_candidates: Vec<(Key, Waker)>,
+    watcher: EventBus,
 }
 
-/// Value and metadata of a key.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-struct KeyInfo {
-    value: Value,
-    lease: LeaseId,
-    create_revision: i64,
-    modify_revision: i64,
+#[derive(Debug, Default)]
+struct EventBus {
+    list: Vec<(EventPattern, mpsc::Sender<Event>)>,
 }
 
-impl KeyInfo {
-    fn into_key_value(self, key: Key) -> KeyValue {
-        KeyValue {
-            key,
-            value: self.value,
-            lease: self.lease,
-            create_revision: self.create_revision,
-            modify_revision: self.modify_revision,
+#[derive(Debug)]
+enum EventPattern {
+    Leader(Key),
+    Prefix(Key),
+}
+
+impl EventPattern {
+    fn is_match(&self, event: &Event) -> bool {
+        match self {
+            Self::Leader(prefix) => {
+                event.kv.key.starts_with(prefix) && event.event_type == EventType::Delete
+            }
+            Self::Prefix(prefix) => event.kv.key.starts_with(prefix),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Event {
+    pub event_type: EventType,
+    pub kv: KeyValue,
+}
+
+impl Event {
+    /// Returns a put event.
+    fn put(kv: KeyValue) -> Self {
+        Self {
+            event_type: EventType::Put,
+            kv,
+        }
+    }
+
+    /// Returns a delete event.
+    fn delete(prev_kv: KeyValue) -> Self {
+        Self {
+            event_type: EventType::Delete,
+            kv: prev_kv,
+        }
+    }
+}
+
+impl EventBus {
+    /// Subscribe a watcher.
+    fn subscribe(&mut self, pattern: EventPattern, tx: mpsc::Sender<Event>) {
+        tracing::trace!(?pattern, "subscribe");
+        self.list.push((pattern, tx));
+    }
+
+    /// Publish an event.
+    fn publish(&mut self, event: Event) {
+        tracing::trace!(?event, "new event");
+        self.list.retain(|(pattern, tx)| {
+            if pattern.is_match(&event) {
+                tx.try_send(event.clone()).is_ok()
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -223,7 +280,8 @@ impl ServiceInner {
         }
         // update main key-value
         self.revision += 1;
-        *self.kv.entry(key.clone()).or_default() = KeyInfo {
+        let kv = KeyValue {
+            key: key.clone(),
             value,
             lease: options.lease,
             create_revision: prev_value
@@ -231,14 +289,12 @@ impl ServiceInner {
                 .map_or(self.revision, |v| v.create_revision),
             modify_revision: self.revision,
         };
+        *self.kv.entry(key).or_default() = kv.clone();
+        self.watcher.publish(Event::put(kv));
 
         PutResponse {
             header: self.header(),
-            prev_kv: if options.prev_kv {
-                prev_value.map(|info| info.into_key_value(key))
-            } else {
-                None
-            },
+            prev_kv: if options.prev_kv { prev_value } else { None },
         }
     }
 
@@ -248,15 +304,9 @@ impl ServiceInner {
             todo!("get with revision");
         }
         let kvs = if options.prefix {
-            self.get_prefix_range(key)
-                .map(|(k, v)| v.clone().into_key_value(k.clone()))
-                .collect()
+            self.get_prefix_range(key).map(|(_, v)| v.clone()).collect()
         } else {
-            self.kv
-                .get(&key)
-                .map(|v| v.clone().into_key_value(key))
-                .into_iter()
-                .collect()
+            self.kv.get(&key).cloned().into_iter().collect()
         };
         GetResponse {
             header: self.header(),
@@ -264,7 +314,7 @@ impl ServiceInner {
         }
     }
 
-    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, KeyInfo> {
+    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, KeyValue> {
         let mut end = key.clone();
         *end.last_mut().unwrap() += 1;
         self.kv.range(key..end)
@@ -273,26 +323,19 @@ impl ServiceInner {
     fn delete(&mut self, key: Key, _options: DeleteOptions) -> DeleteResponse {
         tracing::trace!(?key, "delete");
         let prev_kv = self.kv.remove(&key);
-        if let Some(v) = &prev_kv {
+        let deleted = prev_kv.is_some() as i64;
+        if let Some(kv) = prev_kv {
             self.revision += 1;
             // remove key from the lease
-            if v.lease != 0 {
-                let lease = self.lease.get_mut(&v.lease).expect("no lease");
+            if kv.lease != 0 {
+                let lease = self.lease.get_mut(&kv.lease).expect("no lease");
                 lease.keys.remove(&key);
             }
-            // TODO: notify one
-            self.waiting_candidates.retain(|(prefix, waker)| {
-                if key.starts_with(prefix) {
-                    waker.wake_by_ref();
-                    false
-                } else {
-                    true
-                }
-            });
+            self.watcher.publish(Event::delete(kv));
         }
         DeleteResponse {
             header: self.header(),
-            deleted: prev_kv.map_or(0, |_| 1),
+            deleted,
         }
     }
 
@@ -354,7 +397,9 @@ impl ServiceInner {
         tracing::trace!(id, "lease_revoke");
         let lease = self.lease.remove(&id).expect("no lease");
         for key in lease.keys {
-            self.kv.remove(&key);
+            tracing::trace!(?key, "delete");
+            let kv = self.kv.remove(&key).expect("no key");
+            self.watcher.publish(Event::delete(kv));
         }
         self.revision += 1;
         LeaseRevokeResponse {
@@ -405,7 +450,9 @@ impl ServiceInner {
             if lease.ttl <= 0 {
                 tracing::trace!(id, "lease expired");
                 for key in &lease.keys {
-                    self.kv.remove(key);
+                    tracing::trace!(?key, "delete");
+                    let kv = self.kv.remove(key).expect("no key");
+                    self.watcher.publish(Event::delete(kv));
                 }
                 false
             } else {
@@ -417,38 +464,39 @@ impl ServiceInner {
         }
     }
 
-    fn poll_campaign(
+    fn campaign(
         &mut self,
         name: &Key,
         value: &Value,
         lease: i64,
-        cx: &mut Context<'_>,
-    ) -> Poll<CampaignResponse> {
+    ) -> std::result::Result<CampaignResponse, mpsc::Receiver<Event>> {
         if self.get_prefix_range(name.clone()).next().is_some() {
             // the election name is occupied
-            self.waiting_candidates
-                .push((name.clone(), cx.waker().clone()));
-            return Poll::Pending;
+            let (tx, rx) = mpsc::channel(1);
+            self.watcher
+                .subscribe(EventPattern::Leader(name.clone()), tx);
+            return Err(rx);
         }
         tracing::trace!(?name, ?value, lease, "new leader");
 
-        // name = format!("{name}/{lease:016x}")
+        // key = format!("{name}/{lease:016x}")
         let mut key = name.clone();
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
         self.revision += 1;
-        self.kv.insert(
-            key.clone(),
-            KeyInfo {
-                value: value.clone(),
-                lease,
-                create_revision: self.revision,
-                modify_revision: self.revision,
-            },
-        );
+        let kv = KeyValue {
+            key: key.clone(),
+            value: value.clone(),
+            lease,
+            create_revision: self.revision,
+            modify_revision: self.revision,
+        };
+        self.kv.insert(key.clone(), kv.clone());
+        (self.lease.get_mut(&lease).expect("no lease").keys).insert(key.clone());
+        self.watcher.publish(Event::put(kv));
 
-        Poll::Ready(CampaignResponse {
+        Ok(CampaignResponse {
             header: self.header(),
             leader: LeaderKey {
                 name: name.clone(),
@@ -467,6 +515,7 @@ impl ServiceInner {
                 self.revision += 1;
                 entry.get_mut().value = value;
                 entry.get_mut().modify_revision = self.revision;
+                self.watcher.publish(Event::put(entry.get_mut().clone()));
             }
         }
         Ok(ProclaimResponse {
@@ -477,16 +526,22 @@ impl ServiceInner {
     fn leader(&self, name: Key) -> Result<LeaderResponse> {
         Ok(LeaderResponse {
             header: self.header(),
-            kv: self
-                .get_prefix_range(name)
-                .next()
-                .map(|(k, v)| v.clone().into_key_value(k.clone())),
+            kv: self.get_prefix_range(name).next().map(|(_, v)| v.clone()),
         })
     }
 
+    fn observe(&mut self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        tracing::trace!(?name, "observe");
+        let (tx, rx) = mpsc::channel(10);
+        self.watcher.subscribe(EventPattern::Prefix(name), tx);
+        Ok(rx)
+    }
+
     fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
-        tracing::trace!(name = ?String::from_utf8_lossy(&leader.name), "resign");
-        (self.kv.remove(&leader.key)).ok_or_else(|| Error::ElectError("session expired".into()))?;
+        tracing::trace!(name = ?leader.name, "resign");
+        let kv = (self.kv.remove(&leader.key))
+            .ok_or_else(|| Error::ElectError("session expired".into()))?;
+        self.watcher.publish(Event::delete(kv));
         self.revision += 1;
         Ok(ResignResponse {
             header: self.header(),

@@ -6,6 +6,7 @@ mod lease;
 mod maintenance;
 mod server;
 mod service;
+mod watch;
 
 use madsim::net::Endpoint;
 use std::net::SocketAddr;
@@ -18,6 +19,7 @@ pub use self::kv::*;
 pub use self::lease::*;
 pub use self::maintenance::*;
 pub use self::server::SimServer;
+pub use self::watch::*;
 
 use self::server::Request;
 

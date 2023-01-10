@@ -1,5 +1,6 @@
 use super::{server::Request, Bytes, ResponseHeader, Result};
 use madsim::net::Endpoint;
+use serde::{Deserialize, Serialize};
 use std::{fmt::Display, net::SocketAddr};
 
 /// Client for KV operations.
@@ -484,7 +485,7 @@ impl TxnResponse {
 }
 
 /// Key-value pair.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct KeyValue {
     pub(crate) key: Bytes,
     pub(crate) value: Bytes,
