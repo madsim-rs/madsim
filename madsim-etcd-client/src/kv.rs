@@ -489,6 +489,8 @@ pub struct KeyValue {
     pub(crate) key: Bytes,
     pub(crate) value: Bytes,
     pub(crate) lease: i64,
+    pub(crate) create_revision: i64,
+    pub(crate) modify_revision: i64,
 }
 
 impl KeyValue {
@@ -508,5 +510,17 @@ impl KeyValue {
     #[inline]
     pub const fn lease(&self) -> i64 {
         self.lease
+    }
+
+    /// The revision of last creation on this key.
+    #[inline]
+    pub const fn create_revision(&self) -> i64 {
+        self.create_revision
+    }
+
+    /// The revision of last modification on this key.
+    #[inline]
+    pub const fn mod_revision(&self) -> i64 {
+        self.modify_revision
     }
 }
