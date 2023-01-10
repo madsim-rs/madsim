@@ -26,3 +26,6 @@ thiserror = "1"
 toml = "0.5"
 tonic = { version = "0.8", default-features = false }
 tracing = "0.1"
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
