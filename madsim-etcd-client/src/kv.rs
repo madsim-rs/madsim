@@ -306,7 +306,7 @@ impl Txn {
     }
 }
 
-/// Transaction comparision.
+/// Transaction comparison.
 #[derive(Debug, Clone)]
 pub struct Compare {
     pub(crate) key: Bytes,
