@@ -145,7 +145,27 @@ struct ServiceInner {
     lease: HashMap<LeaseId, Lease>,
     /// Waiters for election.
     #[serde(skip)]
-    waiting_candidates: Vec<(Key, Waker)>,
+    waiting_candidates: Candidates,
+}
+
+#[derive(Debug, Default)]
+struct Candidates {
+    list: Vec<(Key, Waker)>,
+}
+
+impl Candidates {
+    /// Register a pending candidate.
+    fn register(&mut self, key: &Key, waker: Waker) {
+        self.list.push((key.clone(), waker));
+    }
+
+    /// Wakes up one blocked candidate on a prefix of the key.
+    fn notify_one(&mut self, key: &Key) {
+        if let Some(i) = (self.list.iter()).position(|(prefix, _)| key.starts_with(prefix)) {
+            let (_, waker) = self.list.swap_remove(i);
+            waker.wake();
+        }
+    }
 }
 
 /// Value and metadata of a key.
@@ -280,15 +300,7 @@ impl ServiceInner {
                 let lease = self.lease.get_mut(&v.lease).expect("no lease");
                 lease.keys.remove(&key);
             }
-            // TODO: notify one
-            self.waiting_candidates.retain(|(prefix, waker)| {
-                if key.starts_with(prefix) {
-                    waker.wake_by_ref();
-                    false
-                } else {
-                    true
-                }
-            });
+            self.waiting_candidates.notify_one(&key);
         }
         DeleteResponse {
             header: self.header(),
@@ -354,7 +366,9 @@ impl ServiceInner {
         tracing::trace!(id, "lease_revoke");
         let lease = self.lease.remove(&id).expect("no lease");
         for key in lease.keys {
+            tracing::trace!(?key, "delete");
             self.kv.remove(&key);
+            self.waiting_candidates.notify_one(&key);
         }
         self.revision += 1;
         LeaseRevokeResponse {
@@ -405,7 +419,9 @@ impl ServiceInner {
             if lease.ttl <= 0 {
                 tracing::trace!(id, "lease expired");
                 for key in &lease.keys {
+                    tracing::trace!(?key, "delete");
                     self.kv.remove(key);
+                    self.waiting_candidates.notify_one(key);
                 }
                 false
             } else {
@@ -426,8 +442,7 @@ impl ServiceInner {
     ) -> Poll<CampaignResponse> {
         if self.get_prefix_range(name.clone()).next().is_some() {
             // the election name is occupied
-            self.waiting_candidates
-                .push((name.clone(), cx.waker().clone()));
+            self.waiting_candidates.register(name, cx.waker().clone());
             return Poll::Pending;
         }
         tracing::trace!(?name, ?value, lease, "new leader");
@@ -447,6 +462,7 @@ impl ServiceInner {
                 modify_revision: self.revision,
             },
         );
+        (self.lease.get_mut(&lease).expect("no lease").keys).insert(key.clone());
 
         Poll::Ready(CampaignResponse {
             header: self.header(),
