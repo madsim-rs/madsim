@@ -380,7 +380,7 @@ pub type DefaultRuntime = TokioRuntime;
 /// [futures](futures) crate.
 ///
 /// This runtime should not be used when performance is a concern, as it makes
-/// heavy use of threads to compenstate for the lack of a timer in the futures
+/// heavy use of threads to compensate for the lack of a timer in the futures
 /// executor.
 pub struct NaiveRuntime;
 
