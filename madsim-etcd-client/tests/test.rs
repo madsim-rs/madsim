@@ -107,7 +107,7 @@ async fn lease() {
 
 #[madsim::test]
 async fn election() {
-    tracing_subscriber::fmt::init();
+    // tracing_subscriber::fmt::init();
 
     let handle = Handle::current();
     let ip1 = "10.0.0.1".parse().unwrap();
@@ -178,14 +178,14 @@ async fn election() {
     let task3 = client3.spawn(async move {
         let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
         let mut client = client.election_client();
-        // todo
-        // let mut leader_stream = client.observe("leader").await.unwrap();
-        // let resp = leader_stream.message().await.unwrap().unwrap();
-        // assert_eq!(resp.kv().unwrap().value(), b"1");
-        // let resp = leader_stream.message().await.unwrap().unwrap();
-        // assert_eq!(resp.kv().unwrap().value(), b"1.1");
-        // let resp = leader_stream.message().await.unwrap().unwrap();
-        // assert_eq!(resp.kv().unwrap().value(), b"2");
+
+        let mut leader_stream = client.observe("leader").await.unwrap();
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1");
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1.1");
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"2");
     });
 
     task1.await.unwrap();

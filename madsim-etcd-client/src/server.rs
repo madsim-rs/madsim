@@ -1,7 +1,7 @@
 use madsim::net::{Endpoint, Payload};
 use std::{io::Result, net::SocketAddr, sync::Arc};
 
-use super::{election::*, kv::*, service::EtcdService, Bytes};
+use super::{election::*, kv::*, service::EtcdService, Bytes, EventType};
 
 /// A simulated etcd server.
 #[derive(Default, Clone)]
@@ -68,7 +68,28 @@ impl SimServer {
                             Box::new(service.proclaim(leader, value).await)
                         }
                         Request::Leader { name } => Box::new(service.leader(name).await),
-                        Request::Observe { name: _ } => todo!(),
+                        Request::Observe { name } => match service.observe(name).await {
+                            Err(e) => {
+                                let res: super::Result<LeaderResponse> = Err(e);
+                                Box::new(res)
+                            }
+                            Ok(mut stream) => {
+                                while let Some(event) = stream.recv().await {
+                                    if event.event_type != EventType::Put {
+                                        continue;
+                                    }
+                                    let response: super::Result<LeaderResponse> =
+                                        Ok(LeaderResponse {
+                                            header: service.header(),
+                                            kv: Some(event.kv.into()),
+                                        });
+                                    if tx.send(Box::new(response) as Payload).await.is_err() {
+                                        return Ok(());
+                                    }
+                                }
+                                unreachable!();
+                            }
+                        },
                         Request::Resign { leader } => Box::new(service.resign(leader).await),
                         Request::Status => Box::new(service.status().await),
                         Request::Dump => Box::new(service.dump().await),

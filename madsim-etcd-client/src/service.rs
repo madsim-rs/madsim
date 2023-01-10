@@ -36,6 +36,10 @@ impl EtcdService {
         }
     }
 
+    pub fn header(&self) -> ResponseHeader {
+        self.inner.lock().header()
+    }
+
     pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().put(key, value, options);
@@ -111,6 +115,11 @@ impl EtcdService {
         self.inner.lock().leader(name)
     }
 
+    pub async fn observe(&self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        self.timeout().await?;
+        self.inner.lock().observe(name)
+    }
+
     pub async fn resign(&self, leader: LeaderKey) -> Result<ResignResponse> {
         self.timeout().await?;
         self.inner.lock().resign(leader)
@@ -144,7 +153,7 @@ impl EtcdService {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
-    kv: BTreeMap<Key, KeyInfo>,
+    kv: BTreeMap<Key, KeyValue>,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     lease: HashMap<LeaseId, Lease>,
     #[serde(skip)]
@@ -174,14 +183,14 @@ impl EventPattern {
 }
 
 #[derive(Debug, Clone)]
-struct Event {
-    event_type: EventType,
-    kv: KeyInfo,
+pub struct Event {
+    pub event_type: EventType,
+    pub kv: KeyValue,
 }
 
 impl Event {
     /// Returns a put event.
-    fn put(kv: KeyInfo) -> Self {
+    fn put(kv: KeyValue) -> Self {
         Self {
             event_type: EventType::Put,
             kv,
@@ -189,7 +198,7 @@ impl Event {
     }
 
     /// Returns a delete event.
-    fn delete(prev_kv: KeyInfo) -> Self {
+    fn delete(prev_kv: KeyValue) -> Self {
         Self {
             event_type: EventType::Delete,
             kv: prev_kv,
@@ -214,28 +223,6 @@ impl EventBus {
                 true
             }
         });
-    }
-}
-
-/// Value and metadata of a key.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-struct KeyInfo {
-    key: Key,
-    value: Value,
-    lease: LeaseId,
-    create_revision: i64,
-    modify_revision: i64,
-}
-
-impl From<KeyInfo> for KeyValue {
-    fn from(kv: KeyInfo) -> Self {
-        KeyValue {
-            key: kv.key,
-            value: kv.value,
-            lease: kv.lease,
-            create_revision: kv.create_revision,
-            modify_revision: kv.modify_revision,
-        }
     }
 }
 
@@ -293,7 +280,7 @@ impl ServiceInner {
         }
         // update main key-value
         self.revision += 1;
-        let kv = KeyInfo {
+        let kv = KeyValue {
             key: key.clone(),
             value,
             lease: options.lease,
@@ -337,7 +324,7 @@ impl ServiceInner {
         }
     }
 
-    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, KeyInfo> {
+    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, KeyValue> {
         let mut end = key.clone();
         *end.last_mut().unwrap() += 1;
         self.kv.range(key..end)
@@ -508,7 +495,7 @@ impl ServiceInner {
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
         self.revision += 1;
-        let kv = KeyInfo {
+        let kv = KeyValue {
             key: key.clone(),
             value: value.clone(),
             lease,
@@ -556,8 +543,15 @@ impl ServiceInner {
         })
     }
 
+    fn observe(&mut self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        tracing::trace!(?name, "observe");
+        let (tx, rx) = mpsc::channel(10);
+        self.watcher.subscribe(EventPattern::Prefix(name), tx);
+        Ok(rx)
+    }
+
     fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
-        tracing::trace!(name = ?String::from_utf8_lossy(&leader.name), "resign");
+        tracing::trace!(name = ?leader.name, "resign");
         let kv = (self.kv.remove(&leader.key))
             .ok_or_else(|| Error::ElectError("session expired".into()))?;
         self.watcher.publish(Event::delete(kv));
