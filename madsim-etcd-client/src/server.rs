@@ -81,7 +81,7 @@ impl SimServer {
                                     let response: super::Result<LeaderResponse> =
                                         Ok(LeaderResponse {
                                             header: service.header(),
-                                            kv: Some(event.kv.into()),
+                                            kv: Some(event.kv),
                                         });
                                     if tx.send(Box::new(response) as Payload).await.is_err() {
                                         return Ok(());

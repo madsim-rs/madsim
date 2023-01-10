@@ -294,11 +294,7 @@ impl ServiceInner {
 
         PutResponse {
             header: self.header(),
-            prev_kv: if options.prev_kv {
-                prev_value.map(|info| info.into())
-            } else {
-                None
-            },
+            prev_kv: if options.prev_kv { prev_value } else { None },
         }
     }
 
@@ -308,15 +304,9 @@ impl ServiceInner {
             todo!("get with revision");
         }
         let kvs = if options.prefix {
-            self.get_prefix_range(key)
-                .map(|(_, v)| v.clone().into())
-                .collect()
+            self.get_prefix_range(key).map(|(_, v)| v.clone()).collect()
         } else {
-            self.kv
-                .get(&key)
-                .map(|v| v.clone().into())
-                .into_iter()
-                .collect()
+            self.kv.get(&key).cloned().into_iter().collect()
         };
         GetResponse {
             header: self.header(),
@@ -536,10 +526,7 @@ impl ServiceInner {
     fn leader(&self, name: Key) -> Result<LeaderResponse> {
         Ok(LeaderResponse {
             header: self.header(),
-            kv: self
-                .get_prefix_range(name)
-                .next()
-                .map(|(_, v)| v.clone().into()),
+            kv: self.get_prefix_range(name).next().map(|(_, v)| v.clone()),
         })
     }
 
