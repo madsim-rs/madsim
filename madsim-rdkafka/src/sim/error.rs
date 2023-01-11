@@ -21,6 +21,8 @@ pub enum KafkaError {
     ClientCreation(String),
     /// Consumer commit failed.
     ConsumerCommit(#[source] RDKafkaErrorCode),
+    /// Flushing failed
+    Flush(RDKafkaErrorCode),
     /// Global error.
     Global(#[source] RDKafkaErrorCode),
     /// Group list fetch failed.
@@ -68,6 +70,7 @@ impl fmt::Display for KafkaError {
             // }
             KafkaError::ClientCreation(ref err) => write!(f, "Client creation error: {}", err),
             KafkaError::ConsumerCommit(err) => write!(f, "Consumer commit error: {}", err),
+            KafkaError::Flush(err) => write!(f, "KafkaError (Flush error: {})", err),
             KafkaError::Global(err) => write!(f, "Global error: {}", err),
             KafkaError::GroupListFetch(err) => write!(f, "Group list fetch error: {}", err),
             KafkaError::MessageConsumption(err) => write!(f, "Message consumption error: {}", err),
