@@ -3,7 +3,7 @@
 [![Crate](https://img.shields.io/crates/v/madsim-rdkafka.svg)](https://crates.io/crates/madsim-rdkafka)
 [![Docs](https://docs.rs/madsim-rdkafka/badge.svg)](https://docs.rs/madsim-rdkafka)
 
-The `rdkafka` simulator on madsim.
+The `rdkafka` simulator on madsim. Mirrors [rdkafka v0.29.0](https://docs.rs/rdkafka/0.29.0/rdkafka/index.html).
 
 ## Usage
 
