@@ -12,16 +12,14 @@
 //! [`producer`]: crate::producer
 
 use std::convert::TryFrom;
+use std::error::Error;
 use std::ffi::{CStr, CString};
 use std::mem::ManuallyDrop;
-use std::os::raw::c_char;
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_void};
 use std::ptr;
 use std::slice;
 use std::string::ToString;
 use std::sync::Arc;
-
-use log::{debug, error, info, trace, warn};
 
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
@@ -30,9 +28,10 @@ use crate::config::{ClientConfig, NativeClientConfig, RDKafkaLogLevel};
 use crate::consumer::RebalanceProtocol;
 use crate::error::{IsError, KafkaError, KafkaResult};
 use crate::groups::GroupList;
+use crate::log::{debug, error, info, trace, warn};
 use crate::metadata::Metadata;
 use crate::statistics::Statistics;
-use crate::util::{ErrBuf, KafkaDrop, NativePtr, Timeout};
+use crate::util::{self, ErrBuf, KafkaDrop, NativePtr, Timeout};
 
 /// Client-level context.
 ///
@@ -48,6 +47,16 @@ use crate::util::{ErrBuf, KafkaDrop, NativePtr, Timeout};
 /// [`ConsumerContext`]: crate::consumer::ConsumerContext
 /// [`ProducerContext`]: crate::producer::ProducerContext
 pub trait ClientContext: Send + Sync + 'static {
+    /// Whether to periodically refresh the SASL `OAUTHBEARER` token
+    /// by calling [`ClientContext::generate_oauth_token`].
+    ///
+    /// If disabled, librdkafka's default token refresh callback is used
+    /// instead.
+    ///
+    /// This parameter is only relevant when using the `OAUTHBEARER` SASL
+    /// mechanism.
+    const ENABLE_REFRESH_OAUTH_TOKEN: bool = false;
+
     /// Receives log lines from librdkafka.
     ///
     /// The default implementation forwards the log lines to the appropriate
@@ -106,6 +115,24 @@ pub trait ClientContext: Send + Sync + 'static {
         error!("librdkafka: {}: {}", error, reason);
     }
 
+    /// Generates an OAuth token from the provided configuration.
+    ///
+    /// Override with an appropriate implementation when using the `OAUTHBEARER`
+    /// SASL authentication mechanism. For this method to be called, you must
+    /// also set [`ClientContext::ENABLE_REFRESH_OAUTH_TOKEN`] to true.
+    ///
+    /// The `fmt::Display` implementation of the returned error must not
+    /// generate a message with an embedded null character.
+    ///
+    /// The default implementation always returns an error and is meant to
+    /// be overridden.
+    fn generate_oauth_token(
+        &self,
+        _oauthbearer_config: Option<&str>,
+    ) -> Result<OAuthToken, Box<dyn Error>> {
+        Err("Default implementation of generate_oauth_token must be overridden".into())
+    }
+
     // NOTE: when adding a new method, remember to add it to the
     // FutureProducerContext as well.
     // https://github.com/rust-lang/rfcs/pull/1406 will maybe help in the
@@ -155,12 +182,17 @@ impl NativeClient {
     }
 
     pub(crate) fn rebalance_protocol(&self) -> RebalanceProtocol {
-        let protocol = unsafe { CStr::from_ptr(rdsys::rd_kafka_rebalance_protocol(self.ptr())) };
-        match protocol.to_bytes() {
-            b"NONE" => RebalanceProtocol::None,
-            b"EAGER" => RebalanceProtocol::Eager,
-            b"COOPERATIVE" => RebalanceProtocol::Cooperative,
-            _ => unreachable!(),
+        let protocol = unsafe { rdsys::rd_kafka_rebalance_protocol(self.ptr()) };
+        if protocol.is_null() {
+            RebalanceProtocol::None
+        } else {
+            let protocol = unsafe { CStr::from_ptr(protocol) };
+            match protocol.to_bytes() {
+                b"NONE" => RebalanceProtocol::None,
+                b"EAGER" => RebalanceProtocol::Eager,
+                b"COOPERATIVE" => RebalanceProtocol::Cooperative,
+                _ => unreachable!(),
+            }
         }
     }
 }
@@ -204,6 +236,14 @@ impl<C: ClientContext> Client<C> {
         unsafe {
             rdsys::rd_kafka_conf_set_error_cb(native_config.ptr(), Some(native_error_cb::<C>))
         };
+        if C::ENABLE_REFRESH_OAUTH_TOKEN {
+            unsafe {
+                rdsys::rd_kafka_conf_set_oauthbearer_token_refresh_cb(
+                    native_config.ptr(),
+                    Some(native_oauth_refresh_cb::<C>),
+                )
+            };
+        }
 
         let client_ptr = unsafe {
             let native_config = ManuallyDrop::new(native_config);
@@ -298,6 +338,17 @@ impl<C: ClientContext> Client<C> {
             return Err(KafkaError::MetadataFetch(ret.into()));
         }
         Ok((low, high))
+    }
+
+    /// Returns the cluster identifier option or None if the cluster identifier is null
+    pub fn fetch_cluster_id<T: Into<Timeout>>(&self, timeout: T) -> Option<String> {
+        let cluster_id =
+            unsafe { rdsys::rd_kafka_clusterid(self.native_ptr(), timeout.into().as_millis()) };
+        if cluster_id.is_null() {
+            return None;
+        }
+        let buf = unsafe { CStr::from_ptr(cluster_id).to_bytes() };
+        String::from_utf8(buf.to_vec()).ok()
     }
 
     /// Returns the group membership information for the given group. If no group is
@@ -441,6 +492,76 @@ pub(crate) unsafe extern "C" fn native_error_cb<C: ClientContext>(
 
     let context = &mut *(opaque as *mut C);
     context.error(error, reason.trim());
+}
+
+/// A generated OAuth token and its associated metadata.
+///
+/// When using the `OAUTHBEARER` SASL authentication method, this type is
+/// returned from [`ClientContext::generate_oauth_token`]. The token and
+/// principal name must not contain embedded null characters.
+///
+/// Specifying SASL extensions is not currently supported.
+pub struct OAuthToken {
+    /// The token value to set.
+    pub token: String,
+    /// The Kafka principal name associated with the token.
+    pub principal_name: String,
+    /// When the token expires, in number of milliseconds since the Unix epoch.
+    pub lifetime_ms: i64,
+}
+
+pub(crate) unsafe extern "C" fn native_oauth_refresh_cb<C: ClientContext>(
+    client: *mut RDKafka,
+    oauthbearer_config: *const c_char,
+    opaque: *mut c_void,
+) {
+    let res: Result<_, Box<dyn Error>> = (|| {
+        let context = &mut *(opaque as *mut C);
+        let oauthbearer_config = match oauthbearer_config.is_null() {
+            true => None,
+            false => Some(util::cstr_to_owned(oauthbearer_config)),
+        };
+        let token_info = context.generate_oauth_token(oauthbearer_config.as_deref())?;
+        let token = CString::new(token_info.token)?;
+        let principal_name = CString::new(token_info.principal_name)?;
+        Ok((token, principal_name, token_info.lifetime_ms))
+    })();
+    match res {
+        Ok((token, principal_name, lifetime_ms)) => {
+            let mut err_buf = ErrBuf::new();
+            let code = rdkafka_sys::rd_kafka_oauthbearer_set_token(
+                client,
+                token.as_ptr(),
+                lifetime_ms,
+                principal_name.as_ptr(),
+                ptr::null_mut(),
+                0,
+                err_buf.as_mut_ptr(),
+                err_buf.capacity(),
+            );
+            if code == RDKafkaRespErr::RD_KAFKA_RESP_ERR_NO_ERROR {
+                debug!("successfully set refreshed OAuth token");
+            } else {
+                debug!(
+                    "failed to set refreshed OAuth token (code {:?}): {}",
+                    code, err_buf
+                );
+                rdkafka_sys::rd_kafka_oauthbearer_set_token_failure(client, err_buf.as_mut_ptr());
+            }
+        }
+        Err(e) => {
+            debug!("failed to refresh OAuth token: {}", e);
+            let message = match CString::new(e.to_string()) {
+                Ok(message) => message,
+                Err(e) => {
+                    error!("error message generated while refreshing OAuth token has embedded null character: {}", e);
+                    CString::new("error while refreshing OAuth token has embedded null character")
+                        .expect("known to be a valid CString")
+                }
+            };
+            rdkafka_sys::rd_kafka_oauthbearer_set_token_failure(client, message.as_ptr());
+        }
+    }
 }
 
 #[cfg(test)]

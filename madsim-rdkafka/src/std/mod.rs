@@ -3,8 +3,8 @@
 //!
 //! ## The library
 //!
-//! `rust-rdkafka` provides a safe Rust interface to librdkafka. The master
-//! branch is currently based on librdkafka 1.8.2.
+//! `rust-rdkafka` provides a safe Rust interface to librdkafka. This version
+//! is compatible with librdkafka v1.9.2+.
 //!
 //! ### Documentation
 //!
@@ -131,6 +131,8 @@
 //!   the [blog post][timely-blog] announcing its Kafka integration.
 //! - [kafka-view]: a web interface for Kafka clusters.
 //! - [kafka-benchmark]: a high performance benchmarking tool for Kafka.
+//! - [callysto]: Stream processing framework in Rust.
+//! - [bytewax]: Python stream processing framework using Timely Dataflow.
 //!
 //! *If you are using rust-rdkafka, please let us know!*
 //!
@@ -207,9 +209,13 @@
 //!
 //! ## Debugging
 //!
-//! rust-rdkafka uses the [`log`] and [`env_logger`] crates to handle logging.
-//! Logging can be enabled using the `RUST_LOG` environment variable, for
-//! example:
+//! rust-rdkafka uses the [`log`] crate to handle logging.
+//! Optionally, enable the `tracing` feature to emit [`tracing`]
+//! events as opposed to [`log`] records.
+//!
+//! In test and examples, rust-rdkafka uses the  [`env_logger`] crate
+//! to format logs. In those contexts, logging can be enabled
+//! using the `RUST_LOG` environment variable, for example:
 //!
 //! ```bash
 //! RUST_LOG="librdkafka=trace,rdkafka::client=debug" cargo test
@@ -234,6 +240,7 @@
 //! [`StreamConsumer`]: https://docs.rs/rdkafka/*/rdkafka/consumer/stream_consumer/struct.StreamConsumer.html
 //! [`ThreadedProducer`]: https://docs.rs/rdkafka/*/rdkafka/producer/base_producer/struct.ThreadedProducer.html
 //! [`log`]: https://docs.rs/log
+//! [`tracing`]: https://docs.rs/tracing
 //! [`env_logger`]: https://docs.rs/env_logger
 //! [Apache Kafka]: https://kafka.apache.org
 //! [asynchronous processing example]: https://github.com/fede1024/rust-rdkafka/blob/master/examples/asynchronous_processing.rs
@@ -241,9 +248,10 @@
 //! [runtime-smol]: https://github.com/fede1024/rust-rdkafka/blob/master/examples/runtime_smol.rs
 //! [runtime-async-std]: https://github.com/fede1024/rust-rdkafka/blob/master/examples/runtime_async_std.rs
 //! [broker-compat]: https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
+//! [bytewax]: https://github.com/bytewax/bytewax
+//! [callysto]: https://github.com/vertexclique/callysto
 //! [`examples`]: https://github.com/fede1024/rust-rdkafka/blob/master/examples/
 //! [futures]: https://github.com/rust-lang/futures-rs
-//! [kafka-benchmark]: https://github.com/fede1024/kafka-benchmark
 //! [kafka-benchmark]: https://github.com/fede1024/kafka-benchmark
 //! [kafka-view]: https://github.com/fede1024/kafka-view
 //! [librdkafka]: https://github.com/edenhill/librdkafka
@@ -261,6 +269,8 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::all)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+pub(crate) mod log;
 
 pub use rdkafka_sys::types;
 

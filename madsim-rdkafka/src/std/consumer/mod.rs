@@ -4,14 +4,13 @@ use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{error, trace};
-
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
 use crate::client::{Client, ClientContext, NativeClient};
 use crate::error::KafkaResult;
 use crate::groups::GroupList;
+use crate::log::{error, trace};
 use crate::message::BorrowedMessage;
 use crate::metadata::Metadata;
 use crate::topic_partition_list::{Offset, TopicPartitionList};
@@ -142,11 +141,28 @@ impl ConsumerContext for DefaultConsumerContext {}
 
 /// Specifies whether a commit should be performed synchronously or
 /// asynchronously.
+///
+/// A commit is performed via [`Consumer::commit`] or one of its variants.
+///
+/// Regardless of the `CommitMode`, the commit APIs enqueue the commit request
+/// in a local work queue. A separate worker thread picks up this commit request
+/// and forwards it to the Kafka broker over the network.
+///
+/// The difference between [`CommitMode::Sync`] and [`CommitMode::Async`] is in
+/// whether the caller waits for the Kafka broker to respond that it finished
+/// handling the commit request.
+///
+/// Note that the commit APIs are not async in the Rust sense due to the lack of
+/// a callback-based interface exposed by librdkafka. See
+/// [librdkafka#3212](https://github.com/edenhill/librdkafka/issues/3212).
 #[derive(Clone, Copy, Debug)]
 pub enum CommitMode {
-    /// Synchronous commit.
+    /// In `Sync` mode, the caller blocks until the Kafka broker finishes
+    /// processing the commit request.
     Sync = 0,
-    /// Asynchronous commit.
+
+    /// In `Async` mode, the caller enqueues the commit request in a local
+    /// work queue and returns immediately.
     Async = 1,
 }
 
@@ -237,6 +253,12 @@ where
     /// (blocking), or async. Notice that when a specific offset is committed,
     /// all the previous offsets are considered committed as well. Use this
     /// method only if you are processing messages in order.
+    ///
+    /// The highest committed offset is interpreted as the next message to be
+    /// consumed in the event that a consumer rehydrates its local state from
+    /// the Kafka broker (i.e. consumer server restart). This means that,
+    /// in general, the offset of your [`TopicPartitionList`] should equal
+    /// 1 plus the offset from your last consumed message.
     async fn commit(
         &self,
         topic_partition_list: &TopicPartitionList,
@@ -251,6 +273,10 @@ where
 
     /// Commit the provided message. Note that this will also automatically
     /// commit every message with lower offset within the same partition.
+    ///
+    /// This method is exactly equivalent to invoking [`Consumer::commit`]
+    /// with a [`TopicPartitionList`] which copies the topic and partition
+    /// from the message and adds 1 to the offset of the message.
     async fn commit_message(
         &self,
         message: &BorrowedMessage<'_>,

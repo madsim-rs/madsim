@@ -10,12 +10,16 @@ use std::ptr;
 use std::ptr::NonNull;
 use std::slice;
 use std::sync::Arc;
+#[cfg(feature = "naive-runtime")]
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use futures::channel::oneshot;
-use futures::future::{FutureExt, Map};
-use log::trace;
+#[cfg(feature = "naive-runtime")]
+use futures_channel::oneshot;
+#[cfg(feature = "naive-runtime")]
+use futures_util::future::{FutureExt, Map};
+
+use crate::log::trace;
 
 use rdkafka_sys as rdsys;
 
@@ -118,20 +122,23 @@ pub(crate) unsafe fn ptr_to_slice<'a, T>(ptr: *const c_void, size: usize) -> &'a
 ///
 /// This conversion is used to pass opaque objects to the C library and vice
 /// versa.
-pub trait IntoOpaque: Send + Sync {
+pub trait IntoOpaque: Send + Sync + Sized {
     /// Converts the object into a raw pointer.
-    fn as_ptr(&self) -> *mut c_void;
+    fn into_ptr(self) -> *mut c_void;
 
     /// Converts the raw pointer back to the original Rust object.
     ///
     /// # Safety
     ///
-    /// The pointer must be a valid pointer to the original Rust object.
+    /// The pointer must be created with [into_ptr](IntoOpaque::into_ptr).
+    ///
+    /// Care must be taken to not call more than once if it would result
+    /// in an aliasing violation (e.g. [Box]).
     unsafe fn from_ptr(_: *mut c_void) -> Self;
 }
 
 impl IntoOpaque for () {
-    fn as_ptr(&self) -> *mut c_void {
+    fn into_ptr(self) -> *mut c_void {
         ptr::null_mut()
     }
 
@@ -139,8 +146,8 @@ impl IntoOpaque for () {
 }
 
 impl IntoOpaque for usize {
-    fn as_ptr(&self) -> *mut c_void {
-        *self as *mut usize as *mut c_void
+    fn into_ptr(self) -> *mut c_void {
+        self as *mut c_void
     }
 
     unsafe fn from_ptr(ptr: *mut c_void) -> Self {
@@ -149,8 +156,8 @@ impl IntoOpaque for usize {
 }
 
 impl<T: Send + Sync> IntoOpaque for Box<T> {
-    fn as_ptr(&self) -> *mut c_void {
-        self.as_ref() as *const T as *mut c_void
+    fn into_ptr(self) -> *mut c_void {
+        Box::into_raw(self) as *mut c_void
     }
 
     unsafe fn from_ptr(ptr: *mut c_void) -> Self {
@@ -159,12 +166,12 @@ impl<T: Send + Sync> IntoOpaque for Box<T> {
 }
 
 impl<T: Send + Sync> IntoOpaque for Arc<T> {
-    fn as_ptr(&self) -> *mut c_void {
-        self.as_ref() as *const T as *mut c_void
+    fn into_ptr(self) -> *mut c_void {
+        Arc::into_raw(self) as *mut c_void
     }
 
     unsafe fn from_ptr(ptr: *mut c_void) -> Self {
-        Arc::from_raw(ptr as *mut T)
+        Arc::from_raw(ptr as *const T)
     }
 }
 
@@ -365,25 +372,51 @@ pub trait AsyncRuntime: Send + Sync + 'static {
 /// The default [`AsyncRuntime`] used when one is not explicitly specified.
 ///
 /// This is defined to be the [`TokioRuntime`] when the `tokio` feature is
-/// enabled, and the [`NaiveRuntime`] otherwise.
-#[cfg(not(feature = "tokio"))]
+/// enabled, or the [`NaiveRuntime`] if the `naive-runtime` feature is enabled.
+///
+/// If neither the `tokio` nor `naive-runtime` feature is enabled, this is
+/// defined to be `()`, which is not a valid `AsyncRuntime` and will cause
+/// compilation errors if used as one. You will need to explicitly specify a
+/// custom async runtime wherever one is required.
+#[cfg(not(any(feature = "tokio", feature = "naive-runtime")))]
+pub type DefaultRuntime = ();
+
+/// The default [`AsyncRuntime`] used when one is not explicitly specified.
+///
+/// This is defined to be the [`TokioRuntime`] when the `tokio` feature is
+/// enabled, or the [`NaiveRuntime`] if the `naive-runtime` feature is enabled.
+///
+/// If neither the `tokio` nor `naive-runtime` feature is enabled, this is
+/// defined to be `()`, which is not a valid `AsyncRuntime` and will cause
+/// compilation errors if used as one. You will need to explicitly specify a
+/// custom async runtime wherever one is required.
+#[cfg(all(not(feature = "tokio"), feature = "naive-runtime"))]
 pub type DefaultRuntime = NaiveRuntime;
 
 /// The default [`AsyncRuntime`] used when one is not explicitly specified.
 ///
 /// This is defined to be the [`TokioRuntime`] when the `tokio` feature is
-/// enabled, and the [`NaiveRuntime`] otherwise.
+/// enabled, or the [`NaiveRuntime`] if the `naive-runtime` feature is enabled.
+///
+/// If neither the `tokio` nor `naive-runtime` feature is enabled, this is
+/// defined to be `()`, which is not a valid `AsyncRuntime` and will cause
+/// compilation errors if used as one. You will need to explicitly specify a
+/// custom async runtime wherever one is required.
 #[cfg(feature = "tokio")]
 pub type DefaultRuntime = TokioRuntime;
 
 /// An [`AsyncRuntime`] implementation backed by the executor in the
-/// [futures](futures) crate.
+/// [`futures_executor`](futures_executor) crate.
 ///
 /// This runtime should not be used when performance is a concern, as it makes
 /// heavy use of threads to compensate for the lack of a timer in the futures
 /// executor.
+#[cfg(feature = "naive-runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "naive-runtime")))]
 pub struct NaiveRuntime;
 
+#[cfg(feature = "naive-runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "naive-runtime")))]
 impl AsyncRuntime for NaiveRuntime {
     type Delay = Map<oneshot::Receiver<()>, fn(Result<(), oneshot::Canceled>)>;
 
@@ -391,7 +424,7 @@ impl AsyncRuntime for NaiveRuntime {
     where
         T: Future<Output = ()> + Send + 'static,
     {
-        thread::spawn(|| futures::executor::block_on(task));
+        thread::spawn(|| futures_executor::block_on(task));
     }
 
     fn delay_for(duration: Duration) -> Self::Delay {

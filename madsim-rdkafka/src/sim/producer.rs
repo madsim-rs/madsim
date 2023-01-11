@@ -207,7 +207,7 @@ where
 
     /// Polls the producer, returning the number of events served.
     pub async fn poll<T: Into<Timeout>>(&self, timeout: T) -> i32 {
-        self.flush(timeout).await;
+        _ = self.flush(timeout).await;
         0
     }
 
@@ -224,14 +224,12 @@ where
     }
 
     /// Flushes any pending messages.
-    pub async fn flush<T: Into<Timeout>>(&self, timeout: T) {
-        let future = async {
-            if let Err(e) = self.flush_internal().await {
-                error!("failed to flush: {}", e);
-            }
-        };
+    pub async fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        let future = self.flush_internal();
         match timeout.into() {
-            Timeout::After(dur) => _ = madsim::time::timeout(dur, future).await,
+            Timeout::After(dur) => madsim::time::timeout(dur, future)
+                .await
+                .map_err(|_| KafkaError::Flush(RDKafkaErrorCode::RequestTimedOut))?,
             Timeout::Never => future.await,
         }
     }
