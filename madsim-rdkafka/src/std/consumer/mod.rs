@@ -4,14 +4,13 @@ use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use log::{error, trace};
-
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
 use crate::client::{Client, ClientContext, NativeClient};
 use crate::error::KafkaResult;
 use crate::groups::GroupList;
+use crate::log::{error, trace};
 use crate::message::BorrowedMessage;
 use crate::metadata::Metadata;
 use crate::topic_partition_list::{Offset, TopicPartitionList};
@@ -142,11 +141,28 @@ impl ConsumerContext for DefaultConsumerContext {}
 
 /// Specifies whether a commit should be performed synchronously or
 /// asynchronously.
+///
+/// A commit is performed via [`Consumer::commit`] or one of its variants.
+///
+/// Regardless of the `CommitMode`, the commit APIs enqueue the commit request
+/// in a local work queue. A separate worker thread picks up this commit request
+/// and forwards it to the Kafka broker over the network.
+///
+/// The difference between [`CommitMode::Sync`] and [`CommitMode::Async`] is in
+/// whether the caller waits for the Kafka broker to respond that it finished
+/// handling the commit request.
+///
+/// Note that the commit APIs are not async in the Rust sense due to the lack of
+/// a callback-based interface exposed by librdkafka. See
+/// [librdkafka#3212](https://github.com/edenhill/librdkafka/issues/3212).
 #[derive(Clone, Copy, Debug)]
 pub enum CommitMode {
-    /// Synchronous commit.
+    /// In `Sync` mode, the caller blocks until the Kafka broker finishes
+    /// processing the commit request.
     Sync = 0,
-    /// Asynchronous commit.
+
+    /// In `Async` mode, the caller enqueues the commit request in a local
+    /// work queue and returns immediately.
     Async = 1,
 }
 
@@ -189,7 +205,6 @@ pub enum RebalanceProtocol {
 /// Consumer>`). Therefore, the API is optimised for the case where a concrete
 /// type is available. As a result, some methods are not available on trait
 /// objects, since they are generic.
-#[async_trait::async_trait]
 pub trait Consumer<C = DefaultConsumerContext>
 where
     C: ConsumerContext,
@@ -225,7 +240,7 @@ where
     /// Seeks to `offset` for the specified `topic` and `partition`. After a
     /// successful call to `seek`, the next poll of the consumer will return the
     /// message with `offset`.
-    async fn seek<T: Into<Timeout> + Send>(
+    fn seek<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
@@ -237,7 +252,13 @@ where
     /// (blocking), or async. Notice that when a specific offset is committed,
     /// all the previous offsets are considered committed as well. Use this
     /// method only if you are processing messages in order.
-    async fn commit(
+    ///
+    /// The highest committed offset is interpreted as the next message to be
+    /// consumed in the event that a consumer rehydrates its local state from
+    /// the Kafka broker (i.e. consumer server restart). This means that,
+    /// in general, the offset of your [`TopicPartitionList`] should equal
+    /// 1 plus the offset from your last consumed message.
+    fn commit(
         &self,
         topic_partition_list: &TopicPartitionList,
         mode: CommitMode,
@@ -247,15 +268,15 @@ where
     /// after a message has been received, but before the message has been
     /// processed by the user code, this might lead to data loss. Check the
     /// "at-least-once delivery" section in the readme for more information.
-    async fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()>;
+    fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()>;
 
     /// Commit the provided message. Note that this will also automatically
     /// commit every message with lower offset within the same partition.
-    async fn commit_message(
-        &self,
-        message: &BorrowedMessage<'_>,
-        mode: CommitMode,
-    ) -> KafkaResult<()>;
+    ///
+    /// This method is exactly equivalent to invoking [`Consumer::commit`]
+    /// with a [`TopicPartitionList`] which copies the topic and partition
+    /// from the message and adds 1 to the offset of the message.
+    fn commit_message(&self, message: &BorrowedMessage<'_>, mode: CommitMode) -> KafkaResult<()>;
 
     /// Stores offset to be used on the next (auto)commit. When
     /// using this `enable.auto.offset.store` should be set to `false` in the
@@ -277,38 +298,38 @@ where
     fn assignment(&self) -> KafkaResult<TopicPartitionList>;
 
     /// Retrieves the committed offsets for topics and partitions.
-    async fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
+    fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Retrieves the committed offsets for specified topics and partitions.
-    async fn committed_offsets<T>(
+    fn committed_offsets<T>(
         &self,
         tpl: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send;
+        T: Into<Timeout>;
 
     /// Looks up the offsets for this consumer's partitions by timestamp.
-    async fn offsets_for_timestamp<T>(
+    fn offsets_for_timestamp<T>(
         &self,
         timestamp: i64,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Looks up the offsets for the specified partitions by timestamp.
-    async fn offsets_for_times<T>(
+    fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Retrieve current positions (offsets) for topics and partitions.
@@ -316,27 +337,27 @@ where
 
     /// Returns the metadata information for the specified topic, or for all
     /// topics in the cluster if no topic is specified.
-    async fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
+    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Returns the low and high watermarks for a specific topic and partition.
-    async fn fetch_watermarks<T>(
+    fn fetch_watermarks<T>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    async fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
+    fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Pauses consumption for the provided list of partitions.

@@ -214,7 +214,6 @@ impl ProducerContext for DefaultProducerContext {
 }
 
 /// Common trait for all producers.
-#[async_trait::async_trait]
 pub trait Producer<C = DefaultProducerContext>
 where
     C: ProducerContext,
@@ -236,7 +235,7 @@ where
     ///
     /// This method should be called before termination to ensure delivery of
     /// all enqueued messages. It will call `poll()` internally.
-    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T);
+    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Enable sending transactions with this producer.
     ///
@@ -262,7 +261,7 @@ where
     /// [`Producer::begin_transaction`].
     ///
     /// This function may block for the specified `timeout`.
-    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
+    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Begins a new transaction.
     ///
@@ -307,7 +306,7 @@ where
     /// partition.
     ///
     /// Use this method at the end of a consume-transform-produce loop, prior to
-    /// committing the transaction with [`Producer::commit_transaction`].
+    /// comitting the transaction with [`Producer::commit_transaction`].
     ///
     /// This function may block for the specified `timeout`.
     ///
@@ -320,7 +319,7 @@ where
     /// The consumer must not have automatic commits enabled.
     ///
     /// [`Consumer::group_metadata`]: crate::consumer::Consumer::group_metadata
-    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
+    fn send_offsets_to_transaction<T: Into<Timeout>>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -342,11 +341,11 @@ where
     /// If any of the outstanding messages fail permanently, the current
     /// transaction will enter an abortable error state and this function will
     /// return an abortable error. You must then call
-    /// [`Producer::abort_transaction`] before attempting to create another
+    /// [`Producer::abort_transaction`] before attemping to create another
     /// transaction.
     ///
     /// This function may block for the specified `timeout`.
-    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
+    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Aborts the current transaction.
     ///
@@ -357,7 +356,7 @@ where
     ///
     /// # Details
     ///
-    /// Any outstanding messages will be purged and failed with
+    /// Any oustanding messages will be purged and failed with
     /// [`RDKafkaErrorCode::PurgeInflight`] or [`RDKafkaErrorCode::PurgeQueue`].
     ///
     /// This function should also be used to recover from non-fatal abortable
@@ -367,5 +366,5 @@ where
     ///
     /// [`RDKafkaErrorCode::PurgeInflight`]: crate::error::RDKafkaErrorCode::PurgeInflight
     /// [`RDKafkaErrorCode::PurgeQueue`]: crate::error::RDKafkaErrorCode::PurgeQueue
-    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
+    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
 }

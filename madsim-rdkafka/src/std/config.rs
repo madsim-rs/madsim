@@ -28,13 +28,12 @@ use std::iter::FromIterator;
 use std::os::raw::c_char;
 use std::ptr;
 
-use log::{log_enabled, Level};
-
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
 use crate::client::ClientContext;
 use crate::error::{IsError, KafkaError, KafkaResult};
+use crate::log::{log_enabled, DEBUG, INFO, WARN};
 use crate::util::{ErrBuf, KafkaDrop, NativePtr};
 
 /// The log levels supported by librdkafka.
@@ -250,17 +249,17 @@ impl ClientConfig {
     }
 
     /// Uses the current configuration to create a new Consumer or Producer.
-    pub async fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
-        T::from_config(self).await
+    pub fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
+        T::from_config(self)
     }
 
     /// Uses the current configuration and the provided context to create a new Consumer or Producer.
-    pub async fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
+    pub fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
     where
         C: ClientContext,
         T: FromClientConfigAndContext<C>,
     {
-        T::from_config_and_context(self, context).await
+        T::from_config_and_context(self, context)
     }
 }
 
@@ -286,11 +285,11 @@ impl Extend<(String, String)> for ClientConfig {
 
 /// Return the log level
 fn log_level_from_global_config() -> RDKafkaLogLevel {
-    if log_enabled!(target: "librdkafka", Level::Debug) {
+    if log_enabled!(target: "librdkafka", DEBUG) {
         RDKafkaLogLevel::Debug
-    } else if log_enabled!(target: "librdkafka", Level::Info) {
+    } else if log_enabled!(target: "librdkafka", INFO) {
         RDKafkaLogLevel::Info
-    } else if log_enabled!(target: "librdkafka", Level::Warn) {
+    } else if log_enabled!(target: "librdkafka", WARN) {
         RDKafkaLogLevel::Warning
     } else {
         RDKafkaLogLevel::Error
@@ -298,18 +297,16 @@ fn log_level_from_global_config() -> RDKafkaLogLevel {
 }
 
 /// Create a new client based on the provided configuration.
-#[async_trait::async_trait]
 pub trait FromClientConfig: Sized {
     /// Creates a client from a client configuration. The default client context
     /// will be used.
-    async fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
+    fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
 }
 
 /// Create a new client based on the provided configuration and context.
-#[async_trait::async_trait]
 pub trait FromClientConfigAndContext<C: ClientContext>: Sized {
     /// Creates a client from a client configuration and a client context.
-    async fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
+    fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
 }
 
 #[cfg(test)]
