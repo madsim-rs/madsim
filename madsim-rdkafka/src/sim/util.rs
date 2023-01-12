@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Specifies a timeout for a Kafka operation.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -32,4 +32,11 @@ impl From<Option<Duration>> for Timeout {
             Some(d) => Timeout::After(d),
         }
     }
+}
+
+/// Converts the given time to the number of milliseconds since the Unix epoch.
+pub fn millis_to_epoch(time: SystemTime) -> i64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_millis() as i64
 }
