@@ -6,9 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- rdkafka: Add `Timestamp::to_millis`.
 
 ## [0.2.13] - 2023-01-11
 
@@ -16,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - etcd: Add `KeyValue::{lease, create_revision, mod_revision}` API.
 - etcd: Add maintenance `status` API.
+- rdkafka: Add `Timestamp::to_millis`.
+
+### Changed
+
+- rdkafka: update to rdkafka v0.29.0.
+    - The return type of `Producer::flush` changed to `KafkaResult<()>`.
 
 ### Fixed
 
