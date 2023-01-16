@@ -1,25 +1,33 @@
+mod bytes;
 mod election;
 mod error;
 mod kv;
 mod lease;
+mod maintenance;
 mod server;
 mod service;
+mod watch;
 
 use madsim::net::Endpoint;
+use std::net::SocketAddr;
 use std::time::Duration;
 
+pub use self::bytes::Bytes;
 pub use self::election::*;
 pub use self::error::{Error, Result};
 pub use self::kv::*;
 pub use self::lease::*;
+pub use self::maintenance::*;
 pub use self::server::SimServer;
+pub use self::watch::*;
+
+use self::server::Request;
 
 /// Asynchronous `etcd` client using v3 API.
 #[derive(Clone)]
 pub struct Client {
-    kv: KvClient,
-    lease: LeaseClient,
-    election: ElectionClient,
+    ep: Endpoint,
+    server_addr: SocketAddr,
 }
 
 impl Client {
@@ -30,29 +38,41 @@ impl Client {
     ) -> Result<Self> {
         let addr = endpoints.as_ref()[0].as_ref();
         let ep = Endpoint::connect(addr).await?;
-        Ok(Client {
-            kv: KvClient::new(ep.clone()),
-            lease: LeaseClient::new(ep.clone()),
-            election: ElectionClient::new(ep),
-        })
+        let server_addr = ep.peer_addr().unwrap();
+        Ok(Client { ep, server_addr })
     }
 
     /// Gets a KV client.
     #[inline]
     pub fn kv_client(&self) -> KvClient {
-        self.kv.clone()
+        KvClient::new(self.ep.clone())
     }
 
     /// Gets a lease client.
     #[inline]
     pub fn lease_client(&self) -> LeaseClient {
-        self.lease.clone()
+        LeaseClient::new(self.ep.clone())
     }
 
     /// Gets a election client.
     #[inline]
     pub fn election_client(&self) -> ElectionClient {
-        self.election.clone()
+        ElectionClient::new(self.ep.clone())
+    }
+
+    /// Gets a maintenance client.
+    #[inline]
+    pub fn maintenance_client(&self) -> MaintenanceClient {
+        MaintenanceClient::new(self.ep.clone())
+    }
+
+    /// Dump the data of the etcd server.
+    #[inline]
+    pub async fn dump(&mut self) -> Result<String> {
+        let req = Request::Dump;
+        let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
+        tx.send(Box::new(req)).await?;
+        *rx.recv().await?.downcast::<Result<String>>().unwrap()
     }
 }
 

@@ -7,8 +7,6 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::Arc;
 
-use log::trace;
-
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
@@ -22,6 +20,7 @@ use crate::consumer::{
 };
 use crate::error::{IsError, KafkaError, KafkaResult};
 use crate::groups::GroupList;
+use crate::log::trace;
 use crate::message::{BorrowedMessage, Message};
 use crate::metadata::Metadata;
 use crate::topic_partition_list::{Offset, TopicPartitionList};
@@ -614,8 +613,9 @@ pub struct PartitionQueue<C>
 where
     C: ConsumerContext,
 {
-    pub(crate) consumer: Arc<BaseConsumer<C>>,
-    pub(crate) queue: NativeQueue,
+    consumer: Arc<BaseConsumer<C>>,
+    queue: NativeQueue,
+    nonempty_callback: Option<Box<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl<C> PartitionQueue<C>
@@ -623,7 +623,11 @@ where
     C: ConsumerContext,
 {
     pub(crate) fn new(consumer: Arc<BaseConsumer<C>>, queue: NativeQueue) -> Self {
-        PartitionQueue { consumer, queue }
+        PartitionQueue {
+            consumer,
+            queue,
+            nonempty_callback: None,
+        }
     }
 
     /// Polls the partition for new messages.
@@ -645,5 +649,44 @@ where
             ))
         }
         .map(|ptr| unsafe { BorrowedMessage::from_consumer(ptr, &self.consumer) })
+    }
+
+    /// Sets a callback that will be invoked whenever the queue becomes
+    /// nonempty.
+    pub fn set_nonempty_callback<F>(&mut self, f: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        // SAFETY: we keep `F` alive until the next call to
+        // `rd_kafka_queue_cb_event_enable`. That might be the next call to
+        // `set_nonempty_callback` or it might be when the queue is dropped. The
+        // double indirection is required because `&dyn Fn` is a fat pointer.
+
+        unsafe extern "C" fn native_message_queue_nonempty_cb(
+            _: *mut RDKafka,
+            opaque_ptr: *mut c_void,
+        ) {
+            let f = opaque_ptr as *const *const (dyn Fn() + Send + Sync);
+            (**f)();
+        }
+
+        let f: Box<Box<dyn Fn() + Send + Sync>> = Box::new(Box::new(f));
+        unsafe {
+            rdsys::rd_kafka_queue_cb_event_enable(
+                self.queue.ptr(),
+                Some(native_message_queue_nonempty_cb),
+                &*f as *const _ as *mut c_void,
+            )
+        }
+        self.nonempty_callback = Some(f);
+    }
+}
+
+impl<C> Drop for PartitionQueue<C>
+where
+    C: ConsumerContext,
+{
+    fn drop(&mut self) {
+        unsafe { rdsys::rd_kafka_queue_cb_event_enable(self.queue.ptr(), None, ptr::null_mut()) }
     }
 }

@@ -1,4 +1,4 @@
-use super::{server::Request, KeyValue, ResponseHeader, Result};
+use super::{server::Request, Bytes, KeyValue, ResponseHeader, Result};
 use futures_util::stream::{Stream, StreamExt};
 use madsim::net::{Endpoint, Receiver};
 use std::{
@@ -34,8 +34,8 @@ impl ElectionClient {
         lease: i64,
     ) -> Result<CampaignResponse> {
         let req = Request::Campaign {
-            name: name.into(),
-            value: value.into(),
+            name: name.into().into(),
+            value: value.into().into(),
             lease,
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
@@ -55,7 +55,7 @@ impl ElectionClient {
                 .expect("no leader key")
                 .leader
                 .expect("no leader key"),
-            value: value.into(),
+            value: value.into().into(),
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
@@ -65,7 +65,9 @@ impl ElectionClient {
     /// Returns the leader value for the current election.
     #[inline]
     pub async fn leader(&mut self, name: impl Into<Vec<u8>>) -> Result<LeaderResponse> {
-        let req = Request::Leader { name: name.into() };
+        let req = Request::Leader {
+            name: name.into().into(),
+        };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
         *rx.recv().await?.downcast().unwrap()
@@ -75,7 +77,9 @@ impl ElectionClient {
     /// as GetResponse values on every current elected leader key.
     #[inline]
     pub async fn observe(&mut self, name: impl Into<Vec<u8>>) -> Result<ObserveStream> {
-        let req = Request::Observe { name: name.into() };
+        let req = Request::Observe {
+            name: name.into().into(),
+        };
         let (tx, rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;
         Ok(ObserveStream { rx })
@@ -140,8 +144,8 @@ impl ProclaimOptions {
 /// Leader key of election
 #[derive(Debug, Clone)]
 pub struct LeaderKey {
-    pub(crate) name: Vec<u8>,
-    pub(crate) key: Vec<u8>,
+    pub(crate) name: Bytes,
+    pub(crate) key: Bytes,
     pub(crate) rev: i64,
     pub(crate) lease: i64,
 }
@@ -151,8 +155,8 @@ impl LeaderKey {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            name: Vec::new(),
-            key: Vec::new(),
+            name: Bytes::new(),
+            key: Bytes::new(),
             rev: 0,
             lease: 0,
         }
@@ -161,14 +165,14 @@ impl LeaderKey {
     /// The election identifier that corresponds to the leadership key.
     #[inline]
     pub fn with_name(mut self, name: impl Into<Vec<u8>>) -> Self {
-        self.name = name.into();
+        self.name = name.into().into();
         self
     }
 
     /// An opaque key representing the ownership of the election.
     #[inline]
     pub fn with_key(mut self, key: impl Into<Vec<u8>>) -> Self {
-        self.key = key.into();
+        self.key = key.into().into();
         self
     }
 
@@ -272,6 +276,12 @@ impl LeaderResponse {
     #[inline]
     pub fn kv(&self) -> Option<&KeyValue> {
         self.kv.as_ref()
+    }
+
+    /// Takes the kv out of the response, leaving a [`None`] in its place.
+    #[inline]
+    pub fn take_kv(&mut self) -> Option<KeyValue> {
+        self.kv.take()
     }
 }
 

@@ -4,21 +4,41 @@ use futures_util::{pin_mut, Stream, StreamExt};
 use tonic::codegen::http::uri::PathAndQuery;
 use tracing::instrument;
 
-use crate::{codegen::BoxMessage, Request, Response, Status, Streaming};
+use crate::{
+    codegen::{BoxMessage, IdentityInterceptor, RequestExt},
+    service::Interceptor,
+    sim::AppendMetadata,
+    Request, Response, Status, Streaming,
+};
 
 #[derive(Debug, Clone)]
-pub struct Grpc<T> {
+pub struct Grpc<T, F> {
     inner: T,
+    interceptor: F,
 }
 
-impl<T> Grpc<T> {
+impl<T> Grpc<T, IdentityInterceptor> {
     /// Creates a new gRPC client with the provided `GrpcService`.
     pub fn new(inner: T) -> Self {
-        Grpc { inner }
+        Grpc {
+            inner,
+            interceptor: Ok,
+        }
     }
 }
 
-impl Grpc<crate::transport::Channel> {
+// Message type matrix:
+// |          |                single                  |                   stream                     |
+// |----------|----------------------------------------|----------------------------------------------|
+// | request  | (PathAndQuery, bool, Request<Box<M1>>) | (PathAndQuery, bool, Request<Box<()>>), M1.. |
+// | response | Result<Response<Box<M2>>>              | Result<Response<()>>, Result<Box<M2>>..      |
+//
+impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
+    /// Creates a new gRPC client with the provided `GrpcService` and interceptor.
+    pub fn with_interceptor(inner: crate::transport::Channel, interceptor: F) -> Self {
+        Grpc { inner, interceptor }
+    }
+
     /// Check if the inner GrpcService is able to accept a new request.
     pub async fn ready(&mut self) -> Result<(), crate::transport::Error> {
         Ok(())
@@ -28,7 +48,7 @@ impl Grpc<crate::transport::Channel> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn unary<M1, M2, C>(
         &mut self,
-        request: Request<M1>,
+        mut request: Request<M1>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<M2>, Status>
@@ -36,19 +56,18 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
+        let request = request.intercept(&mut self.interceptor)?.boxed();
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send request
-        tx.send(Box::new((path, Box::new(request) as BoxMessage)))
-            .await?;
+        tx.send(Box::new((path, false, request))).await?;
         // receive response
         let rsp = rx.recv().await?;
         let rsp = *rsp
-            .downcast::<Result<BoxMessage, Status>>()
+            .downcast::<Result<Response<BoxMessage>, Status>>()
             .expect("message type mismatch");
-        let rsp = *rsp?
-            .downcast::<Response<M2>>()
-            .expect("message type mismatch");
+        let rsp = rsp?.map(|msg| *msg.downcast().expect("message type mismatch"));
         Ok(rsp)
     }
 
@@ -56,7 +75,7 @@ impl Grpc<crate::transport::Channel> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn client_streaming<M1, M2, C>(
         &mut self,
-        request: Request<impl Stream<Item = M1> + Send + 'static>,
+        mut request: Request<impl Stream<Item = M1> + Send + 'static>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<M2>, Status>
@@ -64,18 +83,18 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
+        let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
         let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send requests
-        self.send_request_stream(request, tx, path).await?;
+        Self::send_request_stream(request, tx, path, false).await?;
         // receive response
         let rsp = rx.recv().await?;
         let rsp = *rsp
-            .downcast::<Result<BoxMessage, Status>>()
+            .downcast::<Result<Response<BoxMessage>, Status>>()
             .expect("message type mismatch");
-        let rsp = *rsp?
-            .downcast::<Response<M2>>()
-            .expect("message type mismatch");
+        let rsp = rsp?.map(|msg| *msg.downcast().expect("message type mismatch"));
         Ok(rsp)
     }
 
@@ -83,7 +102,7 @@ impl Grpc<crate::transport::Channel> {
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn server_streaming<M1, M2, C>(
         &mut self,
-        request: Request<M1>,
+        mut request: Request<M1>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<Streaming<M2>>, Status>
@@ -91,20 +110,25 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
+        let request = request.intercept(&mut self.interceptor)?.boxed();
         let addr = self.inner.ep.peer_addr().unwrap();
-        let (tx, rx) = self.inner.ep.connect1(addr).await?;
+        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send request
-        tx.send(Box::new((path, Box::new(request) as BoxMessage)))
-            .await?;
+        tx.send(Box::new((path, true, request))).await?;
         // receive responses
-        Ok(Response::new(Streaming::new(rx, None)))
+        let res = *(rx.recv().await?)
+            .downcast::<Result<Response<()>, Status>>()
+            .unwrap();
+        let response = res?.map(move |_| Streaming::new(rx, None));
+        Ok(response)
     }
 
     /// Send a bi-directional streaming gRPC request.
     #[instrument(name = "rpc", skip_all, fields(?path))]
     pub async fn streaming<M1, M2, C>(
         &mut self,
-        request: Request<impl Stream<Item = M1> + Send + 'static>,
+        mut request: Request<impl Stream<Item = M1> + Send + 'static>,
         path: PathAndQuery,
         _codec: C,
     ) -> Result<Response<Streaming<M2>>, Status>
@@ -112,35 +136,41 @@ impl Grpc<crate::transport::Channel> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
+        request.append_metadata();
+        let request = request.intercept(&mut self.interceptor)?;
         let addr = self.inner.ep.peer_addr().unwrap();
-        let (tx, rx) = self.inner.ep.connect1(addr).await?;
+        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
         // send requests in a background task
-        let this = self.clone();
         let task = madsim::task::spawn(async move {
-            this.send_request_stream(request, tx, path).await.unwrap();
+            Self::send_request_stream(request, tx, path, true)
+                .await
+                .unwrap();
         });
         // receive responses
-        Ok(Response::new(Streaming::new(rx, Some(task))))
+        let res = *(rx.recv().await?)
+            .downcast::<Result<Response<()>, Status>>()
+            .unwrap();
+        let response = res?.map(move |_| Streaming::new(rx, Some(task)));
+        Ok(response)
     }
 
     async fn send_request_stream<M1>(
-        &self,
         request: Request<impl Stream<Item = M1> + Send + 'static>,
         tx: madsim::net::Sender,
         path: PathAndQuery,
+        server_streaming: bool,
     ) -> Result<(), Status>
     where
         M1: Send + Sync + 'static,
     {
-        // TODO: send `Request` metadata
+        let (metadata, extensions, stream) = request.into_parts();
+        let header = Request::from_parts(metadata, extensions, Box::new(()) as BoxMessage);
         // send stream start message
-        tx.send(Box::new((path, Box::new(()) as BoxMessage)))
-            .await?;
+        tx.send(Box::new((path, server_streaming, header))).await?;
         // send requests
-        let stream = request.into_inner();
         pin_mut!(stream);
-        while let Some(request) = stream.next().await {
-            tx.send(Box::new(request) as BoxMessage).await?;
+        while let Some(item) = stream.next().await {
+            tx.send(Box::new(item)).await?;
         }
         Ok(())
     }

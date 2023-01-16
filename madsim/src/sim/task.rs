@@ -500,7 +500,6 @@ where
     since = "0.3.0",
     note = "blocking function is not allowed in simulation"
 )]
-#[track_caller]
 pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
@@ -568,6 +567,9 @@ impl fmt::Display for Id {
 #[derive(Debug)]
 pub struct JoinHandle<T> {
     id: Id,
+    /// The task handle.
+    ///
+    /// This is `None` if the task is cancelled.
     task: Mutex<Option<FallibleTask<T>>>,
 }
 
@@ -579,7 +581,7 @@ impl<T> JoinHandle<T> {
 
     /// Cancel the task when this handle is dropped.
     pub fn cancel_on_drop(self) -> FallibleTask<T> {
-        self.task.lock().take().unwrap()
+        self.task.lock().take().expect("task is already cancelled")
     }
 }
 
@@ -587,14 +589,20 @@ impl<T> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        (self.task.lock().as_mut().unwrap())
-            .poll_unpin(cx)
-            .map(|res| {
-                res.ok_or(JoinError {
+        match &mut *self.task.lock() {
+            Some(task) => match task.poll_unpin(cx) {
+                Poll::Ready(Some(v)) => Poll::Ready(Ok(v)),
+                Poll::Ready(None) => Poll::Ready(Err(JoinError {
                     id: self.id,
-                    is_panic: true, // TODO: decide cancelled or panic
-                })
-            })
+                    is_panic: true,
+                })),
+                Poll::Pending => Poll::Pending,
+            },
+            None => Poll::Ready(Err(JoinError {
+                id: self.id,
+                is_panic: false,
+            })),
+        }
     }
 }
 
@@ -712,7 +720,9 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
 #[inline(never)]
 unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc::c_int {
     if crate::context::try_current_task().is_some() {
-        panic!("attempt to spawn a system thread in simulation");
+        eprintln!("attempt to spawn a system thread in simulation.");
+        eprintln!("note: try to use tokio tasks instead.");
+        return -1;
     }
     lazy_static::lazy_static! {
         static ref PTHREAD_ATTR_INIT: unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int = unsafe {
@@ -949,6 +959,22 @@ mod tests {
 
             Handle::current().kill(node.id());
             assert_eq!(Arc::strong_count(&flag), 1);
+        });
+    }
+
+    #[test]
+    fn join_cancelled() {
+        let runtime = Runtime::new();
+        let node = runtime.create_node().build();
+
+        let handle = node.spawn(async move {
+            std::future::pending::<()>().await;
+        });
+
+        runtime.block_on(async move {
+            handle.abort();
+            let err = handle.await.unwrap_err();
+            assert!(err.is_cancelled());
         });
     }
 }

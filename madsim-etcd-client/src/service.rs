@@ -1,11 +1,13 @@
 use super::*;
-use futures_util::future::poll_fn;
 use madsim::rand::{random, thread_rng, Rng};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use spin::Mutex;
+use std::collections::btree_map::Entry;
 use std::collections::{btree_map::Range, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub struct EtcdService {
@@ -14,8 +16,12 @@ pub struct EtcdService {
 }
 
 impl EtcdService {
-    pub fn new(timeout_rate: f32) -> Self {
-        let inner = Arc::new(Mutex::new(ServiceInner::default()));
+    pub fn new(timeout_rate: f32, data: Option<String>) -> Self {
+        let inner = Arc::new(Mutex::new(
+            data.map_or_else(ServiceInner::default, |data| {
+                toml::from_str(&data).expect("failed to deserialize dump")
+            }),
+        ));
         let weak = Arc::downgrade(&inner);
         madsim::task::spawn(async move {
             while let Some(inner) = weak.upgrade() {
@@ -30,24 +36,23 @@ impl EtcdService {
         }
     }
 
-    pub async fn put(
-        &self,
-        key: Vec<u8>,
-        value: Vec<u8>,
-        options: PutOptions,
-    ) -> Result<PutResponse> {
+    pub fn header(&self) -> ResponseHeader {
+        self.inner.lock().header()
+    }
+
+    pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().put(key, value, options);
         Ok(rsp)
     }
 
-    pub async fn get(&self, key: Vec<u8>, options: GetOptions) -> Result<GetResponse> {
+    pub async fn get(&self, key: Key, options: GetOptions) -> Result<GetResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().get(key, options);
         Ok(rsp)
     }
 
-    pub async fn delete(&self, key: Vec<u8>, options: DeleteOptions) -> Result<DeleteResponse> {
+    pub async fn delete(&self, key: Key, options: DeleteOptions) -> Result<DeleteResponse> {
         self.timeout().await?;
         let rsp = self.inner.lock().delete(key, options);
         Ok(rsp)
@@ -91,8 +96,13 @@ impl EtcdService {
 
     pub async fn campaign(&self, name: Key, value: Value, lease: i64) -> Result<CampaignResponse> {
         self.timeout().await?;
-        let rsp = poll_fn(|cx| self.inner.lock().poll_campaign(&name, &value, lease, cx)).await;
-        Ok(rsp)
+        loop {
+            let mut rx = match self.inner.lock().campaign(&name, &value, lease) {
+                Ok(rsp) => return Ok(rsp),
+                Err(rx) => rx,
+            };
+            rx.recv().await.expect("sender should not drop");
+        }
     }
 
     pub async fn proclaim(&self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
@@ -105,9 +115,24 @@ impl EtcdService {
         self.inner.lock().leader(name)
     }
 
+    pub async fn observe(&self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        self.timeout().await?;
+        self.inner.lock().observe(name)
+    }
+
     pub async fn resign(&self, leader: LeaderKey) -> Result<ResignResponse> {
         self.timeout().await?;
         self.inner.lock().resign(leader)
+    }
+
+    pub async fn status(&self) -> Result<StatusResponse> {
+        self.timeout().await?;
+        self.inner.lock().status()
+    }
+
+    pub async fn dump(&self) -> Result<String> {
+        let inner = &*self.inner.lock();
+        Ok(toml::to_string(inner).expect("failed to serialize dump"))
     }
 
     async fn timeout(&self) -> Result<()> {
@@ -124,20 +149,88 @@ impl EtcdService {
     }
 }
 
-#[derive(Debug, Default)]
+#[serde_as]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct ServiceInner {
     revision: i64,
-    kv: BTreeMap<Key, Value>,
+    kv: BTreeMap<Key, KeyValue>,
+    #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     lease: HashMap<LeaseId, Lease>,
-    /// Waiters for election.
-    waiting_candidates: Vec<(Key, Waker)>,
+    #[serde(skip)]
+    watcher: EventBus,
+}
+
+#[derive(Debug, Default)]
+struct EventBus {
+    list: Vec<(EventPattern, mpsc::Sender<Event>)>,
+}
+
+#[derive(Debug)]
+enum EventPattern {
+    Leader(Key),
+    Prefix(Key),
+}
+
+impl EventPattern {
+    fn is_match(&self, event: &Event) -> bool {
+        match self {
+            Self::Leader(prefix) => {
+                event.kv.key.starts_with(prefix) && event.event_type == EventType::Delete
+            }
+            Self::Prefix(prefix) => event.kv.key.starts_with(prefix),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Event {
+    pub event_type: EventType,
+    pub kv: KeyValue,
+}
+
+impl Event {
+    /// Returns a put event.
+    fn put(kv: KeyValue) -> Self {
+        Self {
+            event_type: EventType::Put,
+            kv,
+        }
+    }
+
+    /// Returns a delete event.
+    fn delete(prev_kv: KeyValue) -> Self {
+        Self {
+            event_type: EventType::Delete,
+            kv: prev_kv,
+        }
+    }
+}
+
+impl EventBus {
+    /// Subscribe a watcher.
+    fn subscribe(&mut self, pattern: EventPattern, tx: mpsc::Sender<Event>) {
+        tracing::trace!(?pattern, "subscribe");
+        self.list.push((pattern, tx));
+    }
+
+    /// Publish an event.
+    fn publish(&mut self, event: Event) {
+        tracing::trace!(?event, "new event");
+        self.list.retain(|(pattern, tx)| {
+            if pattern.is_match(&event) {
+                tx.try_send(event.clone()).is_ok()
+            } else {
+                true
+            }
+        });
+    }
 }
 
 type LeaseId = i64;
-type Key = Vec<u8>;
-type Value = Vec<u8>;
+type Key = Bytes;
+type Value = Bytes;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Lease {
     ttl: i64,
     granted_ttl: i64,
@@ -161,55 +254,59 @@ impl ServiceInner {
         }
     }
 
-    fn put(&mut self, key: Vec<u8>, value: Vec<u8>, options: PutOptions) -> PutResponse {
+    fn put(&mut self, key: Key, value: Value, options: PutOptions) -> PutResponse {
         tracing::trace!(
-            key = ?String::from_utf8_lossy(&key),
-            value = ?String::from_utf8_lossy(&value),
-            lease = if options.lease == 0 { None } else { Some(options.lease) },
+            ?key,
+            ?value,
+            lease = if options.lease == 0 {
+                None
+            } else {
+                Some(options.lease)
+            },
             "put"
         );
+        let prev_value = self.kv.get(&key).cloned();
+        // add key to the new lease
         if options.lease != 0 {
             let lease = self.lease.get_mut(&options.lease).expect("no lease");
             lease.keys.insert(key.clone());
         }
-        let prev_value = self.kv.insert(key.clone(), value);
-        // TODO: remove key from previous lease
+        // remove key from the old lease
+        if let Some(v) = &prev_value {
+            if v.lease != 0 {
+                let lease = self.lease.get_mut(&v.lease).expect("no lease");
+                lease.keys.remove(&key);
+            }
+        }
+        // update main key-value
         self.revision += 1;
+        let kv = KeyValue {
+            key: key.clone(),
+            value,
+            lease: options.lease,
+            create_revision: prev_value
+                .as_ref()
+                .map_or(self.revision, |v| v.create_revision),
+            modify_revision: self.revision,
+        };
+        *self.kv.entry(key).or_default() = kv.clone();
+        self.watcher.publish(Event::put(kv));
+
         PutResponse {
             header: self.header(),
-            prev_kv: if options.prev_kv {
-                prev_value.map(|value| KeyValue { key, value })
-            } else {
-                None
-            },
+            prev_kv: if options.prev_kv { prev_value } else { None },
         }
     }
 
-    fn get(&mut self, key: Vec<u8>, options: GetOptions) -> GetResponse {
-        tracing::trace!(
-            key = ?String::from_utf8_lossy(&key),
-            ?options,
-            "get"
-        );
+    fn get(&mut self, key: Key, options: GetOptions) -> GetResponse {
+        tracing::trace!(?key, ?options, "get");
         if options.revision > 0 {
             todo!("get with revision");
         }
         let kvs = if options.prefix {
-            self.get_prefix_range(key)
-                .map(|(k, v)| KeyValue {
-                    key: k.clone(),
-                    value: v.clone(),
-                })
-                .collect()
+            self.get_prefix_range(key).map(|(_, v)| v.clone()).collect()
         } else {
-            self.kv
-                .get(&key)
-                .map(|v| KeyValue {
-                    key: key.clone(),
-                    value: v.clone(),
-                })
-                .into_iter()
-                .collect()
+            self.kv.get(&key).cloned().into_iter().collect()
         };
         GetResponse {
             header: self.header(),
@@ -217,29 +314,24 @@ impl ServiceInner {
         }
     }
 
-    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, Value> {
+    fn get_prefix_range(&self, key: Key) -> Range<'_, Key, KeyValue> {
         let mut end = key.clone();
         *end.last_mut().unwrap() += 1;
         self.kv.range(key..end)
     }
 
-    fn delete(&mut self, key: Vec<u8>, _options: DeleteOptions) -> DeleteResponse {
-        tracing::trace!(
-            key = ?String::from_utf8_lossy(&key),
-            "delete"
-        );
-        let deleted = self.kv.remove(&key).map_or(0, |_| 1);
-        if deleted > 0 {
+    fn delete(&mut self, key: Key, _options: DeleteOptions) -> DeleteResponse {
+        tracing::trace!(?key, "delete");
+        let prev_kv = self.kv.remove(&key);
+        let deleted = prev_kv.is_some() as i64;
+        if let Some(kv) = prev_kv {
             self.revision += 1;
-            // TODO: notify one
-            self.waiting_candidates.retain(|(prefix, waker)| {
-                if key.starts_with(prefix) {
-                    waker.wake_by_ref();
-                    false
-                } else {
-                    true
-                }
-            });
+            // remove key from the lease
+            if kv.lease != 0 {
+                let lease = self.lease.get_mut(&kv.lease).expect("no lease");
+                lease.keys.remove(&key);
+            }
+            self.watcher.publish(Event::delete(kv));
         }
         DeleteResponse {
             header: self.header(),
@@ -250,7 +342,7 @@ impl ServiceInner {
     fn txn(&mut self, txn: Txn) -> TxnResponse {
         tracing::trace!(%txn, "transaction");
         let succeeded = txn.compare.iter().all(|cmp| {
-            let value = self.kv.get(&cmp.key);
+            let value = self.kv.get(&cmp.key).map(|v| &v.value);
             match cmp.op {
                 CompareOp::Equal => value == Some(&cmp.value),
                 CompareOp::Greater => matches!(value, Some(v) if v > &cmp.value),
@@ -270,7 +362,7 @@ impl ServiceInner {
                     options,
                 } => TxnOpResponse::Put(self.put(key, value, options)),
                 TxnOp::Delete { key, options } => TxnOpResponse::Delete(self.delete(key, options)),
-                TxnOp::Txn { txn: _txn } => todo!(),
+                TxnOp::Txn { txn } => TxnOpResponse::Txn(self.txn(txn)),
             };
             op_responses.push(response);
         }
@@ -288,11 +380,11 @@ impl ServiceInner {
         // choose an ID if == 0
         if id == 0 {
             while self.lease.contains_key(&id) || id == 0 {
-                id = random();
+                id = random::<i64>().abs();
             }
         }
         let old = self.lease.insert(id, Lease::new(ttl));
-        assert!(old.is_some(), "lease ID already exists");
+        assert!(old.is_none(), "lease ID already exists");
         self.revision += 1;
         LeaseGrantResponse {
             header: self.header(),
@@ -305,7 +397,9 @@ impl ServiceInner {
         tracing::trace!(id, "lease_revoke");
         let lease = self.lease.remove(&id).expect("no lease");
         for key in lease.keys {
-            self.kv.remove(&key);
+            tracing::trace!(?key, "delete");
+            let kv = self.kv.remove(&key).expect("no key");
+            self.watcher.publish(Event::delete(kv));
         }
         self.revision += 1;
         LeaseRevokeResponse {
@@ -316,9 +410,8 @@ impl ServiceInner {
     fn lease_keep_alive(&mut self, id: i64) -> LeaseKeepAliveResponse {
         tracing::trace!(id, "lease_keep_alive");
         let lease = self.lease.get_mut(&id).expect("no lease");
-        let ttl = 30; // TODO: choose default TTL
+        let ttl = lease.granted_ttl;
         lease.ttl = ttl;
-        lease.granted_ttl = ttl;
         self.revision += 1;
         LeaseKeepAliveResponse {
             header: self.header(),
@@ -335,7 +428,7 @@ impl ServiceInner {
             ttl: lease.ttl,
             granted_ttl: lease.granted_ttl,
             keys: if keys {
-                lease.keys.iter().cloned().collect()
+                lease.keys.iter().map(|k| k.to_vec()).collect()
             } else {
                 vec![]
             },
@@ -357,7 +450,9 @@ impl ServiceInner {
             if lease.ttl <= 0 {
                 tracing::trace!(id, "lease expired");
                 for key in &lease.keys {
-                    self.kv.remove(key);
+                    tracing::trace!(?key, "delete");
+                    let kv = self.kv.remove(key).expect("no key");
+                    self.watcher.publish(Event::delete(kv));
                 }
                 false
             } else {
@@ -369,54 +464,60 @@ impl ServiceInner {
         }
     }
 
-    fn poll_campaign(
+    fn campaign(
         &mut self,
-        name: &[u8],
-        value: &[u8],
+        name: &Key,
+        value: &Value,
         lease: i64,
-        cx: &mut Context<'_>,
-    ) -> Poll<CampaignResponse> {
-        if self.get_prefix_range(name.to_vec()).next().is_some() {
+    ) -> std::result::Result<CampaignResponse, mpsc::Receiver<Event>> {
+        if self.get_prefix_range(name.clone()).next().is_some() {
             // the election name is occupied
-            self.waiting_candidates
-                .push((name.to_vec(), cx.waker().clone()));
-            return Poll::Pending;
+            let (tx, rx) = mpsc::channel(1);
+            self.watcher
+                .subscribe(EventPattern::Leader(name.clone()), tx);
+            return Err(rx);
         }
+        tracing::trace!(?name, ?value, lease, "new leader");
 
-        // name = format!("{name}/{lease:016x}")
-        let mut key = name.to_vec();
+        // key = format!("{name}/{lease:016x}")
+        let mut key = name.clone();
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
-        self.kv.insert(key.clone(), value.to_vec());
         self.revision += 1;
-
-        tracing::trace!(
-            name = ?String::from_utf8_lossy(name),
-            value = ?String::from_utf8_lossy(value),
+        let kv = KeyValue {
+            key: key.clone(),
+            value: value.clone(),
             lease,
-            "new leader",
-        );
-        Poll::Ready(CampaignResponse {
+            create_revision: self.revision,
+            modify_revision: self.revision,
+        };
+        self.kv.insert(key.clone(), kv.clone());
+        (self.lease.get_mut(&lease).expect("no lease").keys).insert(key.clone());
+        self.watcher.publish(Event::put(kv));
+
+        Ok(CampaignResponse {
             header: self.header(),
             leader: LeaderKey {
-                name: name.to_vec(),
+                name: name.clone(),
                 key,
-                rev: 0, // TODO: key revision
+                rev: self.revision,
                 lease,
             },
         })
     }
 
-    fn proclaim(&mut self, leader: LeaderKey, value: Vec<u8>) -> Result<ProclaimResponse> {
-        tracing::trace!(
-            name = ?String::from_utf8_lossy(&leader.name),
-            value = ?String::from_utf8_lossy(&value),
-            "proclaim",
-        );
-        (self.kv.insert(leader.key, value))
-            .ok_or_else(|| Error::ElectError("session expired".into()))?;
-        self.revision += 1;
+    fn proclaim(&mut self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
+        tracing::trace!(name = ?leader.name, ?value, "proclaim");
+        match self.kv.entry(leader.key) {
+            Entry::Vacant(_) => return Err(Error::ElectError("session expired".into())),
+            Entry::Occupied(mut entry) => {
+                self.revision += 1;
+                entry.get_mut().value = value;
+                entry.get_mut().modify_revision = self.revision;
+                self.watcher.publish(Event::put(entry.get_mut().clone()));
+            }
+        }
         Ok(ProclaimResponse {
             header: self.header(),
         })
@@ -425,18 +526,31 @@ impl ServiceInner {
     fn leader(&self, name: Key) -> Result<LeaderResponse> {
         Ok(LeaderResponse {
             header: self.header(),
-            kv: self.get_prefix_range(name).next().map(|(k, v)| KeyValue {
-                key: k.clone(),
-                value: v.clone(),
-            }),
+            kv: self.get_prefix_range(name).next().map(|(_, v)| v.clone()),
         })
     }
 
+    fn observe(&mut self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        tracing::trace!(?name, "observe");
+        let (tx, rx) = mpsc::channel(10);
+        self.watcher.subscribe(EventPattern::Prefix(name), tx);
+        Ok(rx)
+    }
+
     fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
-        tracing::trace!(name = ?String::from_utf8_lossy(&leader.name), "resign");
-        (self.kv.remove(&leader.key)).ok_or_else(|| Error::ElectError("session expired".into()))?;
+        tracing::trace!(name = ?leader.name, "resign");
+        let kv = (self.kv.remove(&leader.key))
+            .ok_or_else(|| Error::ElectError("session expired".into()))?;
+        self.watcher.publish(Event::delete(kv));
         self.revision += 1;
         Ok(ResignResponse {
+            header: self.header(),
+        })
+    }
+
+    fn status(&mut self) -> Result<StatusResponse> {
+        tracing::trace!("status");
+        Ok(StatusResponse {
             header: self.header(),
         })
     }

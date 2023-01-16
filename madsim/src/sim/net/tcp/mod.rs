@@ -78,7 +78,7 @@ mod tests {
             let listener = TcpListener::bind(addr1).await.unwrap();
             barrier_.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
-            stream.write(b"hello world").await.unwrap();
+            stream.write_all(b"hello world").await.unwrap();
             stream.flush().await.unwrap();
             stream
         });
@@ -124,7 +124,7 @@ mod tests {
             net.unclog_node(id1);
             barrier.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
-            stream.write(b"hello world").await.unwrap();
+            stream.write_all(b"hello world").await.unwrap();
             stream.flush().await.unwrap();
             barrier.wait().await;
 
@@ -137,7 +137,7 @@ mod tests {
                 net.unclog_link(id2, id1);
             });
             barrier.wait().await;
-            stream.write(b"hello world").await.unwrap();
+            stream.write_all(b"hello world").await.unwrap();
             stream.flush().await.unwrap();
 
             stream

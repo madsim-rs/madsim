@@ -14,10 +14,9 @@ use std::task::{Context, Poll};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use futures::channel::oneshot;
-use futures::future::{self, Either, FutureExt};
-use futures::ready;
-use log::{trace, warn};
+use futures_channel::oneshot;
+use futures_util::future::{self, Either, FutureExt};
+use futures_util::ready;
 
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
@@ -25,6 +24,7 @@ use rdkafka_sys::types::*;
 use crate::client::{Client, ClientContext, DefaultClientContext, NativeQueue};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext};
 use crate::error::{IsError, KafkaError, KafkaResult};
+use crate::log::{trace, warn};
 use crate::util::{cstr_to_owned, AsCArray, ErrBuf, IntoOpaque, KafkaDrop, NativePtr, Timeout};
 
 //
@@ -34,7 +34,7 @@ use crate::util::{cstr_to_owned, AsCArray, ErrBuf, IntoOpaque, KafkaDrop, Native
 /// A client for the Kafka admin API.
 ///
 /// `AdminClient` provides programmatic access to managing a Kafka cluster,
-/// notably manipulating topics, partitions, and configuration paramaters.
+/// notably manipulating topics, partitions, and configuration parameters.
 pub struct AdminClient<C: ClientContext> {
     client: Client<C>,
     queue: Arc<NativeQueue>,

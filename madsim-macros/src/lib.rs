@@ -132,7 +132,6 @@ fn parse(
     };
     input.block = syn::parse2(quote! {
         {
-            #tokio::madsim::runtime::init_logger();
             #tokio::madsim::runtime::Builder::from_env().run(|| async #body)
         }
     })

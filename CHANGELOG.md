@@ -6,6 +6,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.2.13] - 2023-01-11
+
+### Added
+
+- etcd: Add `KeyValue::{lease, create_revision, mod_revision}` API.
+- etcd: Add maintenance `status` API.
+- rdkafka: Add `Timestamp::to_millis`.
+
+### Changed
+
+- rdkafka: update to rdkafka v0.29.0.
+    - The return type of `Producer::flush` changed to `KafkaResult<()>`.
+
+### Fixed
+
+- madsim: Fix join cancelled tasks.
+- etcd: Fix response stream of `keep_alive`.
+- etcd: Fix waking up other candidates on leadership resign or lease revoke.
+- etcd: Fix unimplemented election `observe`.
+
+## [0.2.12] - 2022-12-13
+
+### Changed
+
+- madsim: No longer initialize the global logger on `#[main]` or `#[test]`.
+
+### Fixed
+
+- madsim: Fix `Instant` interception on ARM64 macOS caused by change in Rust nightly.
+
+## [0.2.11] - 2022-12-02
+
+### Added
+
+- tokio: Add `task::Builder::new_current_thread` but panic inside.
+- tonic: Add `service` module and `Extensions`.
+- tonic: Support interceptor.
+- etcd: Support load and dump in toml format.
+
+### Fixed
+
+- tonic: Fix passing metadata in request and response. Add `content-type` and `date` field.
+- tonic: Fix panic on unimplemented error.
+- etcd: Fix lease grant.
+
+## [0.2.10] - 2022-11-09
+
+### Fixed
+
+- madsim: Fix panic on TLS access error.
+
 ## [0.2.9] - 2022-10-28
 
 ### Fixed

@@ -1,4 +1,6 @@
+use crate::util::millis_to_epoch;
 use std::marker::PhantomData;
+use std::time::SystemTime;
 
 /// A cheap conversion from a byte slice to typed data.
 pub trait FromBytes {
@@ -126,6 +128,33 @@ pub enum Timestamp {
     CreateTime(i64),
     /// Log append time.
     LogAppendTime(i64),
+}
+
+impl Timestamp {
+    /// Convert the timestamp to milliseconds since epoch.
+    pub fn to_millis(self) -> Option<i64> {
+        match self {
+            Self::NotAvailable | Self::CreateTime(-1) | Self::LogAppendTime(-1) => None,
+            Self::CreateTime(t) | Self::LogAppendTime(t) => Some(t),
+        }
+    }
+
+    /// Creates a new `Timestamp::CreateTime` representing the current time.
+    pub fn now() -> Timestamp {
+        Timestamp::from(SystemTime::now())
+    }
+}
+
+impl From<i64> for Timestamp {
+    fn from(system_time: i64) -> Timestamp {
+        Timestamp::CreateTime(system_time)
+    }
+}
+
+impl From<SystemTime> for Timestamp {
+    fn from(system_time: SystemTime) -> Timestamp {
+        Timestamp::CreateTime(millis_to_epoch(system_time))
+    }
 }
 
 /// A Kafka message that owns its backing data.

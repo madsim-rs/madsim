@@ -1,6 +1,6 @@
 [package]
 name = "madsim-rdkafka"
-version = "0.2.8-alpha"
+version = "0.2.13-alpha"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The rdkafka simulator on madsim."
@@ -26,8 +26,10 @@ tracing = "0.1"
 
 [target.'cfg(not(madsim))'.dependencies]
 async-trait = "0.1"
-rdkafka-sys = { version = "4.2.0", default-features = false }
-futures = "0.3.0"
+rdkafka-sys = { version = "4.3.0", default-features = false }
+futures-channel = "0.3.0"
+futures-executor = { version = "0.3.0", optional = true }
+futures-util = { version = "0.3.0", default-features = false }
 libc = "0.2.0"
 log = "0.4.8"
 serde = { version = "1.0.0", features = ["derive"] }
@@ -35,13 +37,15 @@ serde_derive = "1.0.0"
 serde_json = "1.0.0"
 slab = "0.4"
 tokio = { version = "1.0", features = ["rt", "time"], optional = true }
+tracing = { version = "0.1.30", optional = true }
 
 [dev-dependencies]
 async-std = { version = "1.9.0", features = ["attributes"] }
 backoff = "0.1.5"
 chrono = "0.4.0"
 clap = "2.18.0"
-env_logger = "0.7.1"
+env_logger = "0.9.0"
+futures = "0.3.0"
 hdrhistogram = "7.0.0"
 maplit = "1.0.2"
 rand = "0.3.15"
@@ -53,6 +57,7 @@ tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time"] }
 # provides. See the rdkafka-sys documentation for details.
 [features]
 default = ["libz", "tokio"]
+naive-runtime = ["futures-executor"]
 cmake-build = ["rdkafka-sys/cmake-build"]
 cmake_build = ["rdkafka-sys/cmake_build"]
 dynamic-linking = ["rdkafka-sys/dynamic-linking"]
@@ -64,6 +69,8 @@ gssapi-vendored = ["rdkafka-sys/gssapi-vendored"]
 sasl = ["rdkafka-sys/sasl"]
 libz = ["rdkafka-sys/libz"]
 libz-static = ["rdkafka-sys/libz-static"]
+curl = ["rdkafka-sys/curl"]
+curl-static = ["rdkafka-sys/curl-static"]
 zstd = ["rdkafka-sys/zstd"]
 zstd-pkg-config = ["rdkafka-sys/zstd-pkg-config"]
 external-lz4 = ["rdkafka-sys/external-lz4"]

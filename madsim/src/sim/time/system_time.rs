@@ -37,40 +37,39 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
     }
 }
 
-/// Override the libc `clock_gettime` function. For Linux.
+/// Override the libc `clock_gettime` function. For Linux and ARM64 macOS.
 #[no_mangle]
 #[inline(never)]
-#[cfg(target_os = "linux")]
 unsafe extern "C" fn clock_gettime(
     clockid: libc::clockid_t,
     tp: *mut libc::timespec,
 ) -> libc::c_int {
     if let Some(time) = super::TimeHandle::try_current() {
         // inside a madsim context, use the simulated time.
-        match clockid {
+        let system_time_duration = || {
+            time.now_time()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+        };
+        let instant_duration = || time.now_instant().duration_since(std::mem::zeroed());
+
+        let dur = match clockid {
             // used by SystemTime
-            libc::CLOCK_REALTIME | libc::CLOCK_REALTIME_COARSE => {
-                let dur = time
-                    .now_time()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap();
-                tp.write(libc::timespec {
-                    tv_sec: dur.as_secs() as _,
-                    tv_nsec: dur.subsec_nanos() as _,
-                });
-            }
+            libc::CLOCK_REALTIME => system_time_duration(),
+            #[cfg(target_os = "linux")]
+            libc::CLOCK_REALTIME_COARSE => system_time_duration(),
             // used by Instant
-            libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW | libc::CLOCK_MONOTONIC_COARSE => {
-                let dur = std::mem::transmute::<_, SystemTime>(time.now_instant())
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap();
-                tp.write(libc::timespec {
-                    tv_sec: dur.as_secs() as _,
-                    tv_nsec: dur.subsec_nanos() as _,
-                });
-            }
+            libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW => instant_duration(),
+            #[cfg(target_os = "linux")]
+            libc::CLOCK_MONOTONIC_COARSE => instant_duration(),
+            #[cfg(target_os = "macos")]
+            libc::CLOCK_UPTIME_RAW => instant_duration(),
             _ => panic!("unsupported clockid: {}", clockid),
-        }
+        };
+        tp.write(libc::timespec {
+            tv_sec: dur.as_secs() as _,
+            tv_nsec: dur.subsec_nanos() as _,
+        });
         0
     } else {
         lazy_static::lazy_static! {
@@ -87,10 +86,12 @@ unsafe extern "C" fn clock_gettime(
     }
 }
 
-/// Override the `mach_absolute_time` function. For `Instant` on macOS.
+/// Override the `mach_absolute_time` function. For `Instant` on x86_64 macOS.
 #[no_mangle]
 #[inline(never)]
 #[cfg(target_os = "macos")]
+// not used on ARM64 macOS after https://github.com/rust-lang/rust/pull/103594
+#[rustversion::attr(since(1.67), cfg(not(target_arch = "aarch64")))]
 extern "C" fn mach_absolute_time() -> u64 {
     if let Some(time) = super::TimeHandle::try_current() {
         // inside a madsim context, use the simulated time.

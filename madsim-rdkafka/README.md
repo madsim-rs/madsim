@@ -3,7 +3,7 @@
 [![Crate](https://img.shields.io/crates/v/madsim-rdkafka.svg)](https://crates.io/crates/madsim-rdkafka)
 [![Docs](https://docs.rs/madsim-rdkafka/badge.svg)](https://docs.rs/madsim-rdkafka)
 
-The `rdkafka` simulator on madsim.
+The `rdkafka` simulator on madsim. Mirrors [rdkafka v0.29.0](https://docs.rs/rdkafka/0.29.0/rdkafka/index.html).
 
 ## Usage
 
@@ -11,7 +11,7 @@ Replace all `rdkafka` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-rdkafka = { version = "0.2.8-alpha", package = "madsim-rdkafka" }
+rdkafka = { version = "0.2.13-alpha", package = "madsim-rdkafka" }
 ```
 
 ## API Modification

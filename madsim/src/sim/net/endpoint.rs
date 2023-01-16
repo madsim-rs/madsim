@@ -520,8 +520,7 @@ mod tests {
             // FIXME: ep1 should not receive messages from other node
             timeout(Duration::from_secs(1), ep1.recv_from(1, &mut []))
                 .await
-                .err()
-                .expect("localhost endpoint should not receive from other nodes");
+                .expect_err("localhost endpoint should not receive from other nodes");
             // ep2 should receive
             let (_, from) = ep2.recv_from(1, &mut []).await.unwrap();
             assert_eq!(from.to_string(), "10.0.0.2:1");
