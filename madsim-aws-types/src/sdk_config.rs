@@ -3,7 +3,6 @@ use crate::region::Region;
 #[derive(Debug, Clone)]
 pub struct SdkConfig {}
 
-/// Builder for AWS Shared Configuration
 #[derive(Debug, Default)]
 pub struct Builder {}
 

@@ -903,7 +903,7 @@ impl TransitionStorageClass {
             TransitionStorageClass::Unknown(s) => s.as_ref(),
         }
     }
-    /// Returns all the `&str` values of the enum members.
+
     pub fn values() -> &'static [&'static str] {
         &[
             "DEEP_ARCHIVE",

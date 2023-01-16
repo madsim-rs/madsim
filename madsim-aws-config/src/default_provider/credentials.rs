@@ -68,26 +68,9 @@ impl Builder {
         self
     }
 
-    // pub fn with_custom_credential_source(
-    //     mut self,
-    //     name: impl Into<Cow<'static, str>>,
-    //     provider: impl ProvideCredentials + 'static,
-    // ) -> Self {
-    //     self.profile_file_builder = self
-    //         .profile_file_builder
-    //         .with_custom_provider(name, provider);
-    //     self
-    // }
-
     pub fn profile_name(mut self, _name: &str) -> Self {
         self
     }
-
-    // pub fn configure(mut self, config: ProviderConfig) -> Self {
-    //     self.region_chain = self.region_chain.configure(&config);
-    //     self.conf = Some(config);
-    //     self
-    // }
 
     pub async fn build(self) -> DefaultCredentialsChain {
         DefaultCredentialsChain {}

@@ -10,5 +10,5 @@ Replace all `aws-sdk-s3` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-aws-sdk-s3 = { version = "0.2", package = "madsim-aws-sdk-s3" }
+aws-sdk-s3 = { version = "0.21", package = "madsim-aws-sdk-s3" }
 ```
