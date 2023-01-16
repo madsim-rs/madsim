@@ -1,5 +1,7 @@
 use super::{error::Error, Result};
 use crate::input::*;
+use crate::model::BucketLifecycleConfiguration;
+use crate::model::LifecycleRule;
 use crate::output::*;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
@@ -19,6 +21,8 @@ pub(crate) enum Request {
     DeleteObjects(DeleteObjectsInput),
     HeadObject(HeadObjectInput),
     ListObjectsV2(ListObjectsV2Input),
+    PutBucketLifecycleConfiguration(PutBucketLifecycleConfigurationInput),
+    GetBucketLifecycleConfiguration(GetBucketLifecycleConfigurationInput),
 }
 
 #[derive(Debug)]
@@ -90,9 +94,12 @@ impl S3Service {
         bucket: String,
         key: String,
         range: Option<String>,
+        part_number: Option<i32>,
     ) -> Result<GetObjectOutput> {
         self.timeout().await?;
-        self.inner.lock().get_object(bucket, key, range)
+        self.inner
+            .lock()
+            .get_object(bucket, key, range, part_number)
     }
 
     pub async fn put_object(
@@ -136,6 +143,33 @@ impl S3Service {
             .list_objects_v2(bucket, prefix, continuation_token)
     }
 
+    pub async fn get_bucket_lifecycle_configuration(
+        &self,
+        bucket: String,
+        expected_bucket_owner: Option<String>,
+    ) -> Result<GetBucketLifecycleConfigurationOutput> {
+        self.timeout().await?;
+        self.inner
+            .lock()
+            .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
+    }
+
+    pub async fn put_bucket_lifecycle_configuration(
+        &self,
+        bucket: String,
+        lifecycle_configuration: Option<BucketLifecycleConfiguration>,
+        expected_bucket_owner: Option<String>,
+    ) -> Result<PutBucketLifecycleConfigurationOutput> {
+        self.timeout().await?;
+        self.inner.lock().put_bucket_lifecycle_configuration(
+            bucket,
+            lifecycle_configuration.unwrap_or(BucketLifecycleConfiguration {
+                rules: Some(Vec::new()),
+            }),
+            expected_bucket_owner,
+        )
+    }
+
     async fn timeout(&self) -> Result<()> {
         if thread_rng().gen_bool(self.timeout_rate as f64) {
             let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
@@ -154,6 +188,9 @@ impl S3Service {
 struct ServiceInner {
     /// (bucket, key) -> Object
     storage: BTreeMap<String, BTreeMap<String, InnerObject>>,
+
+    /// (bucket) -> LifecycleRules
+    lifecycle: BTreeMap<String, Vec<LifecycleRule>>,
 }
 
 #[derive(Debug, Default)]
@@ -239,12 +276,6 @@ impl ServiceInner {
         Ok(UploadPartOutput { e_tag })
     }
 
-    /// see https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html
-    ///
-    /// > Upon receiving this request, Amazon S3 concatenates all the parts in ascending
-    /// > order by part number to create a new object. In the Complete Multipart Upload
-    /// > request, you must provide the parts list. You must ensure that the parts list
-    /// > is complete. This action concatenates the parts that you provide in the list.
     fn complete_multipart_upload(
         &mut self,
         bucket: String,
@@ -330,6 +361,7 @@ impl ServiceInner {
         bucket: String,
         key: String,
         range: Option<String>,
+        part_number: Option<i32>,
     ) -> Result<GetObjectOutput> {
         let object = self
             .storage
@@ -395,6 +427,18 @@ impl ServiceInner {
 
             let body = crate::types::ByteStream::from(body);
             Ok(GetObjectOutput { body })
+        } else if let Some(part_number) = part_number {
+            let body = object.body.clone();
+
+            if part_number >= 0 {
+                let part_number = part_number as usize;
+                if part_number < body.len() {
+                    let body =
+                        crate::types::ByteStream::from(body[part_number..part_number + 1].to_vec());
+                    return Ok(GetObjectOutput { body });
+                }
+            }
+            Err(Error::InvalidPartNumberSpecifier(part_number))
         } else {
             Ok(GetObjectOutput {
                 body: crate::types::ByteStream::from(object.body.clone()),
@@ -545,5 +589,36 @@ impl ServiceInner {
                 next_continuation_token: None,
             })
         }
+    }
+
+    fn get_bucket_lifecycle_configuration(
+        &mut self,
+        bucket: String,
+        _expected_bucket_owner: Option<String>,
+    ) -> Result<GetBucketLifecycleConfigurationOutput> {
+        use std::collections::btree_map::Entry::{Occupied, Vacant};
+        let lifecycle = match self.lifecycle.entry(bucket) {
+            Vacant(v) => {
+                v.insert(Vec::new());
+                Vec::new()
+            }
+            Occupied(o) => o.get().clone(),
+        };
+
+        Ok(GetBucketLifecycleConfigurationOutput {
+            rules: Some(lifecycle),
+        })
+    }
+
+    fn put_bucket_lifecycle_configuration(
+        &mut self,
+        bucket: String,
+        lifecycle_configuration: BucketLifecycleConfiguration,
+        _expected_bucket_owner: Option<String>,
+    ) -> Result<PutBucketLifecycleConfigurationOutput> {
+        self.lifecycle
+            .insert(bucket, lifecycle_configuration.rules.unwrap_or_default());
+
+        Ok(PutBucketLifecycleConfigurationOutput {})
     }
 }

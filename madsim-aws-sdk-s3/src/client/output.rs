@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 #[non_exhaustive]
 #[derive(Clone, PartialEq, Eq)]
@@ -11,7 +11,7 @@ impl UploadPartOutput {
     }
 }
 impl Debug for UploadPartOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("UploadPartOutput");
         formatter.field("e_tag", &self.e_tag);
         formatter.finish()
@@ -56,7 +56,7 @@ impl CreateMultipartUploadOutput {
     }
 }
 impl Debug for CreateMultipartUploadOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("CreateMultipartUploadOutput");
         formatter.field("upload_id", &self.upload_id);
         formatter.finish()
@@ -102,7 +102,7 @@ impl GetObjectOutput {
     }
 }
 impl Debug for GetObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("GetObjectOutput");
         formatter.field("body", &self.body);
         formatter.finish()
@@ -154,7 +154,7 @@ impl HeadObjectOutput {
     }
 }
 impl Debug for HeadObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("HeadObjectOutput");
         formatter.field("last_modified", &self.last_modified);
         formatter.field("content_length", &self.content_length);
@@ -222,7 +222,7 @@ impl ListObjectsV2Output {
     }
 }
 impl Debug for ListObjectsV2Output {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("ListObjectsV2Output");
         formatter.field("is_truncated", &self.is_truncated);
         formatter.field("contents", &self.contents);
@@ -298,7 +298,7 @@ impl DeleteObjectsOutput {
     }
 }
 impl Debug for DeleteObjectsOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("DeleteObjectsOutput");
         formatter.field("errors", &self.errors);
         formatter.finish()
@@ -342,7 +342,7 @@ impl DeleteObjectsOutput {
 pub struct CompleteMultipartUploadOutput {}
 impl CompleteMultipartUploadOutput {}
 impl Debug for CompleteMultipartUploadOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("CompleteMultipartUploadOutput");
         formatter.finish()
     }
@@ -368,7 +368,7 @@ impl CompleteMultipartUploadOutput {
 pub struct AbortMultipartUploadOutput {}
 impl AbortMultipartUploadOutput {}
 impl Debug for AbortMultipartUploadOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("AbortMultipartUploadOutput");
         formatter.finish()
     }
@@ -394,7 +394,7 @@ impl AbortMultipartUploadOutput {
 pub struct PutObjectOutput {}
 impl PutObjectOutput {}
 impl Debug for PutObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("PutObjectOutput");
         formatter.finish()
     }
@@ -420,7 +420,7 @@ impl PutObjectOutput {
 pub struct DeleteObjectOutput {}
 impl DeleteObjectOutput {}
 impl Debug for DeleteObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let mut formatter = f.debug_struct("DeleteObjectOutput");
         formatter.finish()
     }
@@ -438,5 +438,75 @@ pub mod delete_object_output {
 impl DeleteObjectOutput {
     pub fn builder() -> crate::output::delete_object_output::Builder {
         crate::output::delete_object_output::Builder::default()
+    }
+}
+
+#[non_exhaustive]
+#[derive(Clone, PartialEq)]
+pub struct GetBucketLifecycleConfigurationOutput {
+    pub rules: Option<Vec<crate::model::LifecycleRule>>,
+}
+impl GetBucketLifecycleConfigurationOutput {
+    pub fn rules(&self) -> Option<&[crate::model::LifecycleRule]> {
+        self.rules.as_deref()
+    }
+}
+impl Debug for GetBucketLifecycleConfigurationOutput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let mut formatter = f.debug_struct("GetBucketLifecycleConfigurationOutput");
+        formatter.field("rules", &self.rules);
+        formatter.finish()
+    }
+}
+pub mod get_bucket_lifecycle_configuration_output {
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    pub struct Builder {
+        pub(crate) rules: Option<Vec<crate::model::LifecycleRule>>,
+    }
+    impl Builder {
+        pub fn rules(mut self, input: crate::model::LifecycleRule) -> Self {
+            let mut v = self.rules.unwrap_or_default();
+            v.push(input);
+            self.rules = Some(v);
+            self
+        }
+        pub fn set_rules(mut self, input: Option<Vec<crate::model::LifecycleRule>>) -> Self {
+            self.rules = input;
+            self
+        }
+        pub fn build(self) -> crate::output::GetBucketLifecycleConfigurationOutput {
+            crate::output::GetBucketLifecycleConfigurationOutput { rules: self.rules }
+        }
+    }
+}
+impl GetBucketLifecycleConfigurationOutput {
+    pub fn builder() -> crate::output::get_bucket_lifecycle_configuration_output::Builder {
+        crate::output::get_bucket_lifecycle_configuration_output::Builder::default()
+    }
+}
+
+#[non_exhaustive]
+#[derive(Clone, PartialEq, Eq)]
+pub struct PutBucketLifecycleConfigurationOutput {}
+impl Debug for PutBucketLifecycleConfigurationOutput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let mut formatter = f.debug_struct("PutBucketLifecycleConfigurationOutput");
+        formatter.finish()
+    }
+}
+pub mod put_bucket_lifecycle_configuration_output {
+
+    #[derive(Default, Clone, PartialEq, Eq, Debug)]
+    pub struct Builder {}
+    impl Builder {
+        pub fn build(self) -> crate::output::PutBucketLifecycleConfigurationOutput {
+            crate::output::PutBucketLifecycleConfigurationOutput {}
+        }
+    }
+}
+impl PutBucketLifecycleConfigurationOutput {
+    pub fn builder() -> crate::output::put_bucket_lifecycle_configuration_output::Builder {
+        crate::output::put_bucket_lifecycle_configuration_output::Builder::default()
     }
 }

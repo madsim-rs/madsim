@@ -1,4 +1,4 @@
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct UploadPart {
     _private: (),
 }
@@ -11,7 +11,7 @@ impl UploadPart {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct CompleteMultipartUpload {
     _private: (),
 }
@@ -24,7 +24,7 @@ impl CompleteMultipartUpload {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct AbortMultipartUpload {
     _private: (),
 }
@@ -37,7 +37,7 @@ impl AbortMultipartUpload {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct GetObject {
     _private: (),
 }
@@ -50,7 +50,7 @@ impl GetObject {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct PutObject {
     _private: (),
 }
@@ -63,7 +63,7 @@ impl PutObject {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct DeleteObject {
     _private: (),
 }
@@ -76,7 +76,7 @@ impl DeleteObject {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct DeleteObjects {
     _private: (),
 }
@@ -89,7 +89,7 @@ impl DeleteObjects {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct CreateMultipartUpload {
     _private: (),
 }
@@ -102,7 +102,7 @@ impl CreateMultipartUpload {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct HeadObject {
     _private: (),
 }
@@ -115,13 +115,39 @@ impl HeadObject {
     }
 }
 
-#[derive(std::default::Default, std::clone::Clone, std::fmt::Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct ListObjectsV2 {
     _private: (),
 }
 impl ListObjectsV2 {
     pub fn builder() -> crate::input::list_objects_v2_input::Builder {
         crate::input::list_objects_v2_input::Builder::default()
+    }
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct GetBucketLifecycleConfiguration {
+    _private: (),
+}
+impl GetBucketLifecycleConfiguration {
+    pub fn builder() -> crate::input::get_bucket_lifecycle_configuration_input::Builder {
+        crate::input::get_bucket_lifecycle_configuration_input::Builder::default()
+    }
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct PutBucketLifecycleConfiguration {
+    _private: (),
+}
+impl PutBucketLifecycleConfiguration {
+    pub fn builder() -> crate::input::put_bucket_lifecycle_configuration_input::Builder {
+        crate::input::put_bucket_lifecycle_configuration_input::Builder::default()
     }
     pub fn new() -> Self {
         Self { _private: () }

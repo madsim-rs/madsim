@@ -33,6 +33,8 @@ impl SimServer {
                 use crate::input::*;
                 use Request::*;
 
+                println!("receive request: {:?}", request);
+
                 let response: Payload = match request {
                     CreateMultipartUpload(CreateMultipartUploadInput { bucket, key }) => {
                         Box::new(if let Some(bucket) = bucket {
@@ -115,17 +117,20 @@ impl SimServer {
                     } else {
                         Err(Error::InvalidBucket("no bucket".to_string()))
                     }),
-                    GetObject(GetObjectInput { bucket, key, range }) => {
-                        Box::new(if let Some(bucket) = bucket {
-                            if let Some(key) = key {
-                                service.get_object(bucket, key, range).await
-                            } else {
-                                Err(Error::InvalidKey("no key".to_string()))
-                            }
+                    GetObject(GetObjectInput {
+                        bucket,
+                        key,
+                        range,
+                        part_number,
+                    }) => Box::new(if let Some(bucket) = bucket {
+                        if let Some(key) = key {
+                            service.get_object(bucket, key, range, part_number).await
                         } else {
-                            Err(Error::InvalidBucket("no bucket".to_string()))
-                        })
-                    }
+                            Err(Error::InvalidKey("no key".to_string()))
+                        }
+                    } else {
+                        Err(Error::InvalidBucket("no bucket".to_string()))
+                    }),
                     PutObject(PutObjectInput { body, bucket, key }) => {
                         Box::new(if let Some(bucket) = bucket {
                             if let Some(key) = key {
@@ -178,6 +183,33 @@ impl SimServer {
                         service
                             .list_objects_v2(bucket, prefix, continuation_token)
                             .await
+                    } else {
+                        Err(Error::InvalidBucket("no bucket".to_string()))
+                    }),
+                    PutBucketLifecycleConfiguration(PutBucketLifecycleConfigurationInput {
+                        bucket,
+                        lifecycle_configuration,
+                        expected_bucket_owner,
+                    }) => Box::new(if let Some(bucket) = bucket {
+                        service
+                            .put_bucket_lifecycle_configuration(
+                                bucket,
+                                lifecycle_configuration,
+                                expected_bucket_owner,
+                            )
+                            .await
+                    } else {
+                        Err(Error::InvalidBucket("no bucket".to_string()))
+                    }),
+                    GetBucketLifecycleConfiguration(GetBucketLifecycleConfigurationInput {
+                        bucket,
+                        expected_bucket_owner,
+                    }) => Box::new(if let Some(bucket) = bucket {
+                        let resp = service
+                            .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
+                            .await;
+                        println!("send response: {:?}", resp);
+                        resp
                     } else {
                         Err(Error::InvalidBucket("no bucket".to_string()))
                     }),

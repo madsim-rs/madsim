@@ -1,126 +1,105 @@
-use std::sync::Arc;
+use std::fmt::Debug;
 
-use aws_types::sdk_config::SdkConfig;
-use madsim::net::Endpoint;
-
-pub(crate) struct Handle {
-    pub(crate) endpoint: Endpoint,
-    pub(crate) conf: crate::Config,
-}
-
-impl std::fmt::Debug for Handle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Handle").field("conf", &self.conf).finish()
-    }
-}
-
-#[derive(Debug)]
-pub struct Client {
-    handle: Arc<Handle>,
-}
-
-impl Clone for Client {
-    fn clone(&self) -> Self {
-        Self {
-            handle: self.handle.clone(),
-        }
-    }
-}
-
-impl From<Endpoint> for Client {
-    fn from(ep: Endpoint) -> Self {
-        Self::with_config(ep, crate::Config::builder().build())
-    }
-}
-
-impl Client {
-    pub fn with_config(endpoint: Endpoint, conf: crate::Config) -> Self {
-        Self {
-            handle: Arc::new(Handle { endpoint, conf }),
-        }
-    }
-
-    pub fn conf(&self) -> &crate::Config {
-        &self.handle.conf
-    }
-}
+#[derive(Debug, Clone)]
+pub struct Client {}
 
 impl Client {
     pub fn create_multipart_upload(&self) -> fluent_builders::CreateMultipartUpload {
-        fluent_builders::CreateMultipartUpload::new(self.handle.clone())
+        fluent_builders::CreateMultipartUpload::new()
     }
 
     pub fn upload_part(&self) -> fluent_builders::UploadPart {
-        fluent_builders::UploadPart::new(self.handle.clone())
+        fluent_builders::UploadPart::new()
     }
 
     pub fn complete_multipart_upload(&self) -> fluent_builders::CompleteMultipartUpload {
-        fluent_builders::CompleteMultipartUpload::new(self.handle.clone())
+        fluent_builders::CompleteMultipartUpload::new()
     }
 
     pub fn abort_multipart_upload(&self) -> fluent_builders::AbortMultipartUpload {
-        fluent_builders::AbortMultipartUpload::new(self.handle.clone())
+        fluent_builders::AbortMultipartUpload::new()
     }
 
     pub fn get_object(&self) -> fluent_builders::GetObject {
-        fluent_builders::GetObject::new(self.handle.clone())
+        fluent_builders::GetObject::new()
     }
 
     pub fn put_object(&self) -> fluent_builders::PutObject {
-        fluent_builders::PutObject::new(self.handle.clone())
+        fluent_builders::PutObject::new()
     }
 
     pub fn delete_object(&self) -> fluent_builders::DeleteObject {
-        fluent_builders::DeleteObject::new(self.handle.clone())
+        fluent_builders::DeleteObject::new()
     }
 
     pub fn delete_objects(&self) -> fluent_builders::DeleteObjects {
-        fluent_builders::DeleteObjects::new(self.handle.clone())
+        fluent_builders::DeleteObjects::new()
     }
 
     pub fn head_object(&self) -> fluent_builders::HeadObject {
-        fluent_builders::HeadObject::new(self.handle.clone())
+        fluent_builders::HeadObject::new()
     }
 
     pub fn list_objects_v2(&self) -> fluent_builders::ListObjectsV2 {
-        fluent_builders::ListObjectsV2::new(self.handle.clone())
+        fluent_builders::ListObjectsV2::new()
+    }
+
+    pub fn get_bucket_lifecycle_configuration(
+        &self,
+    ) -> fluent_builders::GetBucketLifecycleConfiguration {
+        fluent_builders::GetBucketLifecycleConfiguration::new()
+    }
+
+    pub fn put_bucket_lifecycle_configuration(
+        &self,
+    ) -> fluent_builders::PutBucketLifecycleConfiguration {
+        fluent_builders::PutBucketLifecycleConfiguration::new()
     }
 }
 
 pub mod fluent_builders {
-    use std::sync::Arc;
+    use crate::client::result::SdkError;
+    use crate::server::error::Result as ServerResult;
+    use crate::server::service::Request;
+    use crate::{error::*, input::*, output::*, types::ByteStream};
+    use madsim::net::{Endpoint, Payload};
+    use std::net::SocketAddr;
 
-    use aws_smithy_client::SdkError;
+    async fn send_aux<E: 'static>(req: Request, bucket: String) -> Result<Payload, SdkError<E>> {
+        let ep = Endpoint::connect(&bucket).await?;
 
-    use crate::{
-        error::{
-            AbortMultipartUploadError, CreateMultipartUploadError, DeleteObjectError,
-            DeleteObjectsError, GetObjectError, HeadObjectError, ListObjectsV2Error,
-            PutObjectError, UploadPartError,
-        },
-        output::{
-            AbortMultipartUploadOutput, CreateMultipartUploadOutput, DeleteObjectOutput,
-            DeleteObjectsOutput, GetObjectOutput, HeadObjectOutput, ListObjectsV2Output,
-            PutObjectOutput, UploadPartOutput,
-        },
-        types::ByteStream,
-        Handle,
-    };
+        let addr = bucket.parse::<SocketAddr>()?;
+
+        let (tx, mut rx) = ep.connect1(addr).await?;
+
+        tx.send(Box::new(req)).await?;
+
+        Ok(rx.recv().await?)
+    }
 
     pub struct UploadPart {
-        handle: Arc<Handle>,
-        inner: crate::input::upload_part_input::Builder,
+        inner: upload_part_input::Builder,
     }
     impl UploadPart {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<UploadPartOutput, SdkError<UploadPartError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(UploadPartError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::UploadPart(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp.downcast::<ServerResult<UploadPartOutput>>().unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn body(mut self, input: ByteStream) -> Self {
@@ -156,21 +135,32 @@ pub mod fluent_builders {
 
     #[derive(Clone)]
     pub struct CompleteMultipartUpload {
-        handle: Arc<Handle>,
-        inner: crate::input::complete_multipart_upload_input::Builder,
+        inner: complete_multipart_upload_input::Builder,
     }
     impl CompleteMultipartUpload {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(
             self,
-        ) -> Result<CreateMultipartUploadOutput, SdkError<CreateMultipartUploadError>> {
-            todo!();
+        ) -> Result<CompleteMultipartUploadOutput, SdkError<CompleteMultipartUploadError>> {
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(CompleteMultipartUploadError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::CompletedMultipartUpload(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<CompleteMultipartUploadOutput>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -195,14 +185,12 @@ pub mod fluent_builders {
 
     #[derive(Clone)]
     pub struct AbortMultipartUpload {
-        handle: Arc<Handle>,
-        inner: crate::input::abort_multipart_upload_input::Builder,
+        inner: abort_multipart_upload_input::Builder,
     }
 
     impl AbortMultipartUpload {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
@@ -210,7 +198,20 @@ pub mod fluent_builders {
         pub async fn send(
             self,
         ) -> Result<AbortMultipartUploadOutput, SdkError<AbortMultipartUploadError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(AbortMultipartUploadError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::AbortMultipartUpload(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<AbortMultipartUploadOutput>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -230,19 +231,28 @@ pub mod fluent_builders {
     }
 
     pub struct GetObject {
-        handle: Arc<Handle>,
-        inner: crate::input::get_object_input::Builder,
+        inner: get_object_input::Builder,
     }
     impl GetObject {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<GetObjectOutput, SdkError<GetObjectError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(GetObjectError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::GetObject(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp.downcast::<ServerResult<GetObjectOutput>>().unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -255,6 +265,11 @@ pub mod fluent_builders {
             self
         }
 
+        pub fn part_number(mut self, input: impl Into<i32>) -> Self {
+            self.inner = self.inner.part_number(input.into());
+            self
+        }
+
         pub fn range(mut self, input: impl Into<String>) -> Self {
             self.inner = self.inner.range(input.into());
             self
@@ -262,19 +277,28 @@ pub mod fluent_builders {
     }
 
     pub struct PutObject {
-        handle: Arc<Handle>,
-        inner: crate::input::put_object_input::Builder,
+        inner: put_object_input::Builder,
     }
     impl PutObject {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<PutObjectOutput, SdkError<PutObjectError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(PutObjectError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::PutObject(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp.downcast::<ServerResult<PutObjectOutput>>().unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn body(mut self, input: ByteStream) -> Self {
@@ -291,22 +315,41 @@ pub mod fluent_builders {
             self.inner = self.inner.key(input.into());
             self
         }
+
+        pub fn content_length(mut self, input: i64) -> Self {
+            self.inner = self.inner.content_length(input);
+            self
+        }
+
+        pub fn set_content_length(mut self, input: Option<i64>) -> Self {
+            self.inner = self.inner.set_content_length(input);
+            self
+        }
     }
 
     pub struct DeleteObject {
-        handle: Arc<Handle>,
-        inner: crate::input::delete_object_input::Builder,
+        inner: delete_object_input::Builder,
     }
     impl DeleteObject {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<DeleteObjectOutput, SdkError<DeleteObjectError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(DeleteObjectError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::DeleteObject(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp.downcast::<ServerResult<DeleteObjectOutput>>().unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -322,19 +365,30 @@ pub mod fluent_builders {
 
     #[derive(Clone)]
     pub struct DeleteObjects {
-        handle: Arc<Handle>,
-        inner: crate::input::delete_objects_input::Builder,
+        inner: delete_objects_input::Builder,
     }
     impl DeleteObjects {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<DeleteObjectsOutput, SdkError<DeleteObjectsError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(DeleteObjectsError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::DeleteObjects(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<DeleteObjectsOutput>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -348,15 +402,13 @@ pub mod fluent_builders {
         }
     }
 
-    #[derive(std::clone::Clone)]
+    #[derive(Clone)]
     pub struct CreateMultipartUpload {
-        handle: Arc<Handle>,
-        inner: crate::input::create_multipart_upload_input::Builder,
+        inner: create_multipart_upload_input::Builder,
     }
     impl CreateMultipartUpload {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
@@ -364,7 +416,20 @@ pub mod fluent_builders {
         pub async fn send(
             self,
         ) -> Result<CreateMultipartUploadOutput, SdkError<CreateMultipartUploadError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(CreateMultipartUploadError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::CreateMultipartUpload(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<CreateMultipartUploadOutput>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -380,19 +445,28 @@ pub mod fluent_builders {
 
     #[derive(Clone)]
     pub struct HeadObject {
-        handle: Arc<Handle>,
-        inner: crate::input::head_object_input::Builder,
+        inner: head_object_input::Builder,
     }
     impl HeadObject {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<HeadObjectOutput, SdkError<HeadObjectError>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(HeadObjectError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::HeadObject(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp.downcast::<ServerResult<HeadObjectOutput>>().unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -408,19 +482,30 @@ pub mod fluent_builders {
 
     #[derive(Clone)]
     pub struct ListObjectsV2 {
-        handle: Arc<Handle>,
-        inner: crate::input::list_objects_v2_input::Builder,
+        inner: list_objects_v2_input::Builder,
     }
     impl ListObjectsV2 {
-        pub(crate) fn new(handle: Arc<Handle>) -> Self {
+        pub(crate) fn new() -> Self {
             Self {
-                handle,
                 inner: Default::default(),
             }
         }
 
         pub async fn send(self) -> Result<ListObjectsV2Output, SdkError<ListObjectsV2Error>> {
-            todo!();
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(ListObjectsV2Error {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::ListObjectsV2(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<ListObjectsV2Output>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
         }
 
         pub fn bucket(mut self, input: impl Into<String>) -> Self {
@@ -438,18 +523,138 @@ pub mod fluent_builders {
             self
         }
     }
+
+    #[derive(Clone, Debug)]
+    pub struct PutBucketLifecycleConfiguration {
+        inner: put_bucket_lifecycle_configuration_input::Builder,
+    }
+    impl PutBucketLifecycleConfiguration {
+        pub(crate) fn new() -> Self {
+            Self {
+                inner: Default::default(),
+            }
+        }
+
+        pub async fn send(
+            self,
+        ) -> Result<
+            PutBucketLifecycleConfigurationOutput,
+            SdkError<PutBucketLifecycleConfigurationError>,
+        > {
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(PutBucketLifecycleConfigurationError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::PutBucketLifecycleConfiguration(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<PutBucketLifecycleConfigurationOutput>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
+        }
+
+        pub fn bucket(mut self, input: impl Into<String>) -> Self {
+            self.inner = self.inner.bucket(input.into());
+            self
+        }
+
+        pub fn set_bucket(mut self, input: Option<String>) -> Self {
+            self.inner = self.inner.set_bucket(input);
+            self
+        }
+
+        pub fn lifecycle_configuration(
+            mut self,
+            input: crate::model::BucketLifecycleConfiguration,
+        ) -> Self {
+            self.inner = self.inner.lifecycle_configuration(input);
+            self
+        }
+
+        pub fn set_lifecycle_configuration(
+            mut self,
+            input: Option<crate::model::BucketLifecycleConfiguration>,
+        ) -> Self {
+            self.inner = self.inner.set_lifecycle_configuration(input);
+            self
+        }
+
+        pub fn expected_bucket_owner(mut self, input: impl Into<String>) -> Self {
+            self.inner = self.inner.expected_bucket_owner(input.into());
+            self
+        }
+
+        pub fn set_expected_bucket_owner(mut self, input: Option<String>) -> Self {
+            self.inner = self.inner.set_expected_bucket_owner(input);
+            self
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct GetBucketLifecycleConfiguration {
+        inner: get_bucket_lifecycle_configuration_input::Builder,
+    }
+    impl GetBucketLifecycleConfiguration {
+        pub(crate) fn new() -> Self {
+            Self {
+                inner: Default::default(),
+            }
+        }
+
+        pub async fn send(
+            self,
+        ) -> Result<
+            GetBucketLifecycleConfigurationOutput,
+            SdkError<GetBucketLifecycleConfigurationError>,
+        > {
+            let input = self.inner.build()?;
+            let bucket = input.bucket.clone().ok_or_else(|| {
+                SdkError::ConstructionFailure(Box::new(GetBucketLifecycleConfigurationError {
+                    kind: "Invalid Bucket".to_string(),
+                }))
+            })?;
+            let req = Request::GetBucketLifecycleConfiguration(input);
+
+            let resp = send_aux(req, bucket).await?;
+            let resp = *resp
+                .downcast::<ServerResult<GetBucketLifecycleConfigurationOutput>>()
+                .unwrap();
+            let resp = resp?;
+            Ok(resp)
+        }
+
+        pub fn bucket(mut self, input: impl Into<String>) -> Self {
+            self.inner = self.inner.bucket(input.into());
+            self
+        }
+
+        pub fn set_bucket(mut self, input: Option<String>) -> Self {
+            self.inner = self.inner.set_bucket(input);
+            self
+        }
+
+        pub fn expected_bucket_owner(mut self, input: impl Into<String>) -> Self {
+            self.inner = self.inner.expected_bucket_owner(input.into());
+            self
+        }
+
+        pub fn set_expected_bucket_owner(mut self, input: Option<String>) -> Self {
+            self.inner = self.inner.set_expected_bucket_owner(input);
+            self
+        }
+    }
 }
 
 impl Client {
-    pub fn new(sdk_config: &SdkConfig) -> Self {
-        Self::from_conf(sdk_config.into())
+    pub fn new<T>(_sdk_config: T) -> Self {
+        Self {}
     }
 
     pub fn from_conf(_conf: crate::Config) -> Self {
-        // let endpoint = Endpoint::connect(addr);
-        // Self {
-        //     handle: std::sync::Arc::new(Handle { endpoint, conf }),
-        // }
-        todo!();
+        Self {}
     }
 }

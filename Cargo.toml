@@ -2,6 +2,8 @@
 members = [
     "madsim",
     "madsim-aws-sdk-s3",
+    "madsim-aws-config",
+    "madsim-aws-types",
     "madsim-macros",
     "madsim-tokio",
     "madsim-tonic",
