@@ -64,7 +64,7 @@ unsafe extern "C" fn clock_gettime(
             libc::CLOCK_MONOTONIC_COARSE => instant_duration(),
             #[cfg(target_os = "macos")]
             libc::CLOCK_UPTIME_RAW => instant_duration(),
-            _ => panic!("unsupported clockid: {}", clockid),
+            _ => panic!("unsupported clockid: {clockid}"),
         };
         tp.write(libc::timespec {
             tv_sec: dur.as_secs() as _,

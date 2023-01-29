@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         name: "Tonic".into(),
     });
     let response = client.say_hello(request).await?;
-    println!("RESPONSE={:?}", response);
+    println!("RESPONSE={response:?}");
     println!();
 
     println!("Testing server streaming...");
@@ -29,10 +29,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = response.into_inner();
     loop {
         match stream.message().await {
-            Ok(Some(reply)) => println!("{:?}", reply),
+            Ok(Some(reply)) => println!("{reply:?}"),
             Ok(None) => break,
             Err(e) => {
-                println!("Error: {:?}", e);
+                println!("Error: {e:?}");
                 break;
             }
         }
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client.bidi_hello(new_stream()).await?;
     let mut stream = response.into_inner();
     while let Some(reply) = stream.message().await? {
-        println!("{:?}", reply);
+        println!("{reply:?}");
     }
     Ok(())
 }

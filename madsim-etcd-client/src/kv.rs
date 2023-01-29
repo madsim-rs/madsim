@@ -443,7 +443,7 @@ impl Display for TxnOp {
             }
             TxnOp::Get { key, .. } => write!(f, "get key={:?}", String::from_utf8_lossy(key)),
             TxnOp::Delete { key, .. } => write!(f, "del key={:?}", String::from_utf8_lossy(key)),
-            TxnOp::Txn { txn } => write!(f, "txn\n{}", txn),
+            TxnOp::Txn { txn } => write!(f, "txn\n{txn}"),
         }
     }
 }

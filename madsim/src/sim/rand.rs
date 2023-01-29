@@ -77,7 +77,7 @@ impl GlobalRng {
             if let Some((check, i)) = &mut lock.check {
                 if check.get(*i) != Some(&v) {
                     if let Some(time) = t {
-                        panic!("non-determinism detected at {:?}", time);
+                        panic!("non-determinism detected at {time:?}");
                     }
                     panic!("non-determinism detected");
                 }

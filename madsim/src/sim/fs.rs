@@ -57,9 +57,9 @@ impl FsSim {
         let path = path.as_ref();
         let handle = self.handles.lock()[&node].clone();
         let fs = handle.fs.lock();
-        let inode = fs.get(path).ok_or_else(|| {
-            Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
-        })?;
+        let inode = fs
+            .get(path)
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("file not found: {path:?}")))?;
         Ok(inode.metadata().len())
     }
 }
@@ -87,7 +87,7 @@ impl FsNodeHandle {
         let fs = self.fs.lock();
         let inode = fs
             .get(path)
-            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path)))?
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("file not found: {path:?}")))?
             .clone();
         Ok(File {
             inode,
@@ -113,9 +113,9 @@ impl FsNodeHandle {
     async fn metadata(&self, path: impl AsRef<Path>) -> Result<Metadata> {
         let path = path.as_ref();
         let fs = self.fs.lock();
-        let inode = fs.get(path).ok_or_else(|| {
-            Error::new(ErrorKind::NotFound, format!("file not found: {:?}", path))
-        })?;
+        let inode = fs
+            .get(path)
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("file not found: {path:?}")))?;
         Ok(inode.metadata())
     }
 }

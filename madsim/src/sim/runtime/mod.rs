@@ -192,10 +192,9 @@ impl Runtime {
 
 fn panic_with_info(seed: u64, hash: u64, payload: Box<dyn Any + Send>) -> ! {
     eprintln!(
-        "note: run with `MADSIM_TEST_SEED={}` environment variable to reproduce this error",
-        seed
+        "note: run with `MADSIM_TEST_SEED={seed}` environment variable to reproduce this error"
     );
-    eprintln!("      and make sure `MADSIM_CONFIG_HASH={:016X}`", hash);
+    eprintln!("      and make sure `MADSIM_CONFIG_HASH={hash:016X}`");
     std::panic::resume_unwind(payload);
 }
 

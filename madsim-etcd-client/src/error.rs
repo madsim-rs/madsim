@@ -46,17 +46,17 @@ impl Display for Error {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::InvalidArgs(e) => write!(f, "invalid arguments: {}", e),
-            Error::InvalidUri(e) => write!(f, "invalid uri: {}", e),
-            Error::IoError(e) => write!(f, "io error: {}", e),
-            Error::TransportError(e) => write!(f, "transport error: {}", e),
-            Error::GRpcStatus(e) => write!(f, "grpc request error: {}", e),
-            Error::WatchError(e) => write!(f, "watch error: {}", e),
-            Error::Utf8Error(e) => write!(f, "utf8 error: {}", e),
-            Error::LeaseKeepAliveError(e) => write!(f, "lease keep alive error: {}", e),
-            Error::ElectError(e) => write!(f, "election error: {}", e),
-            Error::InvalidHeaderValue(e) => write!(f, "invalid metadata value: {}", e),
-            Error::EndpointError(e) => write!(f, "endpoint error: {}", e),
+            Error::InvalidArgs(e) => write!(f, "invalid arguments: {e}"),
+            Error::InvalidUri(e) => write!(f, "invalid uri: {e}"),
+            Error::IoError(e) => write!(f, "io error: {e}"),
+            Error::TransportError(e) => write!(f, "transport error: {e}"),
+            Error::GRpcStatus(e) => write!(f, "grpc request error: {e}"),
+            Error::WatchError(e) => write!(f, "watch error: {e}"),
+            Error::Utf8Error(e) => write!(f, "utf8 error: {e}"),
+            Error::LeaseKeepAliveError(e) => write!(f, "lease keep alive error: {e}"),
+            Error::ElectError(e) => write!(f, "election error: {e}"),
+            Error::InvalidHeaderValue(e) => write!(f, "invalid metadata value: {e}"),
+            Error::EndpointError(e) => write!(f, "endpoint error: {e}"),
         }
     }
 }
