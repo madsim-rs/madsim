@@ -67,7 +67,7 @@ async fn test() {
 
             // generate an element every 0.1s
             for i in 1..=30 {
-                let key = format!("1.{}", i);
+                let key = format!("1.{i}");
                 let payload = [i as u8];
                 let record = BaseRecord::to("topic").key(&key).payload(&payload);
                 producer.send(record).expect("failed to send message");
@@ -92,7 +92,7 @@ async fn test() {
 
             // generate an element every 0.2s
             for i in 1..=30 {
-                let key = format!("2.{}", i);
+                let key = format!("2.{i}");
                 let payload = [i as u8];
                 let record = BaseRecord::to("topic").key(&key).payload(&payload);
                 producer.send(record).expect("failed to send message");

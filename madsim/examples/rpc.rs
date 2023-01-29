@@ -23,7 +23,7 @@ async fn main() {
         let ep = Endpoint::bind("127.0.0.1:0").await.unwrap();
         let addr = addr.parse().unwrap();
         let reply = ep.call(addr, Echo("hello".into())).await.unwrap();
-        println!("reply: {:?}", reply);
+        println!("reply: {reply:?}");
     } else {
         // server
         let ep = Endpoint::bind("127.0.0.1:0").await.unwrap();
