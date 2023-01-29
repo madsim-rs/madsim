@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- madsim: Support DNS record and lookup.
+- madsim: Add `NetSim::add_dns_record`.
+- madsim: Add a global IPVS for load balancing.
 
 ## [0.2.13] - 2023-01-11
 
