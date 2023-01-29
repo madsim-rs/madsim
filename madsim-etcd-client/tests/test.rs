@@ -133,6 +133,8 @@ async fn election() {
         let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
         let mut lease_client = client.lease_client();
         let mut client = client.election_client();
+        // sleep for a while to make sure observer is ready
+        sleep(Duration::from_secs(5)).await;
         // grant lease
         let lease = lease_client.grant(60, None).await.unwrap();
         // campaign to be leader
