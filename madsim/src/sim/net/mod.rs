@@ -41,7 +41,7 @@ use std::{
     any::Any,
     collections::HashMap,
     io,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
 };
 use tokio::sync::{mpsc, oneshot};
@@ -76,6 +76,7 @@ pub use self::unix::{UnixDatagram, UnixListener, UnixStream};
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct NetSim {
     network: Mutex<Network>,
+    dns: Mutex<DnsServer>,
     rand: GlobalRng,
     time: TimeHandle,
     task: Spawner,
@@ -98,6 +99,7 @@ impl plugin::Simulator for NetSim {
     fn new1(rand: &GlobalRng, time: &TimeHandle, task: &Spawner, config: &crate::Config) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
+            dns: Mutex::new(DnsServer::default()),
             rand: rand.clone(),
             time: time.clone(),
             task: task.clone(),
@@ -213,6 +215,16 @@ impl NetSim {
     /// Clog the link from `src` to `dst`.
     pub fn clog_link(&self, src: NodeId, dst: NodeId) {
         self.network.lock().clog_link(src, dst);
+    }
+
+    /// Add a DNS record for the cluster.
+    pub fn add_dns_record(&self, hostname: &str, ip: IpAddr) {
+        self.dns.lock().add(hostname, ip);
+    }
+
+    /// Performs a DNS lookup.
+    pub fn lookup_host(&self, hostname: &str) -> Option<IpAddr> {
+        self.dns.lock().lookup(hostname)
     }
 
     /// Add a hook function for RPC requests.
@@ -423,5 +435,27 @@ impl Drop for BindGuard {
         if let Some(mut network) = self.net.network.try_lock() {
             network.close(self.node.id, self.addr, self.protocol);
         }
+    }
+}
+
+struct DnsServer {
+    records: HashMap<String, IpAddr>,
+}
+
+impl Default for DnsServer {
+    fn default() -> Self {
+        let mut records = HashMap::new();
+        records.insert("localhost".into(), Ipv4Addr::LOCALHOST.into());
+        Self { records }
+    }
+}
+
+impl DnsServer {
+    fn add(&mut self, name: &str, ip: IpAddr) {
+        self.records.insert(name.to_string(), ip);
+    }
+
+    fn lookup(&self, name: &str) -> Option<IpAddr> {
+        self.records.get(name).cloned()
     }
 }
