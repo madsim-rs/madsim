@@ -57,7 +57,12 @@ pub use self::stream::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{net::NetSim, plugin, runtime::Runtime, time::timeout};
+    use crate::{
+        net::{ipvs::*, NetSim},
+        plugin,
+        runtime::Runtime,
+        time::timeout,
+    };
     use std::{io::ErrorKind, net::SocketAddr, sync::Arc, time::Duration};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -247,5 +252,55 @@ mod tests {
             TcpStream::connect("127.0.0.1:10000").await.unwrap();
         });
         runtime.block_on(f1).unwrap();
+    }
+
+    #[test]
+    fn ipvs_load_balance() {
+        let runtime = Runtime::new();
+        let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
+        let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
+        let addr3 = "10.0.0.3:1".parse::<SocketAddr>().unwrap();
+        let node1 = runtime.create_node().ip(addr1.ip()).build();
+        let node2 = runtime.create_node().ip(addr2.ip()).build();
+        let node3 = runtime.create_node().ip(addr3.ip()).build();
+
+        // set virtual service for load balance
+        runtime.block_on(async {
+            let net = NetSim::current();
+            let ipvs = net.global_ipvs();
+            ipvs.add_service(ServiceAddr::Tcp("1.1.1.1:80".into()), Scheduler::RoundRobin);
+            ipvs.add_server(ServiceAddr::Tcp("1.1.1.1:80".into()), "10.0.0.1:1");
+            ipvs.add_server(ServiceAddr::Tcp("1.1.1.1:80".into()), "10.0.0.2:1");
+        });
+
+        let f1 = node1.spawn(async move {
+            let listener = TcpListener::bind("0.0.0.0:1").await.unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
+
+            let mut buf = [0; 20];
+            let len = stream.read(&mut buf).await.unwrap();
+            assert_eq!(&buf[0..len], b"1");
+        });
+        let f2 = node2.spawn(async move {
+            let listener = TcpListener::bind("0.0.0.0:1").await.unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
+
+            let mut buf = [0; 20];
+            let len = stream.read(&mut buf).await.unwrap();
+            assert_eq!(&buf[0..len], b"2");
+        });
+        let f3 = node3.spawn(async move {
+            let mut stream1 = TcpStream::connect("1.1.1.1:80").await.unwrap(); // go to node1
+            let mut stream2 = TcpStream::connect("1.1.1.1:80").await.unwrap(); // go to node2
+            stream1.write_all(b"1").await.unwrap();
+            stream1.flush().await.unwrap();
+            stream2.write_all(b"2").await.unwrap();
+            stream2.flush().await.unwrap();
+        });
+        runtime.block_on(async move {
+            f1.await.unwrap();
+            f2.await.unwrap();
+            f3.await.unwrap();
+        });
     }
 }

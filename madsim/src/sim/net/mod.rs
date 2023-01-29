@@ -57,6 +57,7 @@ use crate::{
 mod addr;
 mod dns;
 mod endpoint;
+pub mod ipvs;
 mod network;
 #[cfg(feature = "rpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rpc")))]
@@ -68,6 +69,7 @@ pub mod unix;
 pub use self::addr::{lookup_host, ToSocketAddrs};
 use self::dns::DnsServer;
 pub use self::endpoint::{Endpoint, Receiver, Sender};
+use self::ipvs::{IpVirtualServer, ServiceAddr};
 pub use self::network::{Config, Stat};
 use self::network::{Direction, IpProtocol, Network, Socket};
 pub use self::tcp::{TcpListener, TcpStream};
@@ -79,6 +81,7 @@ pub use self::unix::{UnixDatagram, UnixListener, UnixStream};
 pub struct NetSim {
     network: Mutex<Network>,
     dns: Mutex<DnsServer>,
+    ipvs: IpVirtualServer,
     rand: GlobalRng,
     time: TimeHandle,
     task: Spawner,
@@ -102,6 +105,7 @@ impl plugin::Simulator for NetSim {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
             dns: Mutex::new(DnsServer::default()),
+            ipvs: IpVirtualServer::default(),
             rand: rand.clone(),
             time: time.clone(),
             task: task.clone(),
@@ -225,8 +229,13 @@ impl NetSim {
     }
 
     /// Performs a DNS lookup.
-    pub fn lookup_host(&self, hostname: &str) -> Option<IpAddr> {
+    pub(crate) fn lookup_host(&self, hostname: &str) -> Option<IpAddr> {
         self.dns.lock().lookup(hostname)
+    }
+
+    /// Get the IPVS for all nodes.
+    pub fn global_ipvs(&self) -> &IpVirtualServer {
+        &self.ipvs
     }
 
     /// Add a hook function for RPC requests.
@@ -288,7 +297,7 @@ impl NetSim {
         &self,
         node: NodeId,
         port: u16,
-        dst: SocketAddr,
+        mut dst: SocketAddr,
         protocol: IpProtocol,
         msg: Payload,
     ) -> io::Result<()> {
@@ -297,6 +306,12 @@ impl NetSim {
             if !hook(&msg) {
                 return Ok(());
             }
+        }
+        if let Some(addr) = self
+            .ipvs
+            .get_server(ServiceAddr::from_addr_proto(dst, protocol))
+        {
+            dst = addr.parse().expect("invalid socket address");
         }
         if let Some((ip, dst_node, socket, latency)) =
             self.network.lock().try_send(node, dst, protocol)
@@ -321,10 +336,16 @@ impl NetSim {
         self: &Arc<Self>,
         node: NodeId,
         port: u16,
-        dst: SocketAddr,
+        mut dst: SocketAddr,
         protocol: IpProtocol,
     ) -> io::Result<(PayloadSender, PayloadReceiver, SocketAddr)> {
         self.rand_delay().await?;
+        if let Some(addr) = self
+            .ipvs
+            .get_server(ServiceAddr::from_addr_proto(dst, protocol))
+        {
+            dst = addr.parse().expect("invalid socket address");
+        }
         let (ip, dst_node, socket, latency) = (self.network.lock().try_send(node, dst, protocol))
             .ok_or_else(|| {
             io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused")
