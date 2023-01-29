@@ -55,6 +55,7 @@ use crate::{
 };
 
 mod addr;
+mod dns;
 mod endpoint;
 mod network;
 #[cfg(feature = "rpc")]
@@ -65,6 +66,7 @@ mod udp;
 pub mod unix;
 
 pub use self::addr::{lookup_host, ToSocketAddrs};
+use self::dns::DnsServer;
 pub use self::endpoint::{Endpoint, Receiver, Sender};
 pub use self::network::{Config, Stat};
 use self::network::{Direction, IpProtocol, Network, Socket};
@@ -76,6 +78,7 @@ pub use self::unix::{UnixDatagram, UnixListener, UnixStream};
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub struct NetSim {
     network: Mutex<Network>,
+    dns: Mutex<DnsServer>,
     rand: GlobalRng,
     time: TimeHandle,
     task: Spawner,
@@ -98,6 +101,7 @@ impl plugin::Simulator for NetSim {
     fn new1(rand: &GlobalRng, time: &TimeHandle, task: &Spawner, config: &crate::Config) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
+            dns: Mutex::new(DnsServer::default()),
             rand: rand.clone(),
             time: time.clone(),
             task: task.clone(),
@@ -213,6 +217,16 @@ impl NetSim {
     /// Clog the link from `src` to `dst`.
     pub fn clog_link(&self, src: NodeId, dst: NodeId) {
         self.network.lock().clog_link(src, dst);
+    }
+
+    /// Add a DNS record for the cluster.
+    pub fn add_dns_record(&self, hostname: &str, ip: IpAddr) {
+        self.dns.lock().add(hostname, ip);
+    }
+
+    /// Performs a DNS lookup.
+    pub fn lookup_host(&self, hostname: &str) -> Option<IpAddr> {
+        self.dns.lock().lookup(hostname)
     }
 
     /// Add a hook function for RPC requests.

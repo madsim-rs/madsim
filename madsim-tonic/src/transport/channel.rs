@@ -1,7 +1,7 @@
 //! Client implementation and builder.
 
 use super::Error;
-use std::{fmt, net::IpAddr, sync::Arc, time::Duration};
+use std::{fmt, net::SocketAddr, sync::Arc, time::Duration};
 use tonic::{
     codegen::{http::HeaderValue, Bytes, StdError},
     transport::Uri,
@@ -48,17 +48,20 @@ impl Endpoint {
 
     /// Create a channel from this config.
     pub async fn connect(&self) -> Result<Channel, Error> {
-        let host = self.uri.host().ok_or_else(Error::new_invalid_uri)?;
-        let addr: IpAddr = host.parse().map_err(|e| Error::new_invalid_uri().with(e))?;
-        let port = self.uri.port_u16().ok_or_else(Error::new_invalid_uri)?;
-        let ep = madsim::net::Endpoint::connect((addr, port))
+        let host_port = (self.uri.authority())
+            .ok_or_else(Error::new_invalid_uri)?
+            .as_str();
+        let addr: SocketAddr = madsim::net::lookup_host(host_port)
+            .await
+            .map_err(|e| Error::new_invalid_uri().with(e))?
+            .next()
+            .ok_or_else(Error::new_invalid_uri)?;
+        let ep = madsim::net::Endpoint::connect(addr)
             .await
             .map_err(Error::from_source)?;
 
         // handshake
-        ep.connect1((addr, port).into())
-            .await
-            .map_err(Error::from_source)?;
+        ep.connect1(addr).await.map_err(Error::from_source)?;
 
         Ok(Channel { ep: Arc::new(ep) })
     }
