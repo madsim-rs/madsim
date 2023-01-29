@@ -1,6 +1,7 @@
 #![cfg(madsim)]
 
 use futures_util::StreamExt;
+use madsim::net::NetSim;
 use madsim::runtime::Handle;
 use madsim_rdkafka::{
     admin::*,
@@ -21,6 +22,8 @@ use std::{
 async fn test() {
     let handle = Handle::current();
     let broker_addr = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+    NetSim::current().add_dns_record("broker", broker_addr.ip());
+
     handle
         .create_node()
         .name("broker")
@@ -38,7 +41,7 @@ async fn test() {
         .build()
         .spawn(async move {
             let admin = ClientConfig::new()
-                .set("bootstrap.servers", broker_addr.to_string())
+                .set("bootstrap.servers", "broker:50051")
                 .create::<AdminClient<_>>()
                 .await
                 .expect("failed to create admin client");
@@ -60,7 +63,7 @@ async fn test() {
         .build()
         .spawn(async move {
             let producer = ClientConfig::new()
-                .set("bootstrap.servers", broker_addr.to_string())
+                .set("bootstrap.servers", "broker:50051")
                 .create::<BaseProducer>()
                 .await
                 .expect("failed to create producer");
@@ -85,7 +88,7 @@ async fn test() {
         .build()
         .spawn(async move {
             let producer = ClientConfig::new()
-                .set("bootstrap.servers", broker_addr.to_string())
+                .set("bootstrap.servers", "broker:50051")
                 .create::<BaseProducer>()
                 .await
                 .expect("failed to create producer");
@@ -114,7 +117,7 @@ async fn test() {
         .build()
         .spawn(async move {
             let consumer = ClientConfig::new()
-                .set("bootstrap.servers", broker_addr.to_string())
+                .set("bootstrap.servers", "broker:50051")
                 .set("enable.auto.commit", "false")
                 .set("auto.offset.reset", "earliest")
                 .create::<BaseConsumer>()
@@ -146,7 +149,7 @@ async fn test() {
         .build()
         .spawn(async move {
             let consumer = ClientConfig::new()
-                .set("bootstrap.servers", broker_addr.to_string())
+                .set("bootstrap.servers", "broker:50051")
                 .set("enable.auto.commit", "false")
                 .set("auto.offset.reset", "earliest")
                 .create::<StreamConsumer>()
