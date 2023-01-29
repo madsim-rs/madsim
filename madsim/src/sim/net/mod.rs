@@ -41,7 +41,7 @@ use std::{
     any::Any,
     collections::HashMap,
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
 };
 use tokio::sync::{mpsc, oneshot};
@@ -55,6 +55,7 @@ use crate::{
 };
 
 mod addr;
+mod dns;
 mod endpoint;
 mod network;
 #[cfg(feature = "rpc")]
@@ -65,6 +66,7 @@ mod udp;
 pub mod unix;
 
 pub use self::addr::{lookup_host, ToSocketAddrs};
+use self::dns::DnsServer;
 pub use self::endpoint::{Endpoint, Receiver, Sender};
 pub use self::network::{Config, Stat};
 use self::network::{Direction, IpProtocol, Network, Socket};
@@ -435,27 +437,5 @@ impl Drop for BindGuard {
         if let Some(mut network) = self.net.network.try_lock() {
             network.close(self.node.id, self.addr, self.protocol);
         }
-    }
-}
-
-struct DnsServer {
-    records: HashMap<String, IpAddr>,
-}
-
-impl Default for DnsServer {
-    fn default() -> Self {
-        let mut records = HashMap::new();
-        records.insert("localhost".into(), Ipv4Addr::LOCALHOST.into());
-        Self { records }
-    }
-}
-
-impl DnsServer {
-    fn add(&mut self, name: &str, ip: IpAddr) {
-        self.records.insert(name.to_string(), ip);
-    }
-
-    fn lookup(&self, name: &str) -> Option<IpAddr> {
-        self.records.get(name).cloned()
     }
 }
