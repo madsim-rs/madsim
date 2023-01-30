@@ -165,8 +165,7 @@ impl Executor {
             if let Some(limit) = self.time_limit {
                 assert!(
                     self.time.handle().elapsed() < limit,
-                    "time limit exceeded: {:?}",
-                    limit
+                    "time limit exceeded: {limit:?}"
                 )
             }
         }

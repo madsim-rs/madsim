@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2023-01-30
+
+### Added
+
+- madsim: Add `NetSim::add_dns_record`.
+- madsim: Add a global IPVS for load balancing.
+
+### Fixed
+
+- tonic/etcd/rdkafka: Resolve DNS on connection.
 
 ## [0.2.13] - 2023-01-11
 

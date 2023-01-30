@@ -167,7 +167,7 @@ fn generate_unary<T: Method>(
             request: impl tonic::IntoRequest<#request>,
         ) -> Result<tonic::Response<#response>, tonic::Status> {
            self.inner.ready().await.map_err(|e| {
-               tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {}", e))
+               tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
            })?;
            // let codec = #codec_name::default();
            let codec = ();
@@ -194,7 +194,7 @@ fn generate_server_streaming<T: Method>(
             request: impl tonic::IntoRequest<#request>,
         ) -> Result<tonic::Response<tonic::codec::Streaming<#response>>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {}", e))
+                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
             })?;
             // let codec = #codec_name::default();
             let codec = ();
@@ -221,7 +221,7 @@ fn generate_client_streaming<T: Method>(
             request: impl tonic::IntoStreamingRequest<Message = #request>
         ) -> Result<tonic::Response<#response>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {}", e))
+                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
             })?;
             // let codec = #codec_name::default();
             let codec = ();
@@ -248,7 +248,7 @@ fn generate_streaming<T: Method>(
             request: impl tonic::IntoStreamingRequest<Message = #request>
         ) -> Result<tonic::Response<tonic::codec::Streaming<#response>>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {}", e))
+                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
             })?;
             // let codec = #codec_name::default();
             let codec = ();

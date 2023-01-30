@@ -76,7 +76,7 @@ impl MissedTickBehavior {
             Self::Delay => now + period,
             Self::Skip => {
                 now + period
-                    - Duration::from_nanos(
+                    .checked_sub(Duration::from_nanos(
                         ((now - timeout).as_nanos() % period.as_nanos())
                             .try_into()
                             // This operation is practically guaranteed not to
@@ -89,7 +89,8 @@ impl MissedTickBehavior {
                             .expect(
                                 "too much time has elapsed since the interval was supposed to tick",
                             ),
-                    )
+                    ))
+                    .unwrap()
             }
         }
     }

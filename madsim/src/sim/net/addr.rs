@@ -24,6 +24,7 @@
 // IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
+use super::NetSim;
 use std::future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
@@ -237,12 +238,15 @@ impl sealed::ToSocketAddrsPriv for (&str, u16) {
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
 
-        if host == "localhost" {
-            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-
+        if let Some(ip) = NetSim::current().lookup_host(host) {
+            let addr = SocketAddr::from((ip, port));
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
-        todo!("simulate DNS lookup: {host}");
+
+        MaybeReady(sealed::State::Err(Some(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid IP address or host",
+        ))))
     }
 }
 
@@ -304,6 +308,7 @@ pub(crate) mod sealed {
     #[derive(Debug)]
     pub(super) enum State {
         Ready(Option<SocketAddr>),
+        Err(Option<io::Error>),
     }
 
     #[doc(hidden)]
@@ -322,6 +327,7 @@ pub(crate) mod sealed {
                     let iter = OneOrMore::One(i.take().into_iter());
                     Poll::Ready(Ok(iter))
                 }
+                State::Err(ref mut e) => Poll::Ready(Err(e.take().unwrap())),
             }
         }
     }
@@ -351,7 +357,7 @@ mod tests {
     use crate::runtime::Runtime;
 
     #[test]
-    fn parse() {
+    fn localhost() {
         let runtime = Runtime::new();
         runtime.block_on(async {
             assert_eq!(
@@ -362,6 +368,19 @@ mod tests {
                 lookup_host(("localhost", 1)).await.unwrap().next().unwrap(),
                 SocketAddr::from((Ipv4Addr::LOCALHOST, 1))
             );
+        });
+    }
+
+    #[test]
+    fn dns() {
+        let runtime = Runtime::new();
+        runtime.block_on(async {
+            NetSim::current().add_dns_record("madsim.io", Ipv4Addr::new(8, 8, 8, 8).into());
+            assert_eq!(
+                lookup_host("madsim.io:1").await.unwrap().next().unwrap(),
+                SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 1))
+            );
+            assert!(lookup_host(("mad.io", 1)).await.is_err());
         });
     }
 }

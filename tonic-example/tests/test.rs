@@ -3,6 +3,7 @@
 use async_stream::stream;
 use futures_core::Stream;
 use madsim::{
+    net::NetSim,
     rand::{thread_rng, Rng},
     runtime::Handle,
     time::sleep,
@@ -33,6 +34,8 @@ async fn basic() {
     let node4 = handle.create_node().name("client4").ip(ip4).build();
     let node5 = handle.create_node().name("client5").ip(ip5).build();
 
+    NetSim::current().add_dns_record("server", addr0.ip());
+
     node0.spawn(async move {
         Server::builder()
             .add_service(GreeterServer::new(MyGreeter::default()))
@@ -45,9 +48,7 @@ async fn basic() {
     // unary
     let task1 = node1.spawn(async move {
         sleep(Duration::from_secs(1)).await;
-        let mut client = GreeterClient::connect("http://10.0.0.1:50051")
-            .await
-            .unwrap();
+        let mut client = GreeterClient::connect("http://server:50051").await.unwrap();
         let response = client.say_hello(request()).await.unwrap();
         assert_eq!(response.into_inner().message, "Hello Tonic! (10.0.0.2)");
 
@@ -61,7 +62,7 @@ async fn basic() {
     // another service
     let task2 = node2.spawn(async move {
         sleep(Duration::from_secs(1)).await;
-        let mut client = AnotherGreeterClient::connect("http://10.0.0.1:50051")
+        let mut client = AnotherGreeterClient::connect("http://server:50051")
             .await
             .unwrap();
         let response = client.say_hello(request()).await.unwrap();
@@ -71,9 +72,7 @@ async fn basic() {
     // server stream
     let task3 = node3.spawn(async move {
         sleep(Duration::from_secs(1)).await;
-        let mut client = GreeterClient::connect("http://10.0.0.1:50051")
-            .await
-            .unwrap();
+        let mut client = GreeterClient::connect("http://server:50051").await.unwrap();
         let response = client.lots_of_replies(request()).await.unwrap();
         let mut stream = response.into_inner();
         for i in 0..3 {
@@ -87,9 +86,7 @@ async fn basic() {
     // client stream
     let task4 = node4.spawn(async move {
         sleep(Duration::from_secs(1)).await;
-        let mut client = GreeterClient::connect("http://10.0.0.1:50051")
-            .await
-            .unwrap();
+        let mut client = GreeterClient::connect("http://server:50051").await.unwrap();
         let response = client.lots_of_greetings(hello_stream()).await.unwrap();
         assert_eq!(
             response.into_inner().message,
@@ -100,9 +97,7 @@ async fn basic() {
     // bi-directional stream
     let task5 = node5.spawn(async move {
         sleep(Duration::from_secs(1)).await;
-        let mut client = GreeterClient::connect("http://10.0.0.1:50051")
-            .await
-            .unwrap();
+        let mut client = GreeterClient::connect("http://server:50051").await.unwrap();
         let response = client.bidi_hello(hello_stream()).await.unwrap();
         let mut stream = response.into_inner();
         let mut i = 0;

@@ -86,7 +86,7 @@ fn get_attribute_type_multiple(
             }
         })
         .ok_or_else(|| {
-            syn::Error::new(Span::call_site(), format!("Expect an attribute `{}`", name))
+            syn::Error::new(Span::call_site(), format!("Expect an attribute `{name}`"))
         })?;
 
     if let syn::Meta::List(ref list) = attr {
@@ -98,7 +98,7 @@ fn get_attribute_type_multiple(
     } else {
         Err(syn::Error::new_spanned(
             attr,
-            format!("The correct syntax is #[{}(type, type, ...)]", name),
+            format!("The correct syntax is #[{name}(type, type, ...)]"),
         ))
     }
 }

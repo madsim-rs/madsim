@@ -59,10 +59,11 @@ impl<C: ClientContext> FromClientConfigAndContext<C> for AdminClient<C> {
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let config: AdminClientConfig = serde_json::from_str(&config_json)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
-        let addr = config
-            .bootstrap_servers
-            .parse::<SocketAddr>()
-            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let addr: SocketAddr = madsim::net::lookup_host(&config.bootstrap_servers)
+            .await
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?
+            .next()
+            .ok_or_else(|| KafkaError::ClientCreation("invalid host or ip".into()))?;
         Ok(AdminClient {
             _context,
             _config: config,

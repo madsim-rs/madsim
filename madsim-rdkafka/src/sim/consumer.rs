@@ -85,10 +85,11 @@ impl<C: ConsumerContext> FromClientConfigAndContext<C> for BaseConsumer<C> {
         if config.group_id.is_some() {
             warn!("group id is ignored");
         }
-        let addr = config
-            .bootstrap_servers
-            .parse::<SocketAddr>()
-            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
+        let addr: SocketAddr = madsim::net::lookup_host(&config.bootstrap_servers)
+            .await
+            .map_err(|e| KafkaError::ClientCreation(e.to_string()))?
+            .next()
+            .ok_or_else(|| KafkaError::ClientCreation("invalid host or ip".into()))?;
         let p = BaseConsumer {
             _context,
             config,

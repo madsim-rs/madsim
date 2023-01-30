@@ -26,7 +26,7 @@ impl AnotherGreeter for MyGreeter {
         &self,
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
-        println!("Got a request: {:?}", request);
+        println!("Got a request: {request:?}");
         let reply = HelloReply {
             message: format!("Hi {}!", request.into_inner().name),
         };
@@ -40,7 +40,7 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
-        println!("Got a request: {:?}", request);
+        println!("Got a request: {request:?}");
         let remote_addr = request.remote_addr().expect("no remote address");
         let name = request.into_inner().name;
         if name == "error" {
@@ -58,7 +58,7 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<HelloRequest>,
     ) -> Result<Response<Self::LotsOfRepliesStream>, Status> {
-        println!("Got a request: {:?}", request);
+        println!("Got a request: {request:?}");
         let remote_addr = request.remote_addr().expect("no remote address");
         let stream = try_stream! {
             let name = request.into_inner().name;
@@ -77,12 +77,12 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<Streaming<HelloRequest>>,
     ) -> Result<Response<HelloReply>, Status> {
-        println!("Got a request: {:?}", request);
+        println!("Got a request: {request:?}");
         let remote_addr = request.remote_addr().expect("no remote address");
         let mut stream = request.into_inner();
         let mut s = String::new();
         while let Some(request) = stream.message().await? {
-            println!("-> {:?}", request);
+            println!("-> {request:?}");
             s += " ";
             s += &request.name;
         }
@@ -98,7 +98,7 @@ impl Greeter for MyGreeter {
         &self,
         request: Request<Streaming<HelloRequest>>,
     ) -> Result<Response<Self::BidiHelloStream>, Status> {
-        println!("Got a request: {:?}", request);
+        println!("Got a request: {request:?}");
         let remote_addr = request.remote_addr().expect("no remote address");
         let stream = try_stream! {
             let mut stream = request.into_inner();

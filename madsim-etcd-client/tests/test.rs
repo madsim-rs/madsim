@@ -1,6 +1,6 @@
 #![cfg(madsim)]
 
-use madsim::{runtime::Handle, time::sleep};
+use madsim::{net::NetSim, runtime::Handle, time::sleep};
 use madsim_etcd_client::{Client, ProclaimOptions, PutOptions, ResignOptions, SimServer};
 use std::time::Duration;
 
@@ -11,6 +11,7 @@ async fn kv() {
     let ip2 = "10.0.0.2".parse().unwrap();
     let server = handle.create_node().name("server").ip(ip1).build();
     let client = handle.create_node().name("client").ip(ip2).build();
+    NetSim::current().add_dns_record("etcd", ip1);
 
     server.spawn(async move {
         SimServer::builder()
@@ -21,7 +22,7 @@ async fn kv() {
     sleep(Duration::from_secs(1)).await;
 
     let task1 = client.spawn(async move {
-        let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+        let client = Client::connect(["etcd:2379"], None).await.unwrap();
         let mut client = client.kv_client();
         // put kv
         client.put("foo", "bar", None).await.unwrap();
@@ -132,6 +133,8 @@ async fn election() {
         let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
         let mut lease_client = client.lease_client();
         let mut client = client.election_client();
+        // sleep for a while to make sure observer is ready
+        sleep(Duration::from_secs(5)).await;
         // grant lease
         let lease = lease_client.grant(60, None).await.unwrap();
         // campaign to be leader
