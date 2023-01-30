@@ -18,7 +18,6 @@ aws-sdk-s3 = "0.21"
 
 [target.'cfg(madsim)'.dependencies]
 madsim = { version = "0.2.9" }
-# aws-types = "0.51.0"
 aws-types = { package = "madsim-aws-types", path = "../madsim-aws-types" }
 aws-smithy-http = "0.51.0"
 aws-smithy-types = "0.51.0"
@@ -28,3 +27,8 @@ spin = "0.9"
 tracing = "0.1"
 tonic = { version = "0.8", default-features = false }
 
+[features]
+rustls = []
+native-tls = []
+rt-tokio = ["aws-smithy-http/rt-tokio"]
+default = ["rustls", "rt-tokio"]
