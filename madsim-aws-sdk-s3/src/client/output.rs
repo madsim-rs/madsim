@@ -1,3 +1,4 @@
+use crate::types::ByteStream;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 #[non_exhaustive]
@@ -94,10 +95,10 @@ impl CreateMultipartUploadOutput {
 
 #[non_exhaustive]
 pub struct GetObjectOutput {
-    pub body: crate::types::ByteStream,
+    pub body: ByteStream,
 }
 impl GetObjectOutput {
-    pub fn body(&self) -> &crate::types::ByteStream {
+    pub fn body(&self) -> &ByteStream {
         &self.body
     }
 }

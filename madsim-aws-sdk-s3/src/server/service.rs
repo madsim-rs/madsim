@@ -3,9 +3,13 @@ use crate::input::*;
 use crate::model::BucketLifecycleConfiguration;
 use crate::model::LifecycleRule;
 use crate::output::*;
+use aws_smithy_http::byte_stream::AggregatedBytes;
+use aws_smithy_http::byte_stream::ByteStream;
+use bytes::Bytes;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::time::Duration;
 
 /// A request to s3 server.
@@ -174,10 +178,10 @@ impl S3Service {
         if thread_rng().gen_bool(self.timeout_rate as f64) {
             let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
             madsim::time::sleep(t).await;
-            tracing::warn!(?t, "etcdserver: request timed out");
-            return Err(Error::GRpcStatus(tonic::Status::new(
+            tracing::warn!(?t, "s3: request timed out");
+            return Err(Error::RequestTimeout(tonic::Status::new(
                 tonic::Code::Unavailable,
-                "etcdserver: request timed out",
+                "s3: request timed out",
             )));
         }
         Ok(())
@@ -193,9 +197,99 @@ struct ServiceInner {
     lifecycle: BTreeMap<String, Vec<LifecycleRule>>,
 }
 
+#[derive(Debug)]
+enum Body {
+    ByteStream(Vec<ByteStream>),
+    Bytes(Vec<u8>),
+}
+impl Body {
+    async fn to_bytes_stream(self) -> (Self, ByteStream) {
+        match self {
+            Body::ByteStream(byte_stream) => {
+                let mut v = vec![];
+                for bs in byte_stream {
+                    v.extend(
+                        bs.collect()
+                            .await
+                            .expect("ByteStream collect failed")
+                            .into_bytes()
+                            .to_vec(),
+                    );
+                }
+                (Body::Bytes(v.clone()), ByteStream::from(v))
+            }
+            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
+        }
+    }
+
+    async fn to_bytes_stream_after(self, start: usize) -> (Self, ByteStream) {
+        match self {
+            Body::ByteStream(byte_stream) => {
+                let mut v = vec![];
+                for bs in byte_stream {
+                    v.extend(
+                        bs.collect()
+                            .await
+                            .expect("ByteStream collect failed")
+                            .into_bytes()
+                            .to_vec(),
+                    );
+                }
+                let stream = v[start..].to_vec();
+                (Body::Bytes(v), ByteStream::from(stream))
+            }
+            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
+        }
+    }
+
+    async fn to_bytes_stream_before(self, end: usize) -> (Self, ByteStream) {
+        match self {
+            Body::ByteStream(byte_stream) => {
+                let mut v = vec![];
+                for bs in byte_stream {
+                    v.extend(
+                        bs.collect()
+                            .await
+                            .expect("ByteStream collect failed")
+                            .into_bytes()
+                            .to_vec(),
+                    );
+                }
+                let stream = v[..end].to_vec();
+                (Body::Bytes(v), ByteStream::from(stream))
+            }
+            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
+        }
+    }
+
+    async fn to_bytes_stream_between(self, start: usize, end: usize) -> (Self, ByteStream) {
+        match self {
+            Body::ByteStream(byte_stream) => {
+                let mut v = vec![];
+                for bs in byte_stream {
+                    v.extend(
+                        bs.collect()
+                            .await
+                            .expect("ByteStream collect failed")
+                            .into_bytes()
+                            .to_vec(),
+                    );
+                }
+                let stream = v[start..end].to_vec();
+                (Body::Bytes(v), ByteStream::from(stream))
+            }
+            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
+        }
+    }
+}
+impl Default for Body {
+    fn default() -> Self {
+        Body::ByteStream(vec![])
+    }
+}
 #[derive(Debug, Default)]
 struct InnerObject {
-    body: Vec<u8>,
+    body: Body,
 
     completed: bool,
 
@@ -210,7 +304,7 @@ struct InnerObject {
 #[derive(Debug, Default)]
 struct InnerPart {
     part_number: i32,
-    body: Vec<u8>,
+    body: ByteStream,
     e_tag: String,
 }
 
@@ -261,9 +355,6 @@ impl ServiceInner {
             .get_mut(&upload_id)
             .ok_or(Error::InvalidUploadId(upload_id))?;
 
-        let body = body.collect().await;
-        let body = body.expect("error read data").into_bytes().to_vec();
-
         let e_tag = thread_rng().gen::<u32>().to_string();
         let part = InnerPart {
             part_number,
@@ -300,31 +391,44 @@ impl ServiceInner {
             .ok_or_else(|| Error::InvalidUploadId(upload_id.clone()))?;
 
         if let Some(mut multipart) = multipart.parts {
-            multipart.sort_by(|part1, part2| part1.part_number.cmp(&part2.part_number));
-            let mut selection = vec![];
-            for complted_part in multipart {
-                for part in parts.iter() {
-                    if part.part_number == complted_part.part_number {
-                        if let Some(e_tag) = &complted_part.e_tag {
+            multipart.sort_by_key(|part| part.part_number);
+            let mut selection_idx = vec![];
+            for completed_part in multipart {
+                for (idx, part) in parts.iter().enumerate() {
+                    if part.part_number == completed_part.part_number {
+                        if let Some(e_tag) = &completed_part.e_tag {
                             if e_tag == &part.e_tag {
-                                selection.push(part.body.clone());
+                                selection_idx.push(idx);
                                 break;
                             }
                         } else {
-                            selection.push(part.body.clone());
+                            selection_idx.push(idx);
                             break;
                         }
                     }
                 }
             }
 
-            let body = selection.into_iter().flatten().collect::<Vec<u8>>();
-            object.body = body;
+            selection_idx.sort();
+            let selection_idx = VecDeque::from(selection_idx);
+            let mut body = vec![];
+            let parts = object.parts.remove(&upload_id).unwrap();
+
+            for (idx, part) in parts.into_iter().enumerate() {
+                if let Some(next_idx) = selection_idx.front() {
+                    if *next_idx != idx {
+                        continue;
+                    } else {
+                        body.push(part.body);
+                        selection_idx.pop_front();
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            object.body = Body::ByteStream(body);
             object.completed = true;
-            object
-                .parts
-                .remove(&upload_id)
-                .expect("multipart completed, remove upload parts failed");
 
             Ok(CompleteMultipartUploadOutput {})
         } else {
@@ -367,14 +471,13 @@ impl ServiceInner {
             .storage
             .get(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
-            .get(&key)
+            .get_mut(&key)
             .ok_or_else(|| Error::InvalidKey(key.clone()))?;
 
         if !object.completed {
             Err(Error::InvalidKey(key))
         } else if let Some(range) = range {
             // https://www.rfc-editor.org/rfc/rfc9110.html#name-range
-            let body = object.body.clone();
             let mut split = range.split('=');
             let range_unit = split
                 .next()
@@ -390,19 +493,18 @@ impl ServiceInner {
 
             let body = if range_set.starts_with('-') {
                 let first_pos = range_set
-                    .split('-')
-                    .next()
+                    .split_once('-')
                     .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
+                    .0
                     .parse::<usize>()
                     .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
 
-                // may be just transform the slice, not to_vec()
-                body[first_pos..].to_vec()
+                let res = object.body.to_bytes_stream_after(first_pos).await;
             } else if range_set.ends_with('-') {
                 let end_pos = range_set
-                    .split('-')
-                    .next()
+                    .split_once('-')
                     .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
+                    .0
                     .parse::<usize>()
                     .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
 
@@ -428,7 +530,7 @@ impl ServiceInner {
             let body = crate::types::ByteStream::from(body);
             Ok(GetObjectOutput { body })
         } else if let Some(part_number) = part_number {
-            let body = object.body.clone();
+            let body = &object.body;
 
             if part_number >= 0 {
                 let part_number = part_number as usize;

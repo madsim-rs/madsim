@@ -10,7 +10,7 @@ pub enum Error {
     InvalidRangeSpecifier(String),
     InvalidPartNumberSpecifier(i32),
     UnsupportRangeUnit(String),
-    GRpcStatus(tonic::Status),
+    RequestTimeout(tonic::Status),
 }
 
 impl Display for Error {
@@ -23,7 +23,7 @@ impl Display for Error {
             Error::InvalidRangeSpecifier(e) => write!(f, "invalid range: {}", e),
             Error::InvalidPartNumberSpecifier(e) => write!(f, "invalid part_number: {}", e),
             Error::UnsupportRangeUnit(e) => write!(f, "unsupport range unit: {}", e),
-            Error::GRpcStatus(e) => write!(f, "grpc request error: {}", e),
+            Error::RequestTimeout(e) => write!(f, "grpc request error: {}", e),
         }
     }
 }
