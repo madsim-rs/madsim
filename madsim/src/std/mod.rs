@@ -1,3 +1,4 @@
+pub mod buggify;
 pub mod fs;
 pub mod net;
 pub mod time;
