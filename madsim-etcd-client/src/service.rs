@@ -42,7 +42,7 @@ impl EtcdService {
 
     pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
         self.timeout().await?;
-        let rsp = self.inner.lock().put(key, value, options);
+        let rsp = self.inner.lock().put(key, value, options)?;
         Ok(rsp)
     }
 
@@ -72,19 +72,19 @@ impl EtcdService {
 
     pub async fn lease_revoke(&self, id: i64) -> Result<LeaseRevokeResponse> {
         self.timeout().await?;
-        let rsp = self.inner.lock().lease_revoke(id);
+        let rsp = self.inner.lock().lease_revoke(id)?;
         Ok(rsp)
     }
 
     pub async fn lease_keep_alive(&self, id: i64) -> Result<LeaseKeepAliveResponse> {
         self.timeout().await?;
-        let rsp = self.inner.lock().lease_keep_alive(id);
+        let rsp = self.inner.lock().lease_keep_alive(id)?;
         Ok(rsp)
     }
 
     pub async fn lease_time_to_live(&self, id: i64, keys: bool) -> Result<LeaseTimeToLiveResponse> {
         self.timeout().await?;
-        let rsp = self.inner.lock().lease_time_to_live(id, keys);
+        let rsp = self.inner.lock().lease_time_to_live(id, keys)?;
         Ok(rsp)
     }
 
@@ -97,7 +97,7 @@ impl EtcdService {
     pub async fn campaign(&self, name: Key, value: Value, lease: i64) -> Result<CampaignResponse> {
         self.timeout().await?;
         loop {
-            let mut rx = match self.inner.lock().campaign(&name, &value, lease) {
+            let mut rx = match self.inner.lock().campaign(&name, &value, lease)? {
                 Ok(rsp) => return Ok(rsp),
                 Err(rx) => rx,
             };
@@ -254,7 +254,7 @@ impl ServiceInner {
         }
     }
 
-    fn put(&mut self, key: Key, value: Value, options: PutOptions) -> PutResponse {
+    fn put(&mut self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
         tracing::trace!(
             ?key,
             ?value,
@@ -268,7 +268,10 @@ impl ServiceInner {
         let prev_value = self.kv.get(&key).cloned();
         // add key to the new lease
         if options.lease != 0 {
-            let lease = self.lease.get_mut(&options.lease).expect("no lease");
+            let lease = self
+                .lease
+                .get_mut(&options.lease)
+                .ok_or_else(lease_not_found)?;
             lease.keys.insert(key.clone());
         }
         // remove key from the old lease
@@ -292,10 +295,10 @@ impl ServiceInner {
         *self.kv.entry(key).or_default() = kv.clone();
         self.watcher.publish(Event::put(kv));
 
-        PutResponse {
+        Ok(PutResponse {
             header: self.header(),
             prev_kv: if options.prev_kv { prev_value } else { None },
-        }
+        })
     }
 
     fn get(&mut self, key: Key, options: GetOptions) -> GetResponse {
@@ -360,7 +363,7 @@ impl ServiceInner {
                     key,
                     value,
                     options,
-                } => TxnOpResponse::Put(self.put(key, value, options)),
+                } => TxnOpResponse::Put(self.put(key, value, options).expect("put failed in txn")),
                 TxnOp::Delete { key, options } => TxnOpResponse::Delete(self.delete(key, options)),
                 TxnOp::Txn { txn } => TxnOpResponse::Txn(self.txn(txn)),
             };
@@ -393,36 +396,36 @@ impl ServiceInner {
         }
     }
 
-    fn lease_revoke(&mut self, id: i64) -> LeaseRevokeResponse {
+    fn lease_revoke(&mut self, id: i64) -> Result<LeaseRevokeResponse> {
         tracing::trace!(id, "lease_revoke");
-        let lease = self.lease.remove(&id).expect("no lease");
+        let lease = self.lease.remove(&id).ok_or_else(lease_not_found)?;
         for key in lease.keys {
             tracing::trace!(?key, "delete");
             let kv = self.kv.remove(&key).expect("no key");
             self.watcher.publish(Event::delete(kv));
         }
         self.revision += 1;
-        LeaseRevokeResponse {
+        Ok(LeaseRevokeResponse {
             header: self.header(),
-        }
+        })
     }
 
-    fn lease_keep_alive(&mut self, id: i64) -> LeaseKeepAliveResponse {
+    fn lease_keep_alive(&mut self, id: i64) -> Result<LeaseKeepAliveResponse> {
         tracing::trace!(id, "lease_keep_alive");
-        let lease = self.lease.get_mut(&id).expect("no lease");
+        let lease = self.lease.get_mut(&id).ok_or_else(lease_not_found)?;
         let ttl = lease.granted_ttl;
         lease.ttl = ttl;
         self.revision += 1;
-        LeaseKeepAliveResponse {
+        Ok(LeaseKeepAliveResponse {
             header: self.header(),
             id,
             ttl,
-        }
+        })
     }
 
-    fn lease_time_to_live(&self, id: i64, keys: bool) -> LeaseTimeToLiveResponse {
-        let lease = self.lease.get(&id).expect("no lease");
-        LeaseTimeToLiveResponse {
+    fn lease_time_to_live(&self, id: i64, keys: bool) -> Result<LeaseTimeToLiveResponse> {
+        let lease = self.lease.get(&id).ok_or_else(lease_not_found)?;
+        Ok(LeaseTimeToLiveResponse {
             header: self.header(),
             id,
             ttl: lease.ttl,
@@ -432,7 +435,7 @@ impl ServiceInner {
             } else {
                 vec![]
             },
-        }
+        })
     }
 
     fn lease_leases(&self) -> LeaseLeasesResponse {
@@ -469,13 +472,13 @@ impl ServiceInner {
         name: &Key,
         value: &Value,
         lease: i64,
-    ) -> std::result::Result<CampaignResponse, mpsc::Receiver<Event>> {
+    ) -> Result<std::result::Result<CampaignResponse, mpsc::Receiver<Event>>> {
         if self.get_prefix_range(name.clone()).next().is_some() {
             // the election name is occupied
             let (tx, rx) = mpsc::channel(1);
             self.watcher
                 .subscribe(EventPattern::Leader(name.clone()), tx);
-            return Err(rx);
+            return Ok(Err(rx));
         }
         tracing::trace!(?name, ?value, lease, "new leader");
 
@@ -484,7 +487,6 @@ impl ServiceInner {
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
-        self.revision += 1;
         let kv = KeyValue {
             key: key.clone(),
             value: value.clone(),
@@ -492,11 +494,16 @@ impl ServiceInner {
             create_revision: self.revision,
             modify_revision: self.revision,
         };
+        self.lease
+            .get_mut(&lease)
+            .ok_or_else(lease_not_found)?
+            .keys
+            .insert(key.clone());
         self.kv.insert(key.clone(), kv.clone());
-        (self.lease.get_mut(&lease).expect("no lease").keys).insert(key.clone());
         self.watcher.publish(Event::put(kv));
+        self.revision += 1;
 
-        Ok(CampaignResponse {
+        Ok(Ok(CampaignResponse {
             header: self.header(),
             leader: LeaderKey {
                 name: name.clone(),
@@ -504,13 +511,13 @@ impl ServiceInner {
                 rev: self.revision,
                 lease,
             },
-        })
+        }))
     }
 
     fn proclaim(&mut self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
         tracing::trace!(name = ?leader.name, ?value, "proclaim");
         match self.kv.entry(leader.key) {
-            Entry::Vacant(_) => return Err(Error::ElectError("session expired".into())),
+            Entry::Vacant(_) => return Err(session_expired()),
             Entry::Occupied(mut entry) => {
                 self.revision += 1;
                 entry.get_mut().value = value;
@@ -539,8 +546,7 @@ impl ServiceInner {
 
     fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
         tracing::trace!(name = ?leader.name, "resign");
-        let kv = (self.kv.remove(&leader.key))
-            .ok_or_else(|| Error::ElectError("session expired".into()))?;
+        let kv = self.kv.remove(&leader.key).ok_or_else(session_expired)?;
         self.watcher.publish(Event::delete(kv));
         self.revision += 1;
         Ok(ResignResponse {
@@ -554,4 +560,15 @@ impl ServiceInner {
             header: self.header(),
         })
     }
+}
+
+fn lease_not_found() -> Error {
+    Error::GRpcStatus(tonic::Status::new(
+        tonic::Code::NotFound,
+        "etcdserver: requested lease not found",
+    ))
+}
+
+fn session_expired() -> Error {
+    Error::ElectError("session expired".into())
 }

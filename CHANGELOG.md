@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- etcd: Return error on "lease not found".
+
 ## [0.2.14] - 2023-01-30
 
 ### Added
