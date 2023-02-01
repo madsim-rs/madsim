@@ -2,6 +2,8 @@
 //!
 //! Learn more: <https://transactional.blog/simulation/buggify>
 
+use tracing::info;
+
 /// Returns true with a probability of 25% if buggify is enabled.
 pub fn buggify() -> bool {
     crate::rand::thread_rng().buggify()
@@ -14,11 +16,13 @@ pub fn buggify_with_prob(probability: f64) -> bool {
 
 /// Enable buggify.
 pub fn enable() {
+    info!("buggify enabled");
     crate::rand::thread_rng().enable_buggify()
 }
 
 /// Disable buggify.
 pub fn disable() {
+    info!("buggify disabled");
     crate::rand::thread_rng().disable_buggify()
 }
 
