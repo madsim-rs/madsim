@@ -26,6 +26,7 @@ use std::{
     task::{Context, Poll, Waker},
     time::Duration,
 };
+use tokio::sync::watch;
 use tracing::*;
 
 pub use tokio::task::yield_now;
@@ -81,6 +82,8 @@ pub(crate) struct NodeInfo {
     ///
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
+    /// A channel to send a "ctrl-c" signal.
+    ctrl_c: (watch::Sender<()>, watch::Receiver<()>),
 }
 
 impl NodeInfo {
@@ -97,6 +100,11 @@ impl NodeInfo {
 
     pub(crate) fn is_killed(&self) -> bool {
         self.killed.load(Ordering::Relaxed)
+    }
+
+    /// Get a receiver of "ctrl-c" signal.
+    pub(crate) fn ctrl_c(&self) -> watch::Receiver<()> {
+        self.ctrl_c.1.clone()
     }
 }
 
@@ -118,6 +126,7 @@ impl Executor {
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     wakers: Mutex::new(vec![]),
+                    ctrl_c: watch::channel(()),
                 }),
                 sims,
             },
@@ -264,6 +273,7 @@ impl TaskHandle {
             restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
             wakers: Mutex::new(vec![]),
+            ctrl_c: watch::channel(()),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
@@ -312,6 +322,18 @@ impl TaskHandle {
         }
     }
 
+    /// Send a "ctrl-c" signal to the node.
+    pub fn send_ctrl_c(&self, id: impl ToNodeId) {
+        debug!(node = %id, "send ctrl+c");
+        let id = id.to_node_id(self);
+        let mut nodes = self.nodes.lock();
+        let node = nodes.get_mut(&id).expect("node not found");
+        if node.info.killed.load(Ordering::Relaxed) {
+            return;
+        }
+        node.info.ctrl_c.0.send(()).expect("failed to send ctrl-c");
+    }
+
     /// Create a new node.
     pub fn create_node(
         &self,
@@ -331,6 +353,7 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic,
             wakers: Mutex::new(vec![]),
+            ctrl_c: watch::channel(()),
         });
         let handle = Spawner {
             sender: self.sender.clone(),
@@ -576,6 +599,24 @@ impl<T> JoinHandle<T> {
     /// Abort the task associated with the handle.
     pub fn abort(&self) {
         self.task.lock().take();
+    }
+
+    /// Returns a task ID that uniquely identifies this task relative to other currently spawned tasks.
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Checks if the task associated with this `JoinHandle` has finished.
+    pub fn is_finished(&self) -> bool {
+        match &*self.task.lock() {
+            Some(task) => {
+                // SAFETY: `FallibleTask<T>` is a wrapper over `Task<T>`
+                //          but does not expose the `is_finished` API.
+                let task: &async_task::Task<T> = unsafe { std::mem::transmute(task) };
+                task.is_finished()
+            }
+            None => true, // aborted
+        }
     }
 
     /// Cancel the task when this handle is dropped.
