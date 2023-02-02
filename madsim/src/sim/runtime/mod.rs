@@ -261,6 +261,11 @@ impl Handle {
         self.task.resume(id);
     }
 
+    /// Send a Ctrl+C signal to the node.
+    pub fn send_ctrl_c(&self, id: impl ToNodeId) {
+        self.task.send_ctrl_c(id);
+    }
+
     /// Create a node which will be bound to the specified address.
     pub fn create_node(&self) -> NodeBuilder<'_> {
         NodeBuilder::new(self)

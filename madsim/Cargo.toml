@@ -44,7 +44,7 @@ toml = "0.7"
 
 [target.'cfg(not(madsim))'.dependencies]
 async-ucx = { version = "0.1", features = ["event"], optional = true }
-tokio = { version = "1", features = ["rt", "fs", "net", "time", "io-util", "sync"] }
+tokio = { version = "1", features = ["rt", "fs", "net", "time", "io-util", "sync", "signal"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 # mad_rpc = { git = "https://github.com/madsys-dev/madrpc", rev = "2be4b02", optional = true }
 

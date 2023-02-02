@@ -16,6 +16,7 @@ pub mod plugin;
 pub mod rand;
 #[cfg_attr(docsrs, doc(cfg(madsim)))]
 pub mod runtime;
+pub mod signal;
 pub mod task;
 pub mod time;
 mod utils;

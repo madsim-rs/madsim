@@ -7,6 +7,8 @@ pub use self::sim::*;
 mod sim {
     // simulated API
     pub use madsim::net;
+    #[cfg(feature = "signal")]
+    pub use madsim::signal;
     #[cfg(feature = "rt")]
     pub use madsim::task::spawn;
     #[cfg(feature = "time")]
@@ -27,14 +29,6 @@ mod sim {
         pub use madsim::task::*;
         #[cfg(feature = "rt")]
         pub use tokio::task::LocalKey;
-    }
-
-    #[cfg(feature = "signal")]
-    pub mod signal {
-        /// Completes when a "ctrl-c" notification is sent to the process.
-        pub async fn ctrl_c() -> std::io::Result<()> {
-            futures_lite::future::pending().await
-        }
     }
 
     // not simulated API

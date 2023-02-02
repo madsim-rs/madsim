@@ -60,7 +60,6 @@ tokio-macros = []
 
 [target.'cfg(madsim)'.dependencies]
 madsim = { version = "0.2.2", path = "../madsim" }
-futures-lite = "1"
 
 [dependencies]
 tokio = "1.21"
