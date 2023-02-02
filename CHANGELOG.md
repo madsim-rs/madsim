@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- madsim: Add buggify.
+- madsim: Add `buggify`.
+- madsim: Add `JoinHandle::{id, is_finished}`.
+- madsim: Add `signal::ctrl_c` and `Handle::send_ctrl_c`.
 
 ### Fixed
 
