@@ -82,8 +82,8 @@ pub(crate) struct NodeInfo {
     ///
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
-    /// A channel to send a "ctrl-c" signal.
-    ctrl_c: (watch::Sender<()>, watch::Receiver<()>),
+    /// Sender of the "ctrl-c" signal.
+    ctrl_c: watch::Sender<()>,
 }
 
 impl NodeInfo {
@@ -104,7 +104,7 @@ impl NodeInfo {
 
     /// Get a receiver of "ctrl-c" signal.
     pub(crate) fn ctrl_c(&self) -> watch::Receiver<()> {
-        self.ctrl_c.1.clone()
+        self.ctrl_c.subscribe()
     }
 }
 
@@ -126,7 +126,7 @@ impl Executor {
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     wakers: Mutex::new(vec![]),
-                    ctrl_c: watch::channel(()),
+                    ctrl_c: watch::channel(()).0,
                 }),
                 sims,
             },
@@ -273,7 +273,7 @@ impl TaskHandle {
             restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
             wakers: Mutex::new(vec![]),
-            ctrl_c: watch::channel(()),
+            ctrl_c: watch::channel(()).0,
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
@@ -331,7 +331,8 @@ impl TaskHandle {
         if node.info.killed.load(Ordering::Relaxed) {
             return;
         }
-        node.info.ctrl_c.0.send(()).expect("failed to send ctrl-c");
+        // may return error if no receiver
+        _ = node.info.ctrl_c.send(());
     }
 
     /// Create a new node.
@@ -353,7 +354,7 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic,
             wakers: Mutex::new(vec![]),
-            ctrl_c: watch::channel(()),
+            ctrl_c: watch::channel(()).0,
         });
         let handle = Spawner {
             sender: self.sender.clone(),

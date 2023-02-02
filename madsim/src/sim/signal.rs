@@ -20,18 +20,19 @@ mod tests {
         let runtime = Runtime::new();
         let node1 = runtime.create_node().build();
 
-        let h = node1.spawn(async move {
-            crate::signal::ctrl_c().await.unwrap();
-        });
-
         runtime.block_on(async move {
-            time::sleep(Duration::from_secs(1)).await;
-            assert!(!h.is_finished());
+            for _ in 0..2 {
+                let h = node1.spawn(async move {
+                    crate::signal::ctrl_c().await.unwrap();
+                });
+                time::sleep(Duration::from_secs(1)).await;
+                assert!(!h.is_finished());
 
-            Handle::current().send_ctrl_c(node1.id());
+                Handle::current().send_ctrl_c(node1.id());
 
-            time::sleep(Duration::from_secs(1)).await;
-            assert!(h.is_finished());
+                time::sleep(Duration::from_secs(1)).await;
+                assert!(h.is_finished());
+            }
         });
     }
 }
