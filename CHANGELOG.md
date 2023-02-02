@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - madsim: Add `buggify`.
 - madsim: Add `JoinHandle::{id, is_finished}`.
 - madsim: Add `signal::ctrl_c` and `Handle::send_ctrl_c`.
+- madsim: Add `Handle::is_exit`.
+
+### Changed
+
+- madsim: After the initial task completes, the other tasks of the node are dropped.
 
 ### Fixed
 
