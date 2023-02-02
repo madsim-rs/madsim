@@ -352,6 +352,14 @@ impl TaskHandle {
         self.kill_id(id);
     }
 
+    /// Returns whether the node is killed or exited.
+    pub fn is_exit(&self, id: impl ToNodeId) -> bool {
+        let id = id.to_node_id(self);
+        let nodes = self.nodes.lock();
+        let node = nodes.get(&id).expect("node not found");
+        node.info.killed.load(Ordering::Relaxed)
+    }
+
     /// Create a new node.
     pub fn create_node(
         &self,
@@ -515,6 +523,14 @@ impl Spawner {
             id,
             task: Mutex::new(Some(task.fallible())),
         }
+    }
+
+    /// Exit the current process (node).
+    pub(crate) fn exit(&self) {
+        debug!(node = %self.info.id, "exit");
+        // FIXME: clear paused tasks
+        self.info.killed.store(true, Ordering::Relaxed);
+        self.info.wakers.lock().drain(..).for_each(Waker::wake);
     }
 }
 
@@ -846,6 +862,7 @@ mod tests {
             assert_eq!(flag2.load(Ordering::Relaxed), 2);
             Handle::current().kill(node1.id());
             Handle::current().kill(node1.id());
+            assert!(Handle::current().is_exit(node1.id()));
 
             time::sleep_until(t0 + Duration::from_secs(5)).await;
             assert_eq!(flag1.load(Ordering::Relaxed), 2);
@@ -882,6 +899,7 @@ mod tests {
             assert_eq!(flag.load(Ordering::Relaxed), 2);
             Handle::current().kill(node.id());
             Handle::current().restart(node.id());
+            assert!(!Handle::current().is_exit(node.id()));
 
             time::sleep_until(t0 + Duration::from_secs(6)).await;
             assert_eq!(flag.load(Ordering::Relaxed), 2);
@@ -1036,6 +1054,37 @@ mod tests {
             handle.abort();
             let err = handle.await.unwrap_err();
             assert!(err.is_cancelled());
+        });
+    }
+
+    #[test]
+    fn exited() {
+        let runtime = Runtime::new();
+
+        let flag = Arc::new(AtomicUsize::new(0));
+        let flag_ = flag.clone();
+        let node = runtime
+            .create_node()
+            .init(move || {
+                let flag_ = flag_.clone();
+                async move {
+                    crate::task::spawn(async move {
+                        loop {
+                            time::sleep(Duration::from_secs(2)).await;
+                            flag_.fetch_add(2, Ordering::Relaxed);
+                        }
+                    });
+                    time::sleep(Duration::from_secs(5)).await;
+                    // exit here. the spawned task will be killed
+                }
+            })
+            .build();
+
+        runtime.block_on(async move {
+            assert!(!Handle::current().is_exit(node.id()));
+            time::sleep(Duration::from_secs(10)).await;
+            assert!(Handle::current().is_exit(node.id()));
+            assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
     }
 }
