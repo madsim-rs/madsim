@@ -83,7 +83,11 @@ pub(crate) struct NodeInfo {
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
     /// Sender of the "ctrl-c" signal.
-    ctrl_c: watch::Sender<()>,
+    ///
+    /// This value is `None` at the beginning, meaning that `signal::ctrl_c` has never been called,
+    /// and sending "ctrl-c" will cause the node being killed. Once `signal::ctrl_c` is called,
+    /// this will be set to `Some`, and sending "ctrl-c" will no longer kill the node.
+    ctrl_c: Mutex<Option<watch::Sender<()>>>,
 }
 
 impl NodeInfo {
@@ -104,7 +108,13 @@ impl NodeInfo {
 
     /// Get a receiver of "ctrl-c" signal.
     pub(crate) fn ctrl_c(&self) -> watch::Receiver<()> {
-        self.ctrl_c.subscribe()
+        self.ctrl_c
+            .lock()
+            .get_or_insert_with(|| {
+                debug!("ctrl-c signal handler installed");
+                watch::channel(()).0
+            })
+            .subscribe()
     }
 }
 
@@ -126,7 +136,7 @@ impl Executor {
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     wakers: Mutex::new(vec![]),
-                    ctrl_c: watch::channel(()).0,
+                    ctrl_c: Mutex::new(None),
                 }),
                 sims,
             },
@@ -273,7 +283,7 @@ impl TaskHandle {
             restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
             wakers: Mutex::new(vec![]),
-            ctrl_c: watch::channel(()).0,
+            ctrl_c: Mutex::new(None),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         old_info.killed.store(true, Ordering::SeqCst);
@@ -324,15 +334,19 @@ impl TaskHandle {
 
     /// Send a "ctrl-c" signal to the node.
     pub fn send_ctrl_c(&self, id: impl ToNodeId) {
-        debug!(node = %id, "send ctrl+c");
+        debug!(node = %id, "send ctrl-c");
         let id = id.to_node_id(self);
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
-        if node.info.killed.load(Ordering::Relaxed) {
+        if let Some(tx) = &*node.info.ctrl_c.lock() {
+            // may return error if no receiver
+            _ = tx.send(());
             return;
         }
-        // may return error if no receiver
-        _ = node.info.ctrl_c.send(());
+        drop(nodes);
+        // "ctrl-c" has never been called. kill node
+        debug!(node = %id, "killed by ctrl-c");
+        self.kill_id(id);
     }
 
     /// Create a new node.
@@ -354,7 +368,7 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic,
             wakers: Mutex::new(vec![]),
-            ctrl_c: watch::channel(()).0,
+            ctrl_c: Mutex::new(None),
         });
         let handle = Spawner {
             sender: self.sender.clone(),
@@ -471,6 +485,9 @@ impl Spawner {
         F: Future + 'static,
         F::Output: 'static,
     {
+        if self.info.killed.load(Ordering::Relaxed) {
+            panic!("spawning task on a killed node");
+        }
         let sender = self.sender.clone();
         let info = self.info.new_task(name);
         let id = info.id;
