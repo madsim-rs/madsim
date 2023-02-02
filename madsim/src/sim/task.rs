@@ -578,6 +578,24 @@ impl<T> JoinHandle<T> {
         self.task.lock().take();
     }
 
+    /// Returns a task ID that uniquely identifies this task relative to other currently spawned tasks.
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Checks if the task associated with this `JoinHandle` has finished.
+    pub fn is_finished(&self) -> bool {
+        match &*self.task.lock() {
+            Some(task) => {
+                // SAFETY: `FallibleTask<T>` is a wrapper over `Task<T>`
+                //          but does not expose the `is_finished` API.
+                let task: &async_task::Task<T> = unsafe { std::mem::transmute(task) };
+                task.is_finished()
+            }
+            None => true, // aborted
+        }
+    }
+
     /// Cancel the task when this handle is dropped.
     pub fn cancel_on_drop(self) -> FallibleTask<T> {
         self.task.lock().take().expect("task is already cancelled")
