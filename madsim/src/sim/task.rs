@@ -274,6 +274,20 @@ impl TaskHandle {
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
+        node.info.killed.store(true, Ordering::Relaxed);
+        node.info.wakers.lock().drain(..).for_each(Waker::wake);
+
+        for sim in self.sims.lock().values() {
+            sim.reset_node(id);
+        }
+    }
+
+    /// Kill all tasks of the node and restart the initial task.
+    pub fn restart(&self, id: impl ToNodeId) {
+        debug!(node = %id, "restart");
+        let id = id.to_node_id(self);
+        let mut nodes = self.nodes.lock();
+        let node = nodes.get_mut(&id).expect("node not found");
         let new_info = Arc::new(NodeInfo {
             id,
             name: node.info.name.clone(),
@@ -286,21 +300,10 @@ impl TaskHandle {
             ctrl_c: Mutex::new(None),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
-        old_info.killed.store(true, Ordering::SeqCst);
+        node.paused.clear();
+        old_info.killed.store(true, Ordering::Relaxed);
         old_info.wakers.lock().drain(..).for_each(Waker::wake);
 
-        for sim in self.sims.lock().values() {
-            sim.reset_node(id);
-        }
-    }
-
-    /// Kill all tasks of the node and restart the initial task.
-    pub fn restart(&self, id: impl ToNodeId) {
-        debug!(node = %id, "restart");
-        let id = id.to_node_id(self);
-        self.kill_id(id);
-        let nodes = self.nodes.lock();
-        let node = nodes.get(&id).expect("node not found");
         if let Some(init) = &node.init {
             init(&Spawner {
                 sender: self.sender.clone(),
