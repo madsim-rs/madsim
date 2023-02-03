@@ -46,6 +46,8 @@ async fn kv() {
             kv.mod_revision(),
             resp.header().expect("no header").revision()
         );
+        // delete kv
+        client.delete("foo", None).await.unwrap();
     });
     task1.await.unwrap();
 }
@@ -102,6 +104,15 @@ async fn lease() {
         // get kv
         let resp = kv_client.get("foo", None).await.unwrap();
         assert!(resp.kvs().is_empty());
+
+        // error
+        // put with invalid lease
+        let opt = PutOptions::new().with_lease(1);
+        kv_client.put("foo", "bar", Some(opt)).await.unwrap_err();
+        // revoke invalid lease
+        lease_client.revoke(1).await.unwrap_err();
+        // time_to_live invalid lease
+        lease_client.time_to_live(1, None).await.unwrap_err();
     });
     task1.await.unwrap();
 }
@@ -156,6 +167,9 @@ async fn election() {
         lease_client.revoke(lease.id()).await.unwrap();
         // proclaim should fail
         client.proclaim("1.2", Some(opt.clone())).await.unwrap_err();
+
+        // campaign with invalid lease
+        client.campaign("invalid_lease", "1", 1).await.unwrap_err();
     });
 
     // second leader

@@ -26,6 +26,7 @@ use std::{
     task::{Context, Poll, Waker},
     time::Duration,
 };
+use tokio::sync::watch;
 use tracing::*;
 
 pub use tokio::task::yield_now;
@@ -81,6 +82,12 @@ pub(crate) struct NodeInfo {
     ///
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
+    /// Sender of the "ctrl-c" signal.
+    ///
+    /// This value is `None` at the beginning, meaning that `signal::ctrl_c` has never been called,
+    /// and sending "ctrl-c" will cause the node being killed. Once `signal::ctrl_c` is called,
+    /// this will be set to `Some`, and sending "ctrl-c" will no longer kill the node.
+    ctrl_c: Mutex<Option<watch::Sender<()>>>,
 }
 
 impl NodeInfo {
@@ -97,6 +104,17 @@ impl NodeInfo {
 
     pub(crate) fn is_killed(&self) -> bool {
         self.killed.load(Ordering::Relaxed)
+    }
+
+    /// Get a receiver of "ctrl-c" signal.
+    pub(crate) fn ctrl_c(&self) -> watch::Receiver<()> {
+        self.ctrl_c
+            .lock()
+            .get_or_insert_with(|| {
+                debug!("ctrl-c signal handler installed");
+                watch::channel(()).0
+            })
+            .subscribe()
     }
 }
 
@@ -118,6 +136,7 @@ impl Executor {
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     wakers: Mutex::new(vec![]),
+                    ctrl_c: Mutex::new(None),
                 }),
                 sims,
             },
@@ -255,19 +274,8 @@ impl TaskHandle {
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
-        let new_info = Arc::new(NodeInfo {
-            id,
-            name: node.info.name.clone(),
-            cores: node.info.cores,
-            paused: AtomicBool::new(false),
-            killed: AtomicBool::new(false),
-            restart_on_panic: node.info.restart_on_panic,
-            span: error_span!(parent: None, "node", %id, name = &node.info.name),
-            wakers: Mutex::new(vec![]),
-        });
-        let old_info = std::mem::replace(&mut node.info, new_info);
-        old_info.killed.store(true, Ordering::SeqCst);
-        old_info.wakers.lock().drain(..).for_each(Waker::wake);
+        node.info.killed.store(true, Ordering::Relaxed);
+        node.info.wakers.lock().drain(..).for_each(Waker::wake);
 
         for sim in self.sims.lock().values() {
             sim.reset_node(id);
@@ -278,9 +286,24 @@ impl TaskHandle {
     pub fn restart(&self, id: impl ToNodeId) {
         debug!(node = %id, "restart");
         let id = id.to_node_id(self);
-        self.kill_id(id);
-        let nodes = self.nodes.lock();
-        let node = nodes.get(&id).expect("node not found");
+        let mut nodes = self.nodes.lock();
+        let node = nodes.get_mut(&id).expect("node not found");
+        let new_info = Arc::new(NodeInfo {
+            id,
+            name: node.info.name.clone(),
+            cores: node.info.cores,
+            paused: AtomicBool::new(false),
+            killed: AtomicBool::new(false),
+            restart_on_panic: node.info.restart_on_panic,
+            span: error_span!(parent: None, "node", %id, name = &node.info.name),
+            wakers: Mutex::new(vec![]),
+            ctrl_c: Mutex::new(None),
+        });
+        let old_info = std::mem::replace(&mut node.info, new_info);
+        node.paused.clear();
+        old_info.killed.store(true, Ordering::Relaxed);
+        old_info.wakers.lock().drain(..).for_each(Waker::wake);
+
         if let Some(init) = &node.init {
             init(&Spawner {
                 sender: self.sender.clone(),
@@ -312,6 +335,31 @@ impl TaskHandle {
         }
     }
 
+    /// Send a "ctrl-c" signal to the node.
+    pub fn send_ctrl_c(&self, id: impl ToNodeId) {
+        debug!(node = %id, "send ctrl-c");
+        let id = id.to_node_id(self);
+        let mut nodes = self.nodes.lock();
+        let node = nodes.get_mut(&id).expect("node not found");
+        if let Some(tx) = &*node.info.ctrl_c.lock() {
+            // may return error if no receiver
+            _ = tx.send(());
+            return;
+        }
+        drop(nodes);
+        // "ctrl-c" has never been called. kill node
+        debug!(node = %id, "killed by ctrl-c");
+        self.kill_id(id);
+    }
+
+    /// Returns whether the node is killed or exited.
+    pub fn is_exit(&self, id: impl ToNodeId) -> bool {
+        let id = id.to_node_id(self);
+        let nodes = self.nodes.lock();
+        let node = nodes.get(&id).expect("node not found");
+        node.info.killed.load(Ordering::Relaxed)
+    }
+
     /// Create a new node.
     pub fn create_node(
         &self,
@@ -331,6 +379,7 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic,
             wakers: Mutex::new(vec![]),
+            ctrl_c: Mutex::new(None),
         });
         let handle = Spawner {
             sender: self.sender.clone(),
@@ -447,6 +496,9 @@ impl Spawner {
         F: Future + 'static,
         F::Output: 'static,
     {
+        if self.info.killed.load(Ordering::Relaxed) {
+            panic!("spawning task on a killed node");
+        }
         let sender = self.sender.clone();
         let info = self.info.new_task(name);
         let id = info.id;
@@ -471,6 +523,14 @@ impl Spawner {
             id,
             task: Mutex::new(Some(task.fallible())),
         }
+    }
+
+    /// Exit the current process (node).
+    pub(crate) fn exit(&self) {
+        debug!(node = %self.info.id, "exit");
+        // FIXME: clear paused tasks
+        self.info.killed.store(true, Ordering::Relaxed);
+        self.info.wakers.lock().drain(..).for_each(Waker::wake);
     }
 }
 
@@ -576,6 +636,24 @@ impl<T> JoinHandle<T> {
     /// Abort the task associated with the handle.
     pub fn abort(&self) {
         self.task.lock().take();
+    }
+
+    /// Returns a task ID that uniquely identifies this task relative to other currently spawned tasks.
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Checks if the task associated with this `JoinHandle` has finished.
+    pub fn is_finished(&self) -> bool {
+        match &*self.task.lock() {
+            Some(task) => {
+                // SAFETY: `FallibleTask<T>` is a wrapper over `Task<T>`
+                //          but does not expose the `is_finished` API.
+                let task: &async_task::Task<T> = unsafe { std::mem::transmute(task) };
+                task.is_finished()
+            }
+            None => true, // aborted
+        }
     }
 
     /// Cancel the task when this handle is dropped.
@@ -784,6 +862,7 @@ mod tests {
             assert_eq!(flag2.load(Ordering::Relaxed), 2);
             Handle::current().kill(node1.id());
             Handle::current().kill(node1.id());
+            assert!(Handle::current().is_exit(node1.id()));
 
             time::sleep_until(t0 + Duration::from_secs(5)).await;
             assert_eq!(flag1.load(Ordering::Relaxed), 2);
@@ -820,6 +899,7 @@ mod tests {
             assert_eq!(flag.load(Ordering::Relaxed), 2);
             Handle::current().kill(node.id());
             Handle::current().restart(node.id());
+            assert!(!Handle::current().is_exit(node.id()));
 
             time::sleep_until(t0 + Duration::from_secs(6)).await;
             assert_eq!(flag.load(Ordering::Relaxed), 2);
@@ -974,6 +1054,37 @@ mod tests {
             handle.abort();
             let err = handle.await.unwrap_err();
             assert!(err.is_cancelled());
+        });
+    }
+
+    #[test]
+    fn exited() {
+        let runtime = Runtime::new();
+
+        let flag = Arc::new(AtomicUsize::new(0));
+        let flag_ = flag.clone();
+        let node = runtime
+            .create_node()
+            .init(move || {
+                let flag_ = flag_.clone();
+                async move {
+                    crate::task::spawn(async move {
+                        loop {
+                            time::sleep(Duration::from_secs(2)).await;
+                            flag_.fetch_add(2, Ordering::Relaxed);
+                        }
+                    });
+                    time::sleep(Duration::from_secs(5)).await;
+                    // exit here. the spawned task will be killed
+                }
+            })
+            .build();
+
+        runtime.block_on(async move {
+            assert!(!Handle::current().is_exit(node.id()));
+            time::sleep(Duration::from_secs(10)).await;
+            assert!(Handle::current().is_exit(node.id()));
+            assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
     }
 }

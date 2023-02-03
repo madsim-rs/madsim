@@ -126,6 +126,6 @@ mod tests {
 
         ipvs.del_server(service.clone(), "192.168.1.1:80");
 
-        assert_eq!(ipvs.get_server(service.clone()).unwrap(), "192.168.1.2:80");
+        assert_eq!(ipvs.get_server(service).unwrap(), "192.168.1.2:80");
     }
 }

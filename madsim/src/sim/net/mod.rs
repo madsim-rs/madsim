@@ -48,6 +48,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::*;
 
 use crate::{
+    buggify::buggify_with_prob,
     plugin,
     rand::{GlobalRng, Rng},
     task::{NodeId, NodeInfo, Spawner},
@@ -286,7 +287,10 @@ impl NetSim {
 
     /// Delay a small random time and probably inject failure.
     async fn rand_delay(&self) -> io::Result<()> {
-        let delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
+        let mut delay = Duration::from_micros(self.rand.with(|rng| rng.gen_range(0..5)));
+        if buggify_with_prob(0.1) {
+            delay = Duration::from_secs(self.rand.with(|rng| rng.gen_range(1..5)));
+        }
         self.time.sleep(delay).await;
         // TODO: inject failure
         Ok(())

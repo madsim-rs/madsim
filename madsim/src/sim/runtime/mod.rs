@@ -261,6 +261,16 @@ impl Handle {
         self.task.resume(id);
     }
 
+    /// Send a Ctrl+C signal to the node.
+    pub fn send_ctrl_c(&self, id: impl ToNodeId) {
+        self.task.send_ctrl_c(id);
+    }
+
+    /// Returns whether the node is killed or exited.
+    pub fn is_exit(&self, id: impl ToNodeId) -> bool {
+        self.task.is_exit(id)
+    }
+
     /// Create a node which will be bound to the specified address.
     pub fn create_node(&self) -> NodeBuilder<'_> {
         NodeBuilder::new(self)
@@ -305,12 +315,17 @@ impl<'a> NodeBuilder<'a> {
     /// Set the initial task for the node.
     ///
     /// This task will be respawned when calling `restart`.
-    pub fn init<F>(mut self, future: impl Fn() -> F + Send + Sync + 'static) -> Self
+    pub fn init<F>(mut self, new_task: impl Fn() -> F + Send + Sync + 'static) -> Self
     where
         F: Future + 'static,
     {
         self.init = Some(Arc::new(move |handle| {
-            handle.spawn_local(future());
+            let future = new_task();
+            let h = handle.clone();
+            handle.spawn_local(async move {
+                future.await;
+                h.exit();
+            });
         }));
         self
     }

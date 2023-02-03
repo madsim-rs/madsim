@@ -36,6 +36,7 @@ struct Inner {
     rng: SmallRng,
     log: Option<Vec<u8>>,
     check: Option<(Vec<u8>, usize)>,
+    buggify: bool,
 }
 
 impl GlobalRng {
@@ -54,6 +55,7 @@ impl GlobalRng {
             rng: SeedableRng::seed_from_u64(seed),
             log: None,
             check: None,
+            buggify: false,
         };
         GlobalRng {
             inner: Arc::new(Mutex::new(inner)),
@@ -108,6 +110,29 @@ impl GlobalRng {
             .take()
             .or_else(|| lock.check.take().map(|(s, _)| s))
             .map(Log)
+    }
+
+    pub(crate) fn enable_buggify(&self) {
+        let mut lock = self.inner.lock();
+        lock.buggify = true;
+    }
+
+    pub(crate) fn disable_buggify(&self) {
+        let mut lock = self.inner.lock();
+        lock.buggify = false;
+    }
+
+    pub(crate) fn is_buggify_enabled(&self) -> bool {
+        let lock = self.inner.lock();
+        lock.buggify
+    }
+
+    pub(crate) fn buggify(&self) -> bool {
+        self.is_buggify_enabled() && self.with(|rng| rng.gen_bool(0.25))
+    }
+
+    pub(crate) fn buggify_with_prob(&self, probability: f64) -> bool {
+        self.is_buggify_enabled() && self.with(|rng| rng.gen_bool(probability))
     }
 }
 
