@@ -9,6 +9,7 @@ pub enum Error {
     InvalidUploadId(String),
     InvalidRangeSpecifier(String),
     InvalidPartNumberSpecifier(i32),
+    GetBodyFailed,
     UnsupportRangeUnit(String),
     RequestTimeout(tonic::Status),
 }
@@ -17,13 +18,14 @@ impl Display for Error {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            Error::InvalidKey(e) => write!(f, "invalid key: {}", e),
-            Error::InvalidBucket(e) => write!(f, "invalid bucket: {}", e),
-            Error::InvalidUploadId(e) => write!(f, "invalid upload_id: {}", e),
-            Error::InvalidRangeSpecifier(e) => write!(f, "invalid range: {}", e),
-            Error::InvalidPartNumberSpecifier(e) => write!(f, "invalid part_number: {}", e),
-            Error::UnsupportRangeUnit(e) => write!(f, "unsupport range unit: {}", e),
-            Error::RequestTimeout(e) => write!(f, "grpc request error: {}", e),
+            Error::InvalidKey(e) => write!(f, "invalid key: {e}"),
+            Error::InvalidBucket(e) => write!(f, "invalid bucket: {e}"),
+            Error::InvalidUploadId(e) => write!(f, "invalid upload_id: {e}"),
+            Error::InvalidRangeSpecifier(e) => write!(f, "invalid range: {e}"),
+            Error::InvalidPartNumberSpecifier(e) => write!(f, "invalid part_number: {e}"),
+            Error::UnsupportRangeUnit(e) => write!(f, "unsupport range unit: {e}"),
+            Error::RequestTimeout(e) => write!(f, "grpc request error: {e}"),
+            Error::GetBodyFailed => write!(f, "get body failed"),
         }
     }
 }

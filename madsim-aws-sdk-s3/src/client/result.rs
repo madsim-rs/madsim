@@ -104,7 +104,7 @@ impl Display for ConnectorErrorKind {
             ConnectorErrorKind::Timeout => write!(f, "timeout"),
             ConnectorErrorKind::User => write!(f, "user error"),
             ConnectorErrorKind::Io => write!(f, "io error"),
-            ConnectorErrorKind::Other(Some(kind)) => write!(f, "{:?}", kind),
+            ConnectorErrorKind::Other(Some(kind)) => write!(f, "{kind:?}"),
             ConnectorErrorKind::Other(None) => write!(f, "other"),
         }
     }
@@ -116,8 +116,8 @@ where
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
-            SdkError::ConstructionFailure(err) => write!(f, "failed to construct request: {}", err),
-            SdkError::TimeoutError(err) => write!(f, "request has timed out: {}", err),
+            SdkError::ConstructionFailure(err) => write!(f, "failed to construct request: {err}"),
+            SdkError::TimeoutError(err) => write!(f, "request has timed out: {err}"),
             SdkError::DispatchFailure(err) => Display::fmt(&err, f),
             SdkError::ResponseError(err) => Display::fmt(&err, f),
             SdkError::ServiceError(err) => Display::fmt(&err, f),

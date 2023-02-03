@@ -33,8 +33,6 @@ impl SimServer {
                 use crate::input::*;
                 use Request::*;
 
-                println!("receive request: {:?}", request);
-
                 let response: Payload = match request {
                     CreateMultipartUpload(CreateMultipartUploadInput { bucket, key }) => {
                         Box::new(if let Some(bucket) = bucket {
@@ -208,7 +206,6 @@ impl SimServer {
                         let resp = service
                             .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
                             .await;
-                        println!("send response: {:?}", resp);
                         resp
                     } else {
                         Err(Error::InvalidBucket("no bucket".to_string()))

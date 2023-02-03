@@ -3,11 +3,10 @@ use crate::input::*;
 use crate::model::BucketLifecycleConfiguration;
 use crate::model::LifecycleRule;
 use crate::output::*;
-use aws_smithy_http::byte_stream::AggregatedBytes;
-use aws_smithy_http::byte_stream::ByteStream;
-use bytes::Bytes;
+use crate::sim::types::ByteStream;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
+use std::collections::btree_map::Entry::*;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -56,7 +55,7 @@ impl S3Service {
         &self,
         bucket: String,
         key: String,
-        body: crate::types::ByteStream,
+        body: ByteStream,
         content_length: i64,
         part_number: i32,
         upload_id: String,
@@ -104,13 +103,14 @@ impl S3Service {
         self.inner
             .lock()
             .get_object(bucket, key, range, part_number)
+            .await
     }
 
     pub async fn put_object(
         &self,
         bucket: String,
         key: String,
-        object: crate::types::ByteStream,
+        object: ByteStream,
     ) -> Result<PutObjectOutput> {
         self.timeout().await?;
         self.inner.lock().put_object(bucket, key, object).await
@@ -191,105 +191,15 @@ impl S3Service {
 #[derive(Debug, Default)]
 struct ServiceInner {
     /// (bucket, key) -> Object
-    storage: BTreeMap<String, BTreeMap<String, InnerObject>>,
+    storage: Mutex<BTreeMap<String, BTreeMap<String, InnerObject>>>,
 
     /// (bucket) -> LifecycleRules
     lifecycle: BTreeMap<String, Vec<LifecycleRule>>,
 }
 
-#[derive(Debug)]
-enum Body {
-    ByteStream(Vec<ByteStream>),
-    Bytes(Vec<u8>),
-}
-impl Body {
-    async fn to_bytes_stream(self) -> (Self, ByteStream) {
-        match self {
-            Body::ByteStream(byte_stream) => {
-                let mut v = vec![];
-                for bs in byte_stream {
-                    v.extend(
-                        bs.collect()
-                            .await
-                            .expect("ByteStream collect failed")
-                            .into_bytes()
-                            .to_vec(),
-                    );
-                }
-                (Body::Bytes(v.clone()), ByteStream::from(v))
-            }
-            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
-        }
-    }
-
-    async fn to_bytes_stream_after(self, start: usize) -> (Self, ByteStream) {
-        match self {
-            Body::ByteStream(byte_stream) => {
-                let mut v = vec![];
-                for bs in byte_stream {
-                    v.extend(
-                        bs.collect()
-                            .await
-                            .expect("ByteStream collect failed")
-                            .into_bytes()
-                            .to_vec(),
-                    );
-                }
-                let stream = v[start..].to_vec();
-                (Body::Bytes(v), ByteStream::from(stream))
-            }
-            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
-        }
-    }
-
-    async fn to_bytes_stream_before(self, end: usize) -> (Self, ByteStream) {
-        match self {
-            Body::ByteStream(byte_stream) => {
-                let mut v = vec![];
-                for bs in byte_stream {
-                    v.extend(
-                        bs.collect()
-                            .await
-                            .expect("ByteStream collect failed")
-                            .into_bytes()
-                            .to_vec(),
-                    );
-                }
-                let stream = v[..end].to_vec();
-                (Body::Bytes(v), ByteStream::from(stream))
-            }
-            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
-        }
-    }
-
-    async fn to_bytes_stream_between(self, start: usize, end: usize) -> (Self, ByteStream) {
-        match self {
-            Body::ByteStream(byte_stream) => {
-                let mut v = vec![];
-                for bs in byte_stream {
-                    v.extend(
-                        bs.collect()
-                            .await
-                            .expect("ByteStream collect failed")
-                            .into_bytes()
-                            .to_vec(),
-                    );
-                }
-                let stream = v[start..end].to_vec();
-                (Body::Bytes(v), ByteStream::from(stream))
-            }
-            Body::Bytes(v) => (Body::Bytes(v.clone()), ByteStream::from(v)),
-        }
-    }
-}
-impl Default for Body {
-    fn default() -> Self {
-        Body::ByteStream(vec![])
-    }
-}
 #[derive(Debug, Default)]
 struct InnerObject {
-    body: Body,
+    body: ByteStream,
 
     completed: bool,
 
@@ -314,8 +224,8 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<CreateMultipartUploadOutput> {
-        let object = self
-            .storage
+        let mut storage = self.storage.lock();
+        let object = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .entry(key)
@@ -338,13 +248,13 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         key: String,
-        body: crate::types::ByteStream,
+        body: ByteStream,
         _content_length: i64,
         part_number: i32,
         upload_id: String,
     ) -> Result<UploadPartOutput> {
-        let object = self
-            .storage
+        let mut storage = self.storage.lock();
+        let object = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
@@ -374,8 +284,8 @@ impl ServiceInner {
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
     ) -> Result<CompleteMultipartUploadOutput> {
-        let object = self
-            .storage
+        let mut storage = self.storage.lock();
+        let object = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
@@ -410,7 +320,7 @@ impl ServiceInner {
             }
 
             selection_idx.sort();
-            let selection_idx = VecDeque::from(selection_idx);
+            let mut selection_idx = VecDeque::from(selection_idx);
             let mut body = vec![];
             let parts = object.parts.remove(&upload_id).unwrap();
 
@@ -427,8 +337,9 @@ impl ServiceInner {
                 }
             }
 
-            object.body = Body::ByteStream(body);
+            object.body = ByteStream::flatten(body);
             object.completed = true;
+            object.parts.remove(&upload_id);
 
             Ok(CompleteMultipartUploadOutput {})
         } else {
@@ -446,8 +357,8 @@ impl ServiceInner {
         key: String,
         upload_id: String,
     ) -> Result<AbortMultipartUploadOutput> {
-        let object = self
-            .storage
+        let mut storage = self.storage.lock();
+        let object = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
@@ -460,16 +371,16 @@ impl ServiceInner {
         Ok(AbortMultipartUploadOutput {})
     }
 
-    fn get_object(
+    async fn get_object(
         &self,
         bucket: String,
         key: String,
         range: Option<String>,
         part_number: Option<i32>,
     ) -> Result<GetObjectOutput> {
-        let object = self
-            .storage
-            .get(&bucket)
+        let mut storage = self.storage.lock();
+        let object = storage
+            .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .get_mut(&key)
             .ok_or_else(|| Error::InvalidKey(key.clone()))?;
@@ -492,14 +403,14 @@ impl ServiceInner {
                 .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
 
             let body = if range_set.starts_with('-') {
-                let first_pos = range_set
+                let begin_pos = range_set
                     .split_once('-')
                     .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
                     .0
                     .parse::<usize>()
                     .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
 
-                let res = object.body.to_bytes_stream_after(first_pos).await;
+                object.body.after(begin_pos).await
             } else if range_set.ends_with('-') {
                 let end_pos = range_set
                     .split_once('-')
@@ -508,9 +419,9 @@ impl ServiceInner {
                     .parse::<usize>()
                     .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
 
-                body[..end_pos].to_vec()
+                object.body.before(end_pos).await
             } else {
-                let first_pos = range_set
+                let begin_pos = range_set
                     .split('-')
                     .next()
                     .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
@@ -524,26 +435,24 @@ impl ServiceInner {
                     .parse::<usize>()
                     .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
 
-                body[first_pos..end_pos].to_vec()
+                object.body.between(begin_pos, end_pos).await
             };
 
-            let body = crate::types::ByteStream::from(body);
             Ok(GetObjectOutput { body })
         } else if let Some(part_number) = part_number {
-            let body = &object.body;
-
             if part_number >= 0 {
                 let part_number = part_number as usize;
-                if part_number < body.len() {
-                    let body =
-                        crate::types::ByteStream::from(body[part_number..part_number + 1].to_vec());
-                    return Ok(GetObjectOutput { body });
+
+                if part_number < object.body.len().await {
+                    return Ok(GetObjectOutput {
+                        body: object.body.between(part_number, part_number + 1).await,
+                    });
                 }
             }
             Err(Error::InvalidPartNumberSpecifier(part_number))
         } else {
             Ok(GetObjectOutput {
-                body: crate::types::ByteStream::from(object.body.clone()),
+                body: object.body.clone(),
             })
         }
     }
@@ -552,10 +461,10 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         key: String,
-        body: crate::types::ByteStream,
+        body: ByteStream,
     ) -> Result<PutObjectOutput> {
-        let object = self
-            .storage
+        let mut storage = self.storage.lock();
+        let object = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .entry(key)
@@ -564,26 +473,34 @@ impl ServiceInner {
         let body = body.collect().await;
         let body = body.expect("error read data").into_bytes().to_vec();
 
-        object.body = body;
+        object.body = ByteStream::from_bytes(body);
         object.completed = true;
 
         Ok(PutObjectOutput {})
     }
 
     fn delete_object(&mut self, bucket: String, key: String) -> Result<DeleteObjectOutput> {
-        let object = self
-            .storage
+        let mut storage = self.storage.lock();
+        let object = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
-            .get_mut(&key)
-            .ok_or_else(|| Error::InvalidKey(key.clone()))?;
+            .entry(key.clone());
 
-        if !object.completed {
-            Err(Error::InvalidKey(key))
-        } else {
-            object.completed = false;
-            object.body.clear();
-            Ok(DeleteObjectOutput {})
+        match object {
+            Vacant(_) => Err(Error::InvalidKey(key)),
+            Occupied(mut o) => {
+                if !o.get().completed {
+                    Err(Error::InvalidKey(key))
+                } else if o.get().parts.is_empty() {
+                    o.remove();
+                    Ok(DeleteObjectOutput {})
+                } else {
+                    let object = o.get_mut();
+                    object.completed = false;
+                    object.body.clear();
+                    Ok(DeleteObjectOutput {})
+                }
+            }
         }
     }
 
@@ -592,8 +509,8 @@ impl ServiceInner {
         bucket: String,
         delete: crate::model::Delete,
     ) -> Result<DeleteObjectsOutput> {
-        let bucket = self
-            .storage
+        let mut storage = self.storage.lock();
+        let bucket = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?;
 
@@ -606,16 +523,29 @@ impl ServiceInner {
             let mut errors = vec![];
 
             for key in delete {
-                if let Some(object) = bucket.get_mut(&key) {
-                    object.completed = false;
-                    object.body.clear();
-                } else {
-                    errors.push(crate::model::Error {
+                match bucket.entry(key.clone()) {
+                    Vacant(_) => errors.push(crate::model::Error {
                         key: Some(key),
                         version_id: None,
                         code: None,
-                        message: None,
-                    })
+                        message: Some("key not exists".to_string()),
+                    }),
+                    Occupied(mut o) => {
+                        if !o.get().completed {
+                            errors.push(crate::model::Error {
+                                key: Some(key),
+                                version_id: None,
+                                code: None,
+                                message: Some("key not exists".to_string()),
+                            })
+                        } else if o.get().parts.is_empty() {
+                            o.remove();
+                        } else {
+                            let object = o.get_mut();
+                            object.completed = false;
+                            object.body.clear();
+                        }
+                    }
                 }
             }
 
@@ -628,9 +558,9 @@ impl ServiceInner {
     }
 
     fn head_object(&self, bucket: String, key: String) -> Result<HeadObjectOutput> {
-        let object = self
-            .storage
-            .get(&bucket)
+        let mut storage = self.storage.lock();
+        let object = storage
+            .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?
             .get(&key)
             .ok_or_else(|| Error::InvalidKey(key.clone()))?;
@@ -653,8 +583,8 @@ impl ServiceInner {
         prefix: Option<String>,
         _continuation_token: Option<String>,
     ) -> Result<ListObjectsV2Output> {
-        let bucket = self
-            .storage
+        let mut storage = self.storage.lock();
+        let bucket = storage
             .get_mut(&bucket)
             .ok_or(Error::InvalidBucket(bucket))?;
 
@@ -698,7 +628,6 @@ impl ServiceInner {
         bucket: String,
         _expected_bucket_owner: Option<String>,
     ) -> Result<GetBucketLifecycleConfigurationOutput> {
-        use std::collections::btree_map::Entry::{Occupied, Vacant};
         let lifecycle = match self.lifecycle.entry(bucket) {
             Vacant(v) => {
                 v.insert(Vec::new());

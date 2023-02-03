@@ -65,7 +65,7 @@ impl Display for CredentialsError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             CredentialsError::CredentialsNotLoaded { context } => {
-                write!(f, "The credential provider was not enabled: {}", context)
+                write!(f, "The credential provider was not enabled: {context}")
             }
             CredentialsError::ProviderTimedOut(d) => write!(
                 f,
@@ -73,17 +73,16 @@ impl Display for CredentialsError {
                 d.as_secs()
             ),
             CredentialsError::Unhandled { cause } => {
-                write!(f, "Unexpected credentials error: {}", cause)
+                write!(f, "Unexpected credentials error: {cause}")
             }
             CredentialsError::InvalidConfiguration { cause } => {
                 write!(
                     f,
-                    "The credentials provider was not properly configured: {}",
-                    cause
+                    "The credentials provider was not properly configured: {cause}"
                 )
             }
             CredentialsError::ProviderError { cause } => {
-                write!(f, "An error occurred while loading credentials: {}", cause)
+                write!(f, "An error occurred while loading credentials: {cause}")
             }
         }
     }
