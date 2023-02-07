@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tokio"
-version = "0.2.11"
+version = "0.2.15"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tokio` simulator on madsim."
@@ -59,7 +59,7 @@ signal-hook-registry = []
 tokio-macros = []
 
 [target.'cfg(madsim)'.dependencies]
-madsim = { version = "0.2.2", path = "../madsim" }
+madsim = { version = "0.2.15", path = "../madsim" }
 
 [dependencies]
 tokio = "1.21"
