@@ -11,7 +11,7 @@ pub enum Error {
     InvalidPartNumberSpecifier(i32),
     GetBodyFailed,
     UnsupportRangeUnit(String),
-    RequestTimeout(tonic::Status),
+    RequestTimeout,
 }
 
 impl Display for Error {
@@ -24,7 +24,7 @@ impl Display for Error {
             Error::InvalidRangeSpecifier(e) => write!(f, "invalid range: {e}"),
             Error::InvalidPartNumberSpecifier(e) => write!(f, "invalid part_number: {e}"),
             Error::UnsupportRangeUnit(e) => write!(f, "unsupport range unit: {e}"),
-            Error::RequestTimeout(e) => write!(f, "grpc request error: {e}"),
+            Error::RequestTimeout => write!(f, "request timed out"),
             Error::GetBodyFailed => write!(f, "get body failed"),
         }
     }

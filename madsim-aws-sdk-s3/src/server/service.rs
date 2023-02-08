@@ -179,10 +179,7 @@ impl S3Service {
             let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
             madsim::time::sleep(t).await;
             tracing::warn!(?t, "s3: request timed out");
-            return Err(Error::RequestTimeout(tonic::Status::new(
-                tonic::Code::Unavailable,
-                "s3: request timed out",
-            )));
+            return Err(Error::RequestTimeout);
         }
         Ok(())
     }
