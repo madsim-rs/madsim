@@ -3,7 +3,7 @@ use crate::input::*;
 use crate::model::BucketLifecycleConfiguration;
 use crate::model::LifecycleRule;
 use crate::output::*;
-use crate::sim::types::ByteStream;
+use bytes::Bytes;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
 use std::collections::btree_map::Entry::*;
@@ -55,7 +55,7 @@ impl S3Service {
         &self,
         bucket: String,
         key: String,
-        body: ByteStream,
+        body: Bytes,
         content_length: i64,
         part_number: i32,
         upload_id: String,
@@ -110,7 +110,7 @@ impl S3Service {
         &self,
         bucket: String,
         key: String,
-        object: ByteStream,
+        object: Bytes,
     ) -> Result<PutObjectOutput> {
         self.timeout().await?;
         self.inner.lock().put_object(bucket, key, object).await
@@ -199,7 +199,7 @@ struct ServiceInner {
 
 #[derive(Debug, Default)]
 struct InnerObject {
-    body: ByteStream,
+    body: Bytes,
 
     completed: bool,
 
@@ -214,7 +214,7 @@ struct InnerObject {
 #[derive(Debug, Default)]
 struct InnerPart {
     part_number: i32,
-    body: ByteStream,
+    body: Bytes,
     e_tag: String,
 }
 
@@ -248,7 +248,7 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         key: String,
-        body: ByteStream,
+        body: Bytes,
         _content_length: i64,
         part_number: i32,
         upload_id: String,
@@ -329,7 +329,7 @@ impl ServiceInner {
                     if *next_idx != idx {
                         continue;
                     } else {
-                        body.push(part.body);
+                        body.extend(part.body);
                         selection_idx.pop_front();
                     }
                 } else {
@@ -337,7 +337,7 @@ impl ServiceInner {
                 }
             }
 
-            object.body = ByteStream::flatten(body);
+            object.body = body.into();
             object.completed = true;
             object.parts.remove(&upload_id);
 
@@ -402,57 +402,47 @@ impl ServiceInner {
                 .next()
                 .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
 
-            let body = if range_set.starts_with('-') {
-                let begin_pos = range_set
-                    .split_once('-')
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .0
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                object.body.after(begin_pos).await
-            } else if range_set.ends_with('-') {
-                let end_pos = range_set
-                    .split_once('-')
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .0
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                object.body.before(end_pos).await
+            let (begin_str, end_str) = range_set
+                .split_once('-')
+                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+            let begin_pos = if begin_str.is_empty() {
+                None
             } else {
-                let begin_pos = range_set
-                    .split('-')
-                    .next()
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                let end_pos = range_set
-                    .split('-')
-                    .next()
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                object.body.between(begin_pos, end_pos).await
+                Some(
+                    begin_str
+                        .parse::<usize>()
+                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?,
+                )
+            };
+            let end_pos = if end_str.is_empty() {
+                None
+            } else {
+                Some(
+                    end_str
+                        .parse::<usize>()
+                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?,
+                )
+            };
+            let body = match (begin_pos, end_pos) {
+                (Some(begin), Some(end)) => object.body.slice(begin..end),
+                (Some(begin), None) => object.body.slice(begin..),
+                (None, Some(end)) => object.body.slice(..end),
+                (None, None) => object.body.slice(..),
             };
 
-            Ok(GetObjectOutput { body })
+            Ok(GetObjectOutput { body: body.into() })
         } else if let Some(part_number) = part_number {
-            if part_number >= 0 {
-                let part_number = part_number as usize;
-
-                if part_number < object.body.len().await {
-                    return Ok(GetObjectOutput {
-                        body: object.body.between(part_number, part_number + 1).await,
-                    });
-                }
-            }
-            Err(Error::InvalidPartNumberSpecifier(part_number))
+            if part_number < 0 || part_number as usize >= object.body.len() {
+                return Err(Error::InvalidPartNumberSpecifier(part_number));
+            };
+            let part_number = part_number as usize;
+            Ok(GetObjectOutput {
+                // XXX(wrj): not right?
+                body: object.body.slice(part_number..part_number + 1).into(),
+            })
         } else {
             Ok(GetObjectOutput {
-                body: object.body.clone(),
+                body: object.body.clone().into(),
             })
         }
     }
@@ -461,7 +451,7 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         key: String,
-        body: ByteStream,
+        body: Bytes,
     ) -> Result<PutObjectOutput> {
         let mut storage = self.storage.lock();
         let object = storage
@@ -470,10 +460,7 @@ impl ServiceInner {
             .entry(key)
             .or_default();
 
-        let body = body.collect().await;
-        let body = body.expect("error read data").into_bytes().to_vec();
-
-        object.body = ByteStream::from_bytes(body);
+        object.body = body;
         object.completed = true;
 
         Ok(PutObjectOutput {})

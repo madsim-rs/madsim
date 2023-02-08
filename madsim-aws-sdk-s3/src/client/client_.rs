@@ -89,11 +89,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<UploadPartOutput, SdkError<UploadPartError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(UploadPartError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::UploadPart(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -148,11 +144,7 @@ pub mod fluent_builders {
             self,
         ) -> Result<CompleteMultipartUploadOutput, SdkError<CompleteMultipartUploadError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(CompleteMultipartUploadError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::CompletedMultipartUpload(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -199,11 +191,7 @@ pub mod fluent_builders {
             self,
         ) -> Result<AbortMultipartUploadOutput, SdkError<AbortMultipartUploadError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(AbortMultipartUploadError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::AbortMultipartUpload(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -242,11 +230,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<GetObjectOutput, SdkError<GetObjectError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(GetObjectError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::GetObject(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -288,11 +272,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<PutObjectOutput, SdkError<PutObjectError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(PutObjectError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::PutObject(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -339,11 +319,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<DeleteObjectOutput, SdkError<DeleteObjectError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(DeleteObjectError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::DeleteObject(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -376,11 +352,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<DeleteObjectsOutput, SdkError<DeleteObjectsError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(DeleteObjectsError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::DeleteObjects(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -417,11 +389,7 @@ pub mod fluent_builders {
             self,
         ) -> Result<CreateMultipartUploadOutput, SdkError<CreateMultipartUploadError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(CreateMultipartUploadError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::CreateMultipartUpload(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -456,11 +424,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<HeadObjectOutput, SdkError<HeadObjectError>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(HeadObjectError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::HeadObject(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -493,11 +457,7 @@ pub mod fluent_builders {
 
         pub async fn send(self) -> Result<ListObjectsV2Output, SdkError<ListObjectsV2Error>> {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(ListObjectsV2Error {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::ListObjectsV2(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -542,11 +502,7 @@ pub mod fluent_builders {
             SdkError<PutBucketLifecycleConfigurationError>,
         > {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(PutBucketLifecycleConfigurationError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::PutBucketLifecycleConfiguration(input);
 
             let resp = send_aux(req, bucket).await?;
@@ -612,11 +568,7 @@ pub mod fluent_builders {
             SdkError<GetBucketLifecycleConfigurationError>,
         > {
             let input = self.inner.build()?;
-            let bucket = input.bucket.clone().ok_or_else(|| {
-                SdkError::ConstructionFailure(Box::new(GetBucketLifecycleConfigurationError {
-                    kind: "Invalid Bucket".to_string(),
-                }))
-            })?;
+            let bucket = input.bucket.clone();
             let req = Request::GetBucketLifecycleConfiguration(input);
 
             let resp = send_aux(req, bucket).await?;

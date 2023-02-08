@@ -1,6 +1,10 @@
+use aws_smithy_http::operation::BuildError;
+use bytes::Bytes;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+
 pub mod upload_part_input {
     use super::UploadPartInput;
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Debug)]
     pub struct Builder {
@@ -60,14 +64,15 @@ pub mod upload_part_input {
             self.upload_id = input;
             self
         }
-        pub fn build(self) -> Result<UploadPartInput, aws_smithy_http::operation::BuildError> {
+        pub fn build(self) -> Result<UploadPartInput, BuildError> {
             Ok(UploadPartInput {
                 body: self.body.unwrap_or_default(),
-                bucket: self.bucket,
+                body0: Default::default(),
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
                 content_length: self.content_length.unwrap_or_default(),
-                key: self.key,
+                key: self.key.ok_or(super::missing_field("key"))?,
                 part_number: self.part_number.unwrap_or_default(),
-                upload_id: self.upload_id,
+                upload_id: self.upload_id.ok_or(super::missing_field("upload_id"))?,
             })
         }
     }
@@ -79,7 +84,6 @@ impl UploadPartInput {
 }
 
 pub mod complete_multipart_upload_input {
-
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
         pub(crate) bucket: Option<String>,
@@ -130,10 +134,12 @@ pub mod complete_multipart_upload_input {
             aws_smithy_http::operation::BuildError,
         > {
             Ok(crate::input::CompleteMultipartUploadInput {
-                bucket: self.bucket,
-                key: self.key,
-                multipart_upload: self.multipart_upload,
-                upload_id: self.upload_id,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
+                multipart_upload: self
+                    .multipart_upload
+                    .ok_or(super::missing_field("multipart_upload"))?,
+                upload_id: self.upload_id.ok_or(super::missing_field("upload_id"))?,
             })
         }
     }
@@ -145,6 +151,7 @@ impl CompleteMultipartUploadInput {
 }
 
 pub mod abort_multipart_upload_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -178,14 +185,11 @@ pub mod abort_multipart_upload_input {
             self
         }
 
-        pub fn build(
-            self,
-        ) -> Result<crate::input::AbortMultipartUploadInput, aws_smithy_http::operation::BuildError>
-        {
+        pub fn build(self) -> Result<crate::input::AbortMultipartUploadInput, BuildError> {
             Ok(crate::input::AbortMultipartUploadInput {
-                bucket: self.bucket,
-                key: self.key,
-                upload_id: self.upload_id,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
+                upload_id: self.upload_id.ok_or(super::missing_field("upload_id"))?,
             })
         }
     }
@@ -198,6 +202,7 @@ impl AbortMultipartUploadInput {
 }
 
 pub mod get_object_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -239,12 +244,10 @@ pub mod get_object_input {
             self.part_number = input;
             self
         }
-        pub fn build(
-            self,
-        ) -> Result<crate::input::GetObjectInput, aws_smithy_http::operation::BuildError> {
+        pub fn build(self) -> Result<crate::input::GetObjectInput, BuildError> {
             Ok(crate::input::GetObjectInput {
-                bucket: self.bucket,
-                key: self.key,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
                 range: self.range,
                 part_number: self.part_number,
             })
@@ -259,6 +262,7 @@ impl GetObjectInput {
 }
 
 pub mod put_object_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Debug)]
     pub struct Builder {
@@ -302,13 +306,12 @@ pub mod put_object_input {
             self
         }
 
-        pub fn build(
-            self,
-        ) -> Result<crate::input::PutObjectInput, aws_smithy_http::operation::BuildError> {
+        pub fn build(self) -> Result<crate::input::PutObjectInput, BuildError> {
             Ok(crate::input::PutObjectInput {
                 body: self.body.unwrap_or_default(),
-                bucket: self.bucket,
-                key: self.key,
+                body0: Default::default(),
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
             })
         }
     }
@@ -321,6 +324,7 @@ impl PutObjectInput {
 }
 
 pub mod delete_object_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -345,13 +349,10 @@ pub mod delete_object_input {
             self
         }
 
-        pub fn build(
-            self,
-        ) -> Result<crate::input::DeleteObjectInput, aws_smithy_http::operation::BuildError>
-        {
+        pub fn build(self) -> Result<crate::input::DeleteObjectInput, BuildError> {
             Ok(crate::input::DeleteObjectInput {
-                bucket: self.bucket,
-                key: self.key,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
             })
         }
     }
@@ -364,6 +365,7 @@ impl DeleteObjectInput {
 }
 
 pub mod delete_objects_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -387,13 +389,10 @@ pub mod delete_objects_input {
             self.delete = input;
             self
         }
-        pub fn build(
-            self,
-        ) -> Result<crate::input::DeleteObjectsInput, aws_smithy_http::operation::BuildError>
-        {
+        pub fn build(self) -> Result<crate::input::DeleteObjectsInput, BuildError> {
             Ok(crate::input::DeleteObjectsInput {
-                bucket: self.bucket,
-                delete: self.delete,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                delete: self.delete.ok_or(super::missing_field("delete"))?,
             })
         }
     }
@@ -405,6 +404,7 @@ impl DeleteObjectsInput {
 }
 
 pub mod create_multipart_upload_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -428,13 +428,10 @@ pub mod create_multipart_upload_input {
             self.key = input;
             self
         }
-        pub fn build(
-            self,
-        ) -> Result<crate::input::CreateMultipartUploadInput, aws_smithy_http::operation::BuildError>
-        {
+        pub fn build(self) -> Result<crate::input::CreateMultipartUploadInput, BuildError> {
             Ok(crate::input::CreateMultipartUploadInput {
-                bucket: self.bucket,
-                key: self.key,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
             })
         }
     }
@@ -446,6 +443,7 @@ impl CreateMultipartUploadInput {
 }
 
 pub mod head_object_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -469,12 +467,10 @@ pub mod head_object_input {
             self.key = input;
             self
         }
-        pub fn build(
-            self,
-        ) -> Result<crate::input::HeadObjectInput, aws_smithy_http::operation::BuildError> {
+        pub fn build(self) -> Result<crate::input::HeadObjectInput, BuildError> {
             Ok(crate::input::HeadObjectInput {
-                bucket: self.bucket,
-                key: self.key,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
+                key: self.key.ok_or(super::missing_field("key"))?,
             })
         }
     }
@@ -486,6 +482,7 @@ impl HeadObjectInput {
 }
 
 pub mod list_objects_v2_input {
+    use aws_smithy_http::operation::BuildError;
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
@@ -520,12 +517,9 @@ pub mod list_objects_v2_input {
             self
         }
 
-        pub fn build(
-            self,
-        ) -> Result<crate::input::ListObjectsV2Input, aws_smithy_http::operation::BuildError>
-        {
+        pub fn build(self) -> Result<crate::input::ListObjectsV2Input, BuildError> {
             Ok(crate::input::ListObjectsV2Input {
-                bucket: self.bucket,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
                 prefix: self.prefix,
                 continuation_token: self.continuation_token,
             })
@@ -539,122 +533,93 @@ impl ListObjectsV2Input {
 }
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub struct UploadPartInput {
     pub body: crate::types::ByteStream,
-    pub bucket: Option<String>,
-    pub content_length: i64,
-    pub key: Option<String>,
-    pub part_number: i32,
-    pub upload_id: Option<String>,
+    pub(crate) body0: Bytes,
+    pub(crate) bucket: String,
+    pub(crate) content_length: i64,
+    pub(crate) key: String,
+    pub(crate) part_number: i32,
+    pub(crate) upload_id: String,
 }
 impl UploadPartInput {
     pub fn body(&self) -> &crate::types::ByteStream {
         &self.body
     }
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn content_length(&self) -> i64 {
         self.content_length
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        Some(&self.key)
     }
     pub fn part_number(&self) -> i32 {
         self.part_number
     }
     pub fn upload_id(&self) -> Option<&str> {
-        self.upload_id.as_deref()
-    }
-}
-impl Debug for UploadPartInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("UploadPartInput");
-        formatter.field("body", &self.body);
-        formatter.field("bucket", &self.bucket);
-        formatter.field("content_length", &self.content_length);
-        formatter.field("key", &self.key);
-        formatter.field("part_number", &self.part_number);
-        formatter.field("upload_id", &self.upload_id);
-        formatter.finish()
+        Some(&self.upload_id)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompleteMultipartUploadInput {
-    pub bucket: Option<String>,
-    pub key: Option<String>,
-    pub multipart_upload: Option<crate::model::CompletedMultipartUpload>,
-    pub upload_id: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
+    pub(crate) multipart_upload: crate::model::CompletedMultipartUpload,
+    pub(crate) upload_id: String,
 }
 impl CompleteMultipartUploadInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        Some(&self.key)
     }
     pub fn multipart_upload(&self) -> Option<&crate::model::CompletedMultipartUpload> {
-        self.multipart_upload.as_ref()
+        Some(&self.multipart_upload)
     }
     pub fn upload_id(&self) -> Option<&str> {
-        self.upload_id.as_deref()
-    }
-}
-impl Debug for CompleteMultipartUploadInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("CompleteMultipartUploadInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.field("multipart_upload", &self.multipart_upload);
-        formatter.field("upload_id", &self.upload_id);
-        formatter.finish()
+        Some(&self.upload_id)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbortMultipartUploadInput {
-    pub bucket: Option<String>,
-    pub key: Option<String>,
-    pub upload_id: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
+    pub(crate) upload_id: String,
 }
 impl AbortMultipartUploadInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        Some(&self.key)
     }
     pub fn upload_id(&self) -> Option<&str> {
-        self.upload_id.as_deref()
-    }
-}
-impl Debug for AbortMultipartUploadInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("AbortMultipartUploadInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.field("upload_id", &self.upload_id);
-        formatter.finish()
+        Some(&self.upload_id)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetObjectInput {
-    pub bucket: Option<String>,
-    pub key: Option<String>,
-    pub range: Option<String>,
-    pub part_number: Option<i32>,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
+    pub(crate) range: Option<String>,
+    pub(crate) part_number: Option<i32>,
 }
 impl GetObjectInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
+        Some(&self.key)
     }
     pub fn range(&self) -> Option<&str> {
         self.range.as_deref()
@@ -663,146 +628,97 @@ impl GetObjectInput {
         self.part_number
     }
 }
-impl Debug for GetObjectInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("GetObjectInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.field("range", &self.range);
-        formatter.field("part_number", &self.part_number);
-        formatter.finish()
-    }
-}
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub struct PutObjectInput {
     pub body: crate::types::ByteStream,
-    pub bucket: Option<String>,
-    pub key: Option<String>,
+    pub(crate) body0: Bytes,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
 }
 impl PutObjectInput {
     pub fn body(&self) -> &crate::types::ByteStream {
         &self.body
     }
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
-    }
-}
-impl Debug for PutObjectInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("PutObjectInput");
-        formatter.field("body", &self.body);
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.finish()
+        Some(&self.key)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteObjectInput {
-    pub bucket: Option<String>,
-    pub key: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
 }
 impl DeleteObjectInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
-    }
-}
-impl Debug for DeleteObjectInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("DeleteObjectInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.finish()
+        Some(&self.key)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteObjectsInput {
-    pub bucket: Option<String>,
-    pub delete: Option<crate::model::Delete>,
+    pub(crate) bucket: String,
+    pub(crate) delete: crate::model::Delete,
 }
 impl DeleteObjectsInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn delete(&self) -> Option<&crate::model::Delete> {
-        self.delete.as_ref()
-    }
-}
-impl Debug for DeleteObjectsInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("DeleteObjectsInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("delete", &self.delete);
-        formatter.finish()
+        Some(&self.delete)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateMultipartUploadInput {
-    pub bucket: Option<String>,
-    pub key: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
 }
 impl CreateMultipartUploadInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
-    }
-}
-impl Debug for CreateMultipartUploadInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("CreateMultipartUploadInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.finish()
+        Some(&self.key)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadObjectInput {
-    pub bucket: Option<String>,
-    pub key: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) key: String,
 }
 impl HeadObjectInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn key(&self) -> Option<&str> {
-        self.key.as_deref()
-    }
-}
-impl Debug for HeadObjectInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("HeadObjectInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("key", &self.key);
-        formatter.finish()
+        Some(&self.key)
     }
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListObjectsV2Input {
-    pub bucket: Option<String>,
-    pub prefix: Option<String>,
-    pub continuation_token: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) prefix: Option<String>,
+    pub(crate) continuation_token: Option<String>,
 }
 impl ListObjectsV2Input {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn prefix(&self) -> Option<&str> {
         self.prefix.as_deref()
@@ -811,27 +727,17 @@ impl ListObjectsV2Input {
         self.continuation_token.as_deref()
     }
 }
-impl Debug for ListObjectsV2Input {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("ListObjectsV2Input");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("prefix", &self.prefix);
-        formatter.field("continuation_token", &self.continuation_token);
-        formatter.finish()
-    }
-}
 
-#[allow(missing_docs)]
 #[non_exhaustive]
 #[derive(Clone, PartialEq)]
 pub struct PutBucketLifecycleConfigurationInput {
-    pub bucket: Option<String>,
-    pub lifecycle_configuration: Option<crate::model::BucketLifecycleConfiguration>,
-    pub expected_bucket_owner: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) lifecycle_configuration: Option<crate::model::BucketLifecycleConfiguration>,
+    pub(crate) expected_bucket_owner: Option<String>,
 }
 impl PutBucketLifecycleConfigurationInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn lifecycle_configuration(&self) -> Option<&crate::model::BucketLifecycleConfiguration> {
         self.lifecycle_configuration.as_ref()
@@ -851,7 +757,6 @@ impl Debug for PutBucketLifecycleConfigurationInput {
 }
 
 pub mod put_bucket_lifecycle_configuration_input {
-
     #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Builder {
         pub(crate) bucket: Option<String>,
@@ -896,7 +801,7 @@ pub mod put_bucket_lifecycle_configuration_input {
             aws_smithy_http::operation::BuildError,
         > {
             Ok(crate::input::PutBucketLifecycleConfigurationInput {
-                bucket: self.bucket,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
                 lifecycle_configuration: self.lifecycle_configuration,
                 expected_bucket_owner: self.expected_bucket_owner,
             })
@@ -905,7 +810,6 @@ pub mod put_bucket_lifecycle_configuration_input {
 }
 
 pub mod get_bucket_lifecycle_configuration_input {
-
     #[derive(Default, Clone, PartialEq, Eq, Debug)]
     pub struct Builder {
         pub(crate) bucket: Option<String>,
@@ -935,33 +839,28 @@ pub mod get_bucket_lifecycle_configuration_input {
             aws_smithy_http::operation::BuildError,
         > {
             Ok(crate::input::GetBucketLifecycleConfigurationInput {
-                bucket: self.bucket,
+                bucket: self.bucket.ok_or(super::missing_field("bucket"))?,
                 expected_bucket_owner: self.expected_bucket_owner,
             })
         }
     }
 }
 
-#[allow(missing_docs)]
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetBucketLifecycleConfigurationInput {
-    pub bucket: Option<String>,
-    pub expected_bucket_owner: Option<String>,
+    pub(crate) bucket: String,
+    pub(crate) expected_bucket_owner: Option<String>,
 }
 impl GetBucketLifecycleConfigurationInput {
     pub fn bucket(&self) -> Option<&str> {
-        self.bucket.as_deref()
+        Some(&self.bucket)
     }
     pub fn expected_bucket_owner(&self) -> Option<&str> {
         self.expected_bucket_owner.as_deref()
     }
 }
-impl Debug for GetBucketLifecycleConfigurationInput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("GetBucketLifecycleConfigurationInput");
-        formatter.field("bucket", &self.bucket);
-        formatter.field("expected_bucket_owner", &self.expected_bucket_owner);
-        formatter.finish()
-    }
+
+const fn missing_field(field: &'static str) -> BuildError {
+    BuildError::MissingField { field, details: "" }
 }
