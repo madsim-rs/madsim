@@ -29,16 +29,18 @@ pub(crate) enum Request {
 
 #[derive(Debug)]
 pub struct S3Service {
-    timeout_rate: f32,
     inner: Mutex<ServiceInner>,
 }
 
 impl S3Service {
-    pub fn new(timeout_rate: f32) -> Self {
+    pub fn new() -> Self {
         S3Service {
-            timeout_rate,
             inner: Mutex::new(ServiceInner::default()),
         }
+    }
+
+    pub async fn create_bucket(&self, name: &str) {
+        self.inner.lock().create_bucket(name)
     }
 
     pub async fn create_multipart_upload(
@@ -171,20 +173,20 @@ impl S3Service {
 #[derive(Debug, Default)]
 struct ServiceInner {
     /// (bucket, key) -> Object
-    storage: BTreeMap<String, BTreeMap<String, InnerObject>>,
+    storage: BTreeMap<String, BTreeMap<String, Object>>,
 
     /// (bucket) -> LifecycleRules
     lifecycle: BTreeMap<String, Vec<LifecycleRule>>,
 }
 
 #[derive(Debug, Default)]
-struct InnerObject {
+struct Object {
     body: Bytes,
 
     completed: bool,
 
     /// upload_id -> parts
-    parts: BTreeMap<String, Vec<InnerPart>>,
+    parts: BTreeMap<String, Vec<ObjectPart>>,
 
     last_modified: Option<crate::types::DateTime>,
 
@@ -192,7 +194,7 @@ struct InnerObject {
 }
 
 #[derive(Debug, Default)]
-struct InnerPart {
+struct ObjectPart {
     part_number: i32,
     body: Bytes,
     e_tag: String,
@@ -200,6 +202,13 @@ struct InnerPart {
 
 #[allow(clippy::result_large_err)]
 impl ServiceInner {
+    fn create_bucket(&mut self, name: &str) {
+        if self.storage.contains_key(name) {
+            panic!("bucket already exists: {name}");
+        }
+        self.storage.insert(name.to_string(), Default::default());
+    }
+
     fn create_multipart_upload(
         &mut self,
         bucket: String,
@@ -247,7 +256,7 @@ impl ServiceInner {
             .ok_or_else(|| UploadPartError::unhandled(no_such_upload(&upload_id)))?;
 
         let e_tag = thread_rng().gen::<u32>().to_string();
-        let part = InnerPart {
+        let part = ObjectPart {
             part_number,
             body,
             e_tag: e_tag.clone(),

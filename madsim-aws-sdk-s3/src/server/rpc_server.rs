@@ -6,7 +6,7 @@ use super::{service::Request, service::S3Service};
 /// A simulated s3 server.
 #[derive(Default, Clone)]
 pub struct SimServer {
-    timeout_rate: f32,
+    bucket: Option<String>,
 }
 
 impl SimServer {
@@ -14,15 +14,18 @@ impl SimServer {
         SimServer::default()
     }
 
-    pub fn timeout_rate(mut self, rate: f32) -> Self {
-        assert!((0.0..=1.0).contains(&rate));
-        self.timeout_rate = rate;
+    pub fn with_bucket(mut self, bucket: &str) -> Self {
+        self.bucket = Some(bucket.into());
         self
     }
 
     pub async fn serve(self, addr: SocketAddr) -> Result<()> {
         let ep = Endpoint::bind(addr).await?;
-        let service = Arc::new(S3Service::new(self.timeout_rate));
+        let mut service = S3Service::new();
+        if let Some(bucket) = self.bucket {
+            service.create_bucket(&bucket).await;
+        }
+        let service = Arc::new(service);
         loop {
             let (tx, mut rx, _) = ep.accept1().await?;
             let service = service.clone();
