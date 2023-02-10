@@ -171,7 +171,7 @@ impl S3Service {
 #[derive(Debug, Default)]
 struct ServiceInner {
     /// (bucket, key) -> Object
-    storage: Mutex<BTreeMap<String, BTreeMap<String, InnerObject>>>,
+    storage: BTreeMap<String, BTreeMap<String, InnerObject>>,
 
     /// (bucket) -> LifecycleRules
     lifecycle: BTreeMap<String, Vec<LifecycleRule>>,
@@ -205,8 +205,8 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<CreateMultipartUploadOutput, CreateMultipartUploadError> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        let object = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| CreateMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .entry(key)
@@ -234,8 +234,8 @@ impl ServiceInner {
         part_number: i32,
         upload_id: String,
     ) -> Result<UploadPartOutput, UploadPartError> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        let object = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| UploadPartError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
@@ -265,8 +265,8 @@ impl ServiceInner {
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
     ) -> Result<CompleteMultipartUploadOutput, CompleteMultipartUploadError> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        let object = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
@@ -334,8 +334,8 @@ impl ServiceInner {
         key: String,
         upload_id: String,
     ) -> Result<AbortMultipartUploadOutput, AbortMultipartUploadError> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        let object = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
@@ -355,11 +355,11 @@ impl ServiceInner {
         range: Option<String>,
         part_number: Option<i32>,
     ) -> Result<GetObjectOutput, GetObjectError> {
-        let mut storage = self.storage.lock();
-        let object = storage
-            .get_mut(&bucket)
+        let object = self
+            .storage
+            .get(&bucket)
             .ok_or_else(|| GetObjectError::unhandled(no_such_bucket(&bucket)))?
-            .get_mut(&key)
+            .get(&key)
             .ok_or_else(|| {
                 GetObjectError::new(GetObjectErrorKind::NoSuchKey(no_such_key(&key)), meta())
             })?;
@@ -427,8 +427,8 @@ impl ServiceInner {
         key: String,
         body: Bytes,
     ) -> Result<PutObjectOutput, PutObjectError> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        let object = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| PutObjectError::unhandled(no_such_bucket(&bucket)))?
             .entry(key)
@@ -445,8 +445,8 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<DeleteObjectOutput, DeleteObjectError> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        let object = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| DeleteObjectError::unhandled(no_such_bucket(&bucket)))?
             .entry(key.clone());
@@ -474,8 +474,8 @@ impl ServiceInner {
         bucket: String,
         delete: crate::model::Delete,
     ) -> Result<DeleteObjectsOutput, DeleteObjectsError> {
-        let mut storage = self.storage.lock();
-        let bucket = storage
+        let bucket = self
+            .storage
             .get_mut(&bucket)
             .ok_or_else(|| DeleteObjectsError::unhandled(no_such_bucket(&bucket)))?;
 
@@ -527,9 +527,9 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<HeadObjectOutput, HeadObjectError> {
-        let mut storage = self.storage.lock();
-        let object = storage
-            .get_mut(&bucket)
+        let object = self
+            .storage
+            .get(&bucket)
             .ok_or_else(|| HeadObjectError::unhandled(no_such_bucket(&bucket)))?
             .get(&key)
             .ok_or_else(|| {
@@ -556,8 +556,7 @@ impl ServiceInner {
         prefix: Option<String>,
         _continuation_token: Option<String>,
     ) -> Result<ListObjectsV2Output, ListObjectsV2Error> {
-        let mut storage = self.storage.lock();
-        let bucket = storage.get_mut(&bucket).ok_or_else(move || {
+        let bucket = self.storage.get_mut(&bucket).ok_or_else(move || {
             ListObjectsV2Error::new(
                 ListObjectsV2ErrorKind::NoSuchBucket(no_such_bucket(&bucket)),
                 meta(),
