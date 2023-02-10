@@ -5,6 +5,7 @@ use crate::output::*;
 use bytes::Bytes;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
+use tracing::debug;
 
 use std::collections::{btree_map::Entry::*, BTreeMap, VecDeque};
 
@@ -203,6 +204,7 @@ struct ObjectPart {
 #[allow(clippy::result_large_err)]
 impl ServiceInner {
     fn create_bucket(&mut self, name: &str) {
+        debug!(name, "create_bucket");
         if self.storage.contains_key(name) {
             panic!("bucket already exists: {name}");
         }
@@ -214,6 +216,7 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<CreateMultipartUploadOutput, CreateMultipartUploadError> {
+        debug!(bucket, key, "create_multipart_upload");
         let object = self
             .storage
             .get_mut(&bucket)
@@ -243,6 +246,7 @@ impl ServiceInner {
         part_number: i32,
         upload_id: String,
     ) -> Result<UploadPartOutput, UploadPartError> {
+        debug!(bucket, key, upload_id, part_number, "upload_part");
         let object = self
             .storage
             .get_mut(&bucket)
@@ -274,6 +278,7 @@ impl ServiceInner {
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
     ) -> Result<CompleteMultipartUploadOutput, CompleteMultipartUploadError> {
+        debug!(bucket, key, upload_id, "complete_multipart_upload");
         let object = self
             .storage
             .get_mut(&bucket)
@@ -343,6 +348,7 @@ impl ServiceInner {
         key: String,
         upload_id: String,
     ) -> Result<AbortMultipartUploadOutput, AbortMultipartUploadError> {
+        debug!(bucket, key, upload_id, "abort_multipart_upload");
         let object = self
             .storage
             .get_mut(&bucket)
@@ -364,6 +370,7 @@ impl ServiceInner {
         range: Option<String>,
         part_number: Option<i32>,
     ) -> Result<GetObjectOutput, GetObjectError> {
+        debug!(bucket, key, range, part_number, "get_object");
         let object = self
             .storage
             .get(&bucket)
@@ -436,6 +443,7 @@ impl ServiceInner {
         key: String,
         body: Bytes,
     ) -> Result<PutObjectOutput, PutObjectError> {
+        debug!(bucket, key, len = body.len(), "put_object");
         let object = self
             .storage
             .get_mut(&bucket)
@@ -454,6 +462,7 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<DeleteObjectOutput, DeleteObjectError> {
+        debug!(bucket, key, "delete_object");
         let object = self
             .storage
             .get_mut(&bucket)
@@ -483,52 +492,52 @@ impl ServiceInner {
         bucket: String,
         delete: crate::model::Delete,
     ) -> Result<DeleteObjectsOutput, DeleteObjectsError> {
+        debug!(bucket, "delete_objects");
         let bucket = self
             .storage
             .get_mut(&bucket)
             .ok_or_else(|| DeleteObjectsError::unhandled(no_such_bucket(&bucket)))?;
 
-        if let Some(delete) = delete.objects {
-            let delete = delete
-                .into_iter()
-                .flat_map(|i| i.key)
-                .collect::<Vec<String>>();
+        let Some(delete) = delete.objects else {
+            return Ok(DeleteObjectsOutput { errors: None });
+        };
+        let delete = delete
+            .into_iter()
+            .flat_map(|i| i.key)
+            .collect::<Vec<String>>();
 
-            let mut errors = vec![];
+        let mut errors = vec![];
 
-            for key in delete {
-                match bucket.entry(key.clone()) {
-                    Vacant(_) => errors.push(crate::model::Error {
-                        key: Some(key),
-                        version_id: None,
-                        code: None,
-                        message: Some("key not exists".to_string()),
-                    }),
-                    Occupied(mut o) => {
-                        if !o.get().completed {
-                            errors.push(crate::model::Error {
-                                key: Some(key),
-                                version_id: None,
-                                code: None,
-                                message: Some("key not exists".to_string()),
-                            })
-                        } else if o.get().parts.is_empty() {
-                            o.remove();
-                        } else {
-                            let object = o.get_mut();
-                            object.completed = false;
-                            object.body.clear();
-                        }
+        for key in delete {
+            match bucket.entry(key.clone()) {
+                Vacant(_) => errors.push(crate::model::Error {
+                    key: Some(key),
+                    version_id: None,
+                    code: None,
+                    message: Some("key not exists".to_string()),
+                }),
+                Occupied(mut o) => {
+                    if !o.get().completed {
+                        errors.push(crate::model::Error {
+                            key: Some(key),
+                            version_id: None,
+                            code: None,
+                            message: Some("key not exists".to_string()),
+                        })
+                    } else if o.get().parts.is_empty() {
+                        o.remove();
+                    } else {
+                        let object = o.get_mut();
+                        object.completed = false;
+                        object.body.clear();
                     }
                 }
             }
-
-            Ok(DeleteObjectsOutput {
-                errors: Some(errors),
-            })
-        } else {
-            Ok(DeleteObjectsOutput { errors: None })
         }
+
+        Ok(DeleteObjectsOutput {
+            errors: Some(errors),
+        })
     }
 
     fn head_object(
@@ -536,6 +545,7 @@ impl ServiceInner {
         bucket: String,
         key: String,
     ) -> Result<HeadObjectOutput, HeadObjectError> {
+        debug!(bucket, key, "head_object");
         let object = self
             .storage
             .get(&bucket)
@@ -565,6 +575,7 @@ impl ServiceInner {
         prefix: Option<String>,
         _continuation_token: Option<String>,
     ) -> Result<ListObjectsV2Output, ListObjectsV2Error> {
+        debug!(bucket, prefix, "list_objects_v2");
         let bucket = self.storage.get_mut(&bucket).ok_or_else(move || {
             ListObjectsV2Error::new(
                 ListObjectsV2ErrorKind::NoSuchBucket(no_such_bucket(&bucket)),
@@ -612,6 +623,7 @@ impl ServiceInner {
         bucket: String,
         _expected_bucket_owner: Option<String>,
     ) -> Result<GetBucketLifecycleConfigurationOutput, GetBucketLifecycleConfigurationError> {
+        debug!(bucket, "get_bucket_lifecycle_configuration");
         let lifecycle = match self.lifecycle.entry(bucket) {
             Vacant(v) => {
                 v.insert(Vec::new());
@@ -631,6 +643,7 @@ impl ServiceInner {
         lifecycle_configuration: BucketLifecycleConfiguration,
         _expected_bucket_owner: Option<String>,
     ) -> Result<PutBucketLifecycleConfigurationOutput, PutBucketLifecycleConfigurationError> {
+        debug!(bucket, "put_bucket_lifecycle_configuration");
         self.lifecycle
             .insert(bucket, lifecycle_configuration.rules.unwrap_or_default());
 
