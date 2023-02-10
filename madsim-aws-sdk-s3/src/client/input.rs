@@ -562,6 +562,13 @@ impl UploadPartInput {
     pub fn upload_id(&self) -> Option<&str> {
         Some(&self.upload_id)
     }
+    /// Read all the data from the ByteStream `body` into Bytes `body0`.
+    /// This will be done on the client before sending the request.
+    pub(crate) async fn collect_body(&mut self) -> Result<(), aws_smithy_http::byte_stream::Error> {
+        let mut body = std::mem::take(&mut self.body);
+        self.body0 = body.collect().await?.into_bytes();
+        Ok(())
+    }
 }
 
 #[non_exhaustive]
@@ -646,6 +653,13 @@ impl PutObjectInput {
     }
     pub fn key(&self) -> Option<&str> {
         Some(&self.key)
+    }
+    /// Read all the data from the ByteStream `body` into Bytes `body0`.
+    /// This will be done on the client before sending the request.
+    pub(crate) async fn collect_body(&mut self) -> Result<(), aws_smithy_http::byte_stream::Error> {
+        let mut body = std::mem::take(&mut self.body);
+        self.body0 = body.collect().await?.into_bytes();
+        Ok(())
     }
 }
 

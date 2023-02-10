@@ -133,7 +133,8 @@ pub mod fluent_builders {
     }
     impl UploadPart {
         pub async fn send(self) -> Result<UploadPartOutput, SdkError<UploadPartError>> {
-            let input = self.inner.build().map_err(build_err)?;
+            let mut input = self.inner.build().map_err(build_err)?;
+            input.collect_body().await.map_err(build_err)?;
             let req = Request::UploadPart(input);
             send_aux(&self.config, req).await
         }
@@ -272,7 +273,8 @@ pub mod fluent_builders {
     }
     impl PutObject {
         pub async fn send(self) -> Result<PutObjectOutput, SdkError<PutObjectError>> {
-            let input = self.inner.build().map_err(build_err)?;
+            let mut input = self.inner.build().map_err(build_err)?;
+            input.collect_body().await.map_err(build_err)?;
             let req = Request::PutObject(input);
             send_aux(&self.config, req).await
         }
@@ -524,7 +526,7 @@ pub mod fluent_builders {
     }
 
     /// Wrap a build error to SkdError.
-    fn build_err<E>(e: aws_smithy_http::operation::BuildError) -> SdkError<E> {
+    fn build_err<E>(e: impl std::error::Error + Send + Sync + 'static) -> SdkError<E> {
         SdkError::ConstructionFailure(Box::new(e))
     }
 
