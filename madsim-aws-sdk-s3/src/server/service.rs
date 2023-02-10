@@ -1,4 +1,3 @@
-use super::{error::Error, Result};
 use crate::input::*;
 use crate::model::BucketLifecycleConfiguration;
 use crate::model::LifecycleRule;
@@ -6,10 +5,10 @@ use crate::output::*;
 use bytes::Bytes;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
-use std::collections::btree_map::Entry::*;
-use std::collections::BTreeMap;
-use std::collections::VecDeque;
-use std::time::Duration;
+
+use std::collections::{btree_map::Entry::*, BTreeMap, VecDeque};
+
+use aws_sdk_s3::error::*;
 
 /// A request to s3 server.
 #[derive(Debug)]
@@ -46,8 +45,7 @@ impl S3Service {
         &self,
         bucket: String,
         key: String,
-    ) -> Result<CreateMultipartUploadOutput> {
-        self.timeout().await?;
+    ) -> Result<CreateMultipartUploadOutput, CreateMultipartUploadError> {
         self.inner.lock().create_multipart_upload(bucket, key)
     }
 
@@ -59,12 +57,10 @@ impl S3Service {
         content_length: i64,
         part_number: i32,
         upload_id: String,
-    ) -> Result<UploadPartOutput> {
-        self.timeout().await?;
+    ) -> Result<UploadPartOutput, UploadPartError> {
         self.inner
             .lock()
             .upload_part(bucket, key, body, content_length, part_number, upload_id)
-            .await
     }
 
     pub async fn complete_multipart_upload(
@@ -73,8 +69,7 @@ impl S3Service {
         key: String,
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
-    ) -> Result<CompleteMultipartUploadOutput> {
-        self.timeout().await?;
+    ) -> Result<CompleteMultipartUploadOutput, CompleteMultipartUploadError> {
         self.inner
             .lock()
             .complete_multipart_upload(bucket, key, multipart, upload_id)
@@ -85,8 +80,7 @@ impl S3Service {
         bucket: String,
         key: String,
         upload_id: String,
-    ) -> Result<AbortMultipartUploadOutput> {
-        self.timeout().await?;
+    ) -> Result<AbortMultipartUploadOutput, AbortMultipartUploadError> {
         self.inner
             .lock()
             .abort_multipart_upload(bucket, key, upload_id)
@@ -98,12 +92,10 @@ impl S3Service {
         key: String,
         range: Option<String>,
         part_number: Option<i32>,
-    ) -> Result<GetObjectOutput> {
-        self.timeout().await?;
+    ) -> Result<GetObjectOutput, GetObjectError> {
         self.inner
             .lock()
             .get_object(bucket, key, range, part_number)
-            .await
     }
 
     pub async fn put_object(
@@ -111,13 +103,15 @@ impl S3Service {
         bucket: String,
         key: String,
         object: Bytes,
-    ) -> Result<PutObjectOutput> {
-        self.timeout().await?;
-        self.inner.lock().put_object(bucket, key, object).await
+    ) -> Result<PutObjectOutput, PutObjectError> {
+        self.inner.lock().put_object(bucket, key, object)
     }
 
-    pub async fn delete_object(&self, bucket: String, key: String) -> Result<DeleteObjectOutput> {
-        self.timeout().await?;
+    pub async fn delete_object(
+        &self,
+        bucket: String,
+        key: String,
+    ) -> Result<DeleteObjectOutput, DeleteObjectError> {
         self.inner.lock().delete_object(bucket, key)
     }
 
@@ -125,13 +119,15 @@ impl S3Service {
         &self,
         bucket: String,
         delete: crate::model::Delete,
-    ) -> Result<DeleteObjectsOutput> {
-        self.timeout().await?;
+    ) -> Result<DeleteObjectsOutput, DeleteObjectsError> {
         self.inner.lock().delete_objects(bucket, delete)
     }
 
-    pub async fn head_object(&self, bucket: String, key: String) -> Result<HeadObjectOutput> {
-        self.timeout().await?;
+    pub async fn head_object(
+        &self,
+        bucket: String,
+        key: String,
+    ) -> Result<HeadObjectOutput, HeadObjectError> {
         self.inner.lock().head_object(bucket, key)
     }
 
@@ -140,8 +136,7 @@ impl S3Service {
         bucket: String,
         prefix: Option<String>,
         continuation_token: Option<String>,
-    ) -> Result<ListObjectsV2Output> {
-        self.timeout().await?;
+    ) -> Result<ListObjectsV2Output, ListObjectsV2Error> {
         self.inner
             .lock()
             .list_objects_v2(bucket, prefix, continuation_token)
@@ -151,8 +146,7 @@ impl S3Service {
         &self,
         bucket: String,
         expected_bucket_owner: Option<String>,
-    ) -> Result<GetBucketLifecycleConfigurationOutput> {
-        self.timeout().await?;
+    ) -> Result<GetBucketLifecycleConfigurationOutput, GetBucketLifecycleConfigurationError> {
         self.inner
             .lock()
             .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
@@ -163,8 +157,7 @@ impl S3Service {
         bucket: String,
         lifecycle_configuration: Option<BucketLifecycleConfiguration>,
         expected_bucket_owner: Option<String>,
-    ) -> Result<PutBucketLifecycleConfigurationOutput> {
-        self.timeout().await?;
+    ) -> Result<PutBucketLifecycleConfigurationOutput, PutBucketLifecycleConfigurationError> {
         self.inner.lock().put_bucket_lifecycle_configuration(
             bucket,
             lifecycle_configuration.unwrap_or(BucketLifecycleConfiguration {
@@ -172,16 +165,6 @@ impl S3Service {
             }),
             expected_bucket_owner,
         )
-    }
-
-    async fn timeout(&self) -> Result<()> {
-        if thread_rng().gen_bool(self.timeout_rate as f64) {
-            let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
-            madsim::time::sleep(t).await;
-            tracing::warn!(?t, "s3: request timed out");
-            return Err(Error::RequestTimeout);
-        }
-        Ok(())
     }
 }
 
@@ -215,16 +198,17 @@ struct InnerPart {
     e_tag: String,
 }
 
+#[allow(clippy::result_large_err)]
 impl ServiceInner {
     fn create_multipart_upload(
         &mut self,
         bucket: String,
         key: String,
-    ) -> Result<CreateMultipartUploadOutput> {
+    ) -> Result<CreateMultipartUploadOutput, CreateMultipartUploadError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| CreateMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .entry(key)
             .or_default();
 
@@ -241,7 +225,7 @@ impl ServiceInner {
         }
     }
 
-    async fn upload_part(
+    fn upload_part(
         &mut self,
         bucket: String,
         key: String,
@@ -249,18 +233,18 @@ impl ServiceInner {
         _content_length: i64,
         part_number: i32,
         upload_id: String,
-    ) -> Result<UploadPartOutput> {
+    ) -> Result<UploadPartOutput, UploadPartError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| UploadPartError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or(Error::InvalidKey(key))?;
+            .ok_or_else(|| UploadPartError::unhandled(no_such_key(&key)))?;
 
         let parts = object
             .parts
             .get_mut(&upload_id)
-            .ok_or(Error::InvalidUploadId(upload_id))?;
+            .ok_or_else(|| UploadPartError::unhandled(no_such_upload(&upload_id)))?;
 
         let e_tag = thread_rng().gen::<u32>().to_string();
         let part = InnerPart {
@@ -280,22 +264,18 @@ impl ServiceInner {
         key: String,
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
-    ) -> Result<CompleteMultipartUploadOutput> {
+    ) -> Result<CompleteMultipartUploadOutput, CompleteMultipartUploadError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or(Error::InvalidKey(key))?;
-
-        if !object.parts.contains_key(&upload_id) {
-            return Err(Error::InvalidUploadId(upload_id));
-        }
+            .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_key(&key)))?;
 
         let parts = object
             .parts
             .get_mut(&upload_id)
-            .ok_or_else(|| Error::InvalidUploadId(upload_id.clone()))?;
+            .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_upload(&upload_id)))?;
 
         if let Some(mut multipart) = multipart.parts {
             multipart.sort_by_key(|part| part.part_number);
@@ -353,72 +333,67 @@ impl ServiceInner {
         bucket: String,
         key: String,
         upload_id: String,
-    ) -> Result<AbortMultipartUploadOutput> {
+    ) -> Result<AbortMultipartUploadOutput, AbortMultipartUploadError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or(Error::InvalidKey(key))?;
+            .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_key(&key)))?;
 
         object
             .parts
             .remove(&upload_id)
-            .ok_or(Error::InvalidUploadId(upload_id))?;
+            .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_upload(&upload_id)))?;
         Ok(AbortMultipartUploadOutput {})
     }
 
-    async fn get_object(
+    fn get_object(
         &self,
         bucket: String,
         key: String,
         range: Option<String>,
         part_number: Option<i32>,
-    ) -> Result<GetObjectOutput> {
+    ) -> Result<GetObjectOutput, GetObjectError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| GetObjectError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or_else(|| Error::InvalidKey(key.clone()))?;
-
+            .ok_or_else(|| {
+                GetObjectError::new(GetObjectErrorKind::NoSuchKey(no_such_key(&key)), meta())
+            })?;
         if !object.completed {
-            Err(Error::InvalidKey(key))
-        } else if let Some(range) = range {
+            return Err(GetObjectError::new(
+                GetObjectErrorKind::NoSuchKey(no_such_key(&key)),
+                meta(),
+            ));
+        }
+
+        if let Some(range) = range {
+            let invalid_range = || GetObjectError::unhandled(format!("invalid range: {range}"));
             // https://www.rfc-editor.org/rfc/rfc9110.html#name-range
             let mut split = range.split('=');
-            let range_unit = split
-                .next()
-                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+            let range_unit = split.next().ok_or_else(invalid_range)?;
 
             if range_unit != "bytes" {
-                return Err(Error::UnsupportRangeUnit(range_unit.to_string()));
+                return Err(GetObjectError::unhandled(format!(
+                    "unsupported range unit: {range_unit}"
+                )));
             }
 
-            let range_set = split
-                .next()
-                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+            let range_set = split.next().ok_or_else(invalid_range)?;
 
-            let (begin_str, end_str) = range_set
-                .split_once('-')
-                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+            let (begin_str, end_str) = range_set.split_once('-').ok_or_else(invalid_range)?;
             let begin_pos = if begin_str.is_empty() {
                 None
             } else {
-                Some(
-                    begin_str
-                        .parse::<usize>()
-                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?,
-                )
+                Some(begin_str.parse::<usize>().map_err(|_| invalid_range())?)
             };
             let end_pos = if end_str.is_empty() {
                 None
             } else {
-                Some(
-                    end_str
-                        .parse::<usize>()
-                        .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?,
-                )
+                Some(end_str.parse::<usize>().map_err(|_| invalid_range())?)
             };
             let body = match (begin_pos, end_pos) {
                 (Some(begin), Some(end)) => object.body.slice(begin..end),
@@ -430,7 +405,9 @@ impl ServiceInner {
             Ok(GetObjectOutput { body: body.into() })
         } else if let Some(part_number) = part_number {
             if part_number < 0 || part_number as usize >= object.body.len() {
-                return Err(Error::InvalidPartNumberSpecifier(part_number));
+                return Err(GetObjectError::unhandled(format!(
+                    "invalid part number: {part_number}"
+                )));
             };
             let part_number = part_number as usize;
             Ok(GetObjectOutput {
@@ -444,16 +421,16 @@ impl ServiceInner {
         }
     }
 
-    async fn put_object(
+    fn put_object(
         &mut self,
         bucket: String,
         key: String,
         body: Bytes,
-    ) -> Result<PutObjectOutput> {
+    ) -> Result<PutObjectOutput, PutObjectError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| PutObjectError::unhandled(no_such_bucket(&bucket)))?
             .entry(key)
             .or_default();
 
@@ -463,18 +440,22 @@ impl ServiceInner {
         Ok(PutObjectOutput {})
     }
 
-    fn delete_object(&mut self, bucket: String, key: String) -> Result<DeleteObjectOutput> {
+    fn delete_object(
+        &mut self,
+        bucket: String,
+        key: String,
+    ) -> Result<DeleteObjectOutput, DeleteObjectError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| DeleteObjectError::unhandled(no_such_bucket(&bucket)))?
             .entry(key.clone());
 
         match object {
-            Vacant(_) => Err(Error::InvalidKey(key)),
+            Vacant(_) => Err(DeleteObjectError::unhandled(no_such_key(&key))),
             Occupied(mut o) => {
                 if !o.get().completed {
-                    Err(Error::InvalidKey(key))
+                    Err(DeleteObjectError::unhandled(no_such_key(&key)))
                 } else if o.get().parts.is_empty() {
                     o.remove();
                     Ok(DeleteObjectOutput {})
@@ -492,11 +473,11 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         delete: crate::model::Delete,
-    ) -> Result<DeleteObjectsOutput> {
+    ) -> Result<DeleteObjectsOutput, DeleteObjectsError> {
         let mut storage = self.storage.lock();
         let bucket = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?;
+            .ok_or_else(|| DeleteObjectsError::unhandled(no_such_bucket(&bucket)))?;
 
         if let Some(delete) = delete.objects {
             let delete = delete
@@ -541,24 +522,32 @@ impl ServiceInner {
         }
     }
 
-    fn head_object(&self, bucket: String, key: String) -> Result<HeadObjectOutput> {
+    fn head_object(
+        &self,
+        bucket: String,
+        key: String,
+    ) -> Result<HeadObjectOutput, HeadObjectError> {
         let mut storage = self.storage.lock();
         let object = storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| HeadObjectError::unhandled(no_such_bucket(&bucket)))?
             .get(&key)
-            .ok_or_else(|| Error::InvalidKey(key.clone()))?;
+            .ok_or_else(|| {
+                HeadObjectError::new(HeadObjectErrorKind::NotFound(not_found(&key)), meta())
+            })?;
 
         if !object.completed {
-            Err(Error::InvalidKey(key))
-        } else {
-            let last_modified = object.last_modified;
-            let content_length = object.content_length;
-            Ok(HeadObjectOutput {
-                last_modified,
-                content_length,
-            })
+            return Err(HeadObjectError::new(
+                HeadObjectErrorKind::NotFound(not_found(&key)),
+                meta(),
+            ));
         }
+        let last_modified = object.last_modified;
+        let content_length = object.content_length;
+        Ok(HeadObjectOutput {
+            last_modified,
+            content_length,
+        })
     }
 
     fn list_objects_v2(
@@ -566,11 +555,14 @@ impl ServiceInner {
         bucket: String,
         prefix: Option<String>,
         _continuation_token: Option<String>,
-    ) -> Result<ListObjectsV2Output> {
+    ) -> Result<ListObjectsV2Output, ListObjectsV2Error> {
         let mut storage = self.storage.lock();
-        let bucket = storage
-            .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?;
+        let bucket = storage.get_mut(&bucket).ok_or_else(move || {
+            ListObjectsV2Error::new(
+                ListObjectsV2ErrorKind::NoSuchBucket(no_such_bucket(&bucket)),
+                meta(),
+            )
+        })?;
 
         if let Some(prefix) = prefix {
             let objects = bucket
@@ -611,7 +603,7 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         _expected_bucket_owner: Option<String>,
-    ) -> Result<GetBucketLifecycleConfigurationOutput> {
+    ) -> Result<GetBucketLifecycleConfigurationOutput, GetBucketLifecycleConfigurationError> {
         let lifecycle = match self.lifecycle.entry(bucket) {
             Vacant(v) => {
                 v.insert(Vec::new());
@@ -630,10 +622,35 @@ impl ServiceInner {
         bucket: String,
         lifecycle_configuration: BucketLifecycleConfiguration,
         _expected_bucket_owner: Option<String>,
-    ) -> Result<PutBucketLifecycleConfigurationOutput> {
+    ) -> Result<PutBucketLifecycleConfigurationOutput, PutBucketLifecycleConfigurationError> {
         self.lifecycle
             .insert(bucket, lifecycle_configuration.rules.unwrap_or_default());
 
         Ok(PutBucketLifecycleConfigurationOutput {})
     }
+}
+
+/// Returns a `NoSuchBucket` error.
+fn no_such_bucket(bucket: &str) -> NoSuchBucket {
+    NoSuchBucket::builder().message(bucket).build()
+}
+
+/// Returns a `NoSuchKey` error.
+fn no_such_key(key: &str) -> NoSuchKey {
+    NoSuchKey::builder().message(key).build()
+}
+
+/// Returns a `NoSuchUpload` error.
+fn no_such_upload(upload_id: &str) -> NoSuchUpload {
+    NoSuchUpload::builder().message(upload_id).build()
+}
+
+/// Returns a `NotFound` error.
+fn not_found(content: &str) -> NotFound {
+    NotFound::builder().message(content).build()
+}
+
+/// Returns a meta.
+fn meta() -> aws_smithy_types::error::Error {
+    aws_smithy_types::error::Error::builder().build()
 }

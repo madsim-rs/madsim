@@ -7,7 +7,7 @@ use aws_types::SdkConfig;
 
 #[derive(Debug)]
 pub struct Config {
-    endpoint: Endpoint,
+    pub(crate) endpoint: Endpoint,
 }
 
 impl Config {
