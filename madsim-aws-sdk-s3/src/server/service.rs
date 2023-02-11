@@ -412,9 +412,9 @@ impl ServiceInner {
                 Some(end_str.parse::<usize>().map_err(|_| invalid_range())?)
             };
             let body = match (begin_pos, end_pos) {
-                (Some(begin), Some(end)) => object.body.slice(begin..end),
+                (Some(begin), Some(end)) => object.body.slice(begin..=end),
                 (Some(begin), None) => object.body.slice(begin..),
-                (None, Some(end)) => object.body.slice(..end),
+                (None, Some(len)) => object.body.slice(object.body.len() - len..),
                 (None, None) => object.body.slice(..),
             };
 
