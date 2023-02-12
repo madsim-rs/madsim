@@ -425,11 +425,8 @@ impl ServiceInner {
                     "invalid part number: {part_number}"
                 )));
             };
-            let part_number = part_number as usize;
-            Ok(GetObjectOutput {
-                // XXX(wrj): not right?
-                body: object.body.slice(part_number..part_number + 1).into(),
-            })
+            let _part_number = part_number as usize;
+            todo!("get object by part number");
         } else {
             Ok(GetObjectOutput {
                 body: object.body.clone().into(),
