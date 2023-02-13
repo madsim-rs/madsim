@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - madsim: Add `JoinHandle::{id, is_finished}`.
 - madsim: Add `signal::ctrl_c` and `Handle::send_ctrl_c`.
 - madsim: Add `Handle::is_exit`.
+- Add S3 simulator.
 
 ### Changed
 
