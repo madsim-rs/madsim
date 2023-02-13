@@ -6,7 +6,7 @@ use super::{service::Request, service::S3Service};
 /// A simulated s3 server.
 #[derive(Default, Clone)]
 pub struct SimServer {
-    timeout_rate: f32,
+    bucket: Option<String>,
 }
 
 impl SimServer {
@@ -14,202 +14,107 @@ impl SimServer {
         SimServer::default()
     }
 
-    pub fn timeout_rate(mut self, rate: f32) -> Self {
-        assert!((0.0..=1.0).contains(&rate));
-        self.timeout_rate = rate;
+    pub fn with_bucket(mut self, bucket: &str) -> Self {
+        self.bucket = Some(bucket.into());
         self
     }
 
     pub async fn serve(self, addr: SocketAddr) -> Result<()> {
         let ep = Endpoint::bind(addr).await?;
-        let service = Arc::new(S3Service::new(self.timeout_rate));
+        let mut service = S3Service::new();
+        if let Some(bucket) = self.bucket {
+            service.create_bucket(&bucket).await;
+        }
+        let service = Arc::new(service);
         loop {
             let (tx, mut rx, _) = ep.accept1().await?;
             let service = service.clone();
             madsim::task::spawn(async move {
                 let request = *rx.recv().await?.downcast::<Request>().unwrap();
 
-                use super::error::Error;
                 use crate::input::*;
                 use Request::*;
 
                 let response: Payload = match request {
                     CreateMultipartUpload(CreateMultipartUploadInput { bucket, key }) => {
-                        Box::new(if let Some(bucket) = bucket {
-                            if let Some(key) = key {
-                                service.create_multipart_upload(bucket, key).await
-                            } else {
-                                Err(Error::InvalidKey("no key".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidBucket("no bucket".to_string()))
-                        })
+                        Box::new(service.create_multipart_upload(bucket, key).await)
                     }
                     UploadPart(UploadPartInput {
-                        body,
+                        body0,
                         bucket,
                         content_length,
                         key,
                         part_number,
                         upload_id,
-                    }) => Box::new(if let Some(bucket) = bucket {
-                        if let Some(key) = key {
-                            if let Some(upload_id) = upload_id {
-                                service
-                                    .upload_part(
-                                        bucket,
-                                        key,
-                                        body,
-                                        content_length,
-                                        part_number,
-                                        upload_id,
-                                    )
-                                    .await
-                            } else {
-                                Err(Error::InvalidUploadId("no upload_id".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidKey("no key".to_string()))
-                        }
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
+                        ..
+                    }) => Box::new(
+                        service
+                            .upload_part(bucket, key, body0, content_length, part_number, upload_id)
+                            .await,
+                    ),
                     CompletedMultipartUpload(CompleteMultipartUploadInput {
                         bucket,
                         key,
                         multipart_upload,
                         upload_id,
-                    }) => Box::new(if let Some(bucket) = bucket {
-                        if let Some(key) = key {
-                            if let Some(upload_id) = upload_id {
-                                let multipart = match multipart_upload {
-                                    Some(multipart) => multipart,
-                                    None => crate::model::CompletedMultipartUpload { parts: None },
-                                };
-                                service
-                                    .complete_multipart_upload(bucket, key, multipart, upload_id)
-                                    .await
-                            } else {
-                                Err(Error::InvalidUploadId("no upload_id".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidKey("no key".to_string()))
-                        }
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
+                    }) => Box::new(
+                        service
+                            .complete_multipart_upload(bucket, key, multipart_upload, upload_id)
+                            .await,
+                    ),
                     AbortMultipartUpload(AbortMultipartUploadInput {
                         bucket,
                         key,
                         upload_id,
-                    }) => Box::new(if let Some(bucket) = bucket {
-                        if let Some(key) = key {
-                            if let Some(upload_id) = upload_id {
-                                service.abort_multipart_upload(bucket, key, upload_id).await
-                            } else {
-                                Err(Error::InvalidUploadId("no upload_id".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidKey("no key".to_string()))
-                        }
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
+                    }) => Box::new(service.abort_multipart_upload(bucket, key, upload_id).await),
                     GetObject(GetObjectInput {
                         bucket,
                         key,
                         range,
                         part_number,
-                    }) => Box::new(if let Some(bucket) = bucket {
-                        if let Some(key) = key {
-                            service.get_object(bucket, key, range, part_number).await
-                        } else {
-                            Err(Error::InvalidKey("no key".to_string()))
-                        }
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
-                    PutObject(PutObjectInput { body, bucket, key }) => {
-                        Box::new(if let Some(bucket) = bucket {
-                            if let Some(key) = key {
-                                service.put_object(bucket, key, body).await
-                            } else {
-                                Err(Error::InvalidKey("no key".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidBucket("no bucket".to_string()))
-                        })
-                    }
+                    }) => Box::new(service.get_object(bucket, key, range, part_number).await),
+                    PutObject(PutObjectInput {
+                        body0, bucket, key, ..
+                    }) => Box::new(service.put_object(bucket, key, body0).await),
                     DeleteObject(DeleteObjectInput { bucket, key }) => {
-                        Box::new(if let Some(bucket) = bucket {
-                            if let Some(key) = key {
-                                service.delete_object(bucket, key).await
-                            } else {
-                                Err(Error::InvalidKey("no key".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidBucket("no bucket".to_string()))
-                        })
+                        Box::new(service.delete_object(bucket, key).await)
                     }
                     DeleteObjects(DeleteObjectsInput { bucket, delete }) => {
-                        Box::new(if let Some(bucket) = bucket {
-                            let delete = match delete {
-                                Some(delete) => delete,
-                                None => crate::model::Delete { objects: None },
-                            };
-                            service.delete_objects(bucket, delete).await
-                        } else {
-                            Err(Error::InvalidBucket("no bucket".to_string()))
-                        })
+                        Box::new(service.delete_objects(bucket, delete).await)
                     }
                     HeadObject(HeadObjectInput { bucket, key }) => {
-                        Box::new(if let Some(bucket) = bucket {
-                            if let Some(key) = key {
-                                service.head_object(bucket, key).await
-                            } else {
-                                Err(Error::InvalidKey("no key".to_string()))
-                            }
-                        } else {
-                            Err(Error::InvalidBucket("no bucket".to_string()))
-                        })
+                        Box::new(service.head_object(bucket, key).await)
                     }
                     ListObjectsV2(ListObjectsV2Input {
                         bucket,
                         prefix,
                         continuation_token,
-                    }) => Box::new(if let Some(bucket) = bucket {
+                    }) => Box::new(
                         service
                             .list_objects_v2(bucket, prefix, continuation_token)
-                            .await
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
+                            .await,
+                    ),
                     PutBucketLifecycleConfiguration(PutBucketLifecycleConfigurationInput {
                         bucket,
                         lifecycle_configuration,
                         expected_bucket_owner,
-                    }) => Box::new(if let Some(bucket) = bucket {
+                    }) => Box::new(
                         service
                             .put_bucket_lifecycle_configuration(
                                 bucket,
                                 lifecycle_configuration,
                                 expected_bucket_owner,
                             )
-                            .await
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
+                            .await,
+                    ),
                     GetBucketLifecycleConfiguration(GetBucketLifecycleConfigurationInput {
                         bucket,
                         expected_bucket_owner,
-                    }) => Box::new(if let Some(bucket) = bucket {
-                        let resp = service
+                    }) => Box::new(
+                        service
                             .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
-                            .await;
-                        resp
-                    } else {
-                        Err(Error::InvalidBucket("no bucket".to_string()))
-                    }),
+                            .await,
+                    ),
                 };
                 tx.send(response).await?;
                 Ok(()) as Result<()>

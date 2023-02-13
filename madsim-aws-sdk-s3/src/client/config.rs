@@ -1,9 +1,14 @@
 use std::fmt::Debug;
 
+use aws_smithy_http::endpoint::Endpoint;
+use aws_types::credentials::Credentials;
+use aws_types::region::Region;
 use aws_types::SdkConfig;
 
 #[derive(Debug)]
-pub struct Config {}
+pub struct Config {
+    pub(crate) endpoint: Endpoint,
+}
 
 impl Config {
     pub fn builder() -> Builder {
@@ -16,38 +21,36 @@ impl Config {
 }
 
 #[derive(Default)]
-pub struct Builder {}
+pub struct Builder {
+    region: Option<Region>,
+    endpoint: Option<Endpoint>,
+    credentials: Option<Credentials>,
+}
+
 impl Builder {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn endpoint_resolver<T>(mut self, _endpoint_resolver: T) -> Self {
+    pub fn endpoint_resolver(mut self, endpoint_resolver: Endpoint) -> Self {
+        self.endpoint = Some(endpoint_resolver);
         self
     }
 
-    pub fn set_endpoint_resolver<T>(&mut self, _endpoint_resolver: T) -> &mut Self {
+    pub fn region(mut self, region: impl Into<Option<Region>>) -> Self {
+        self.region = region.into();
         self
     }
 
-    pub fn region<T>(mut self, _region: T) -> Self {
-        self
-    }
-
-    pub fn credentials_provider<T>(mut self, _credentials_provider: T) -> Self {
-        self
-    }
-
-    pub fn set_credentials_provider<T>(&mut self, _credentials_provider: T) -> &mut Self {
+    pub fn credentials_provider(mut self, credentials_provider: Credentials) -> Self {
+        self.credentials = Some(credentials_provider);
         self
     }
 
     pub fn build(self) -> Config {
-        Config {}
-    }
-
-    pub fn from<T>(_config: &T) -> Self {
-        Self {}
+        Config {
+            endpoint: self.endpoint.expect("endpoint must be set"),
+        }
     }
 }
 
@@ -59,6 +62,6 @@ impl From<&SdkConfig> for Builder {
 
 impl From<&SdkConfig> for Config {
     fn from(_sdk_config: &SdkConfig) -> Self {
-        Config {}
+        todo!("Config from SdkConfig")
     }
 }

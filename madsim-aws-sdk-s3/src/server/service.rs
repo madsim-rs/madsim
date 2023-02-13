@@ -1,15 +1,15 @@
-use super::{error::Error, Result};
 use crate::input::*;
 use crate::model::BucketLifecycleConfiguration;
 use crate::model::LifecycleRule;
 use crate::output::*;
-use crate::sim::types::ByteStream;
+use bytes::Bytes;
 use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
-use std::collections::btree_map::Entry::*;
-use std::collections::BTreeMap;
-use std::collections::VecDeque;
-use std::time::Duration;
+use tracing::debug;
+
+use std::collections::{btree_map::Entry::*, BTreeMap, VecDeque};
+
+use aws_sdk_s3::error::*;
 
 /// A request to s3 server.
 #[derive(Debug)]
@@ -30,24 +30,25 @@ pub(crate) enum Request {
 
 #[derive(Debug)]
 pub struct S3Service {
-    timeout_rate: f32,
     inner: Mutex<ServiceInner>,
 }
 
 impl S3Service {
-    pub fn new(timeout_rate: f32) -> Self {
+    pub fn new() -> Self {
         S3Service {
-            timeout_rate,
             inner: Mutex::new(ServiceInner::default()),
         }
+    }
+
+    pub async fn create_bucket(&self, name: &str) {
+        self.inner.lock().create_bucket(name)
     }
 
     pub async fn create_multipart_upload(
         &self,
         bucket: String,
         key: String,
-    ) -> Result<CreateMultipartUploadOutput> {
-        self.timeout().await?;
+    ) -> Result<CreateMultipartUploadOutput, CreateMultipartUploadError> {
         self.inner.lock().create_multipart_upload(bucket, key)
     }
 
@@ -55,16 +56,14 @@ impl S3Service {
         &self,
         bucket: String,
         key: String,
-        body: ByteStream,
+        body: Bytes,
         content_length: i64,
         part_number: i32,
         upload_id: String,
-    ) -> Result<UploadPartOutput> {
-        self.timeout().await?;
+    ) -> Result<UploadPartOutput, UploadPartError> {
         self.inner
             .lock()
             .upload_part(bucket, key, body, content_length, part_number, upload_id)
-            .await
     }
 
     pub async fn complete_multipart_upload(
@@ -73,8 +72,7 @@ impl S3Service {
         key: String,
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
-    ) -> Result<CompleteMultipartUploadOutput> {
-        self.timeout().await?;
+    ) -> Result<CompleteMultipartUploadOutput, CompleteMultipartUploadError> {
         self.inner
             .lock()
             .complete_multipart_upload(bucket, key, multipart, upload_id)
@@ -85,8 +83,7 @@ impl S3Service {
         bucket: String,
         key: String,
         upload_id: String,
-    ) -> Result<AbortMultipartUploadOutput> {
-        self.timeout().await?;
+    ) -> Result<AbortMultipartUploadOutput, AbortMultipartUploadError> {
         self.inner
             .lock()
             .abort_multipart_upload(bucket, key, upload_id)
@@ -98,26 +95,26 @@ impl S3Service {
         key: String,
         range: Option<String>,
         part_number: Option<i32>,
-    ) -> Result<GetObjectOutput> {
-        self.timeout().await?;
+    ) -> Result<GetObjectOutput, GetObjectError> {
         self.inner
             .lock()
             .get_object(bucket, key, range, part_number)
-            .await
     }
 
     pub async fn put_object(
         &self,
         bucket: String,
         key: String,
-        object: ByteStream,
-    ) -> Result<PutObjectOutput> {
-        self.timeout().await?;
-        self.inner.lock().put_object(bucket, key, object).await
+        object: Bytes,
+    ) -> Result<PutObjectOutput, PutObjectError> {
+        self.inner.lock().put_object(bucket, key, object)
     }
 
-    pub async fn delete_object(&self, bucket: String, key: String) -> Result<DeleteObjectOutput> {
-        self.timeout().await?;
+    pub async fn delete_object(
+        &self,
+        bucket: String,
+        key: String,
+    ) -> Result<DeleteObjectOutput, DeleteObjectError> {
         self.inner.lock().delete_object(bucket, key)
     }
 
@@ -125,13 +122,15 @@ impl S3Service {
         &self,
         bucket: String,
         delete: crate::model::Delete,
-    ) -> Result<DeleteObjectsOutput> {
-        self.timeout().await?;
+    ) -> Result<DeleteObjectsOutput, DeleteObjectsError> {
         self.inner.lock().delete_objects(bucket, delete)
     }
 
-    pub async fn head_object(&self, bucket: String, key: String) -> Result<HeadObjectOutput> {
-        self.timeout().await?;
+    pub async fn head_object(
+        &self,
+        bucket: String,
+        key: String,
+    ) -> Result<HeadObjectOutput, HeadObjectError> {
         self.inner.lock().head_object(bucket, key)
     }
 
@@ -140,8 +139,7 @@ impl S3Service {
         bucket: String,
         prefix: Option<String>,
         continuation_token: Option<String>,
-    ) -> Result<ListObjectsV2Output> {
-        self.timeout().await?;
+    ) -> Result<ListObjectsV2Output, ListObjectsV2Error> {
         self.inner
             .lock()
             .list_objects_v2(bucket, prefix, continuation_token)
@@ -151,8 +149,7 @@ impl S3Service {
         &self,
         bucket: String,
         expected_bucket_owner: Option<String>,
-    ) -> Result<GetBucketLifecycleConfigurationOutput> {
-        self.timeout().await?;
+    ) -> Result<GetBucketLifecycleConfigurationOutput, GetBucketLifecycleConfigurationError> {
         self.inner
             .lock()
             .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
@@ -163,8 +160,7 @@ impl S3Service {
         bucket: String,
         lifecycle_configuration: Option<BucketLifecycleConfiguration>,
         expected_bucket_owner: Option<String>,
-    ) -> Result<PutBucketLifecycleConfigurationOutput> {
-        self.timeout().await?;
+    ) -> Result<PutBucketLifecycleConfigurationOutput, PutBucketLifecycleConfigurationError> {
         self.inner.lock().put_bucket_lifecycle_configuration(
             bucket,
             lifecycle_configuration.unwrap_or(BucketLifecycleConfiguration {
@@ -173,38 +169,25 @@ impl S3Service {
             expected_bucket_owner,
         )
     }
-
-    async fn timeout(&self) -> Result<()> {
-        if thread_rng().gen_bool(self.timeout_rate as f64) {
-            let t = thread_rng().gen_range(Duration::from_secs(5)..Duration::from_secs(15));
-            madsim::time::sleep(t).await;
-            tracing::warn!(?t, "s3: request timed out");
-            return Err(Error::RequestTimeout(tonic::Status::new(
-                tonic::Code::Unavailable,
-                "s3: request timed out",
-            )));
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Default)]
 struct ServiceInner {
     /// (bucket, key) -> Object
-    storage: Mutex<BTreeMap<String, BTreeMap<String, InnerObject>>>,
+    storage: BTreeMap<String, BTreeMap<String, Object>>,
 
     /// (bucket) -> LifecycleRules
     lifecycle: BTreeMap<String, Vec<LifecycleRule>>,
 }
 
 #[derive(Debug, Default)]
-struct InnerObject {
-    body: ByteStream,
+struct Object {
+    body: Bytes,
 
     completed: bool,
 
     /// upload_id -> parts
-    parts: BTreeMap<String, Vec<InnerPart>>,
+    parts: BTreeMap<String, Vec<ObjectPart>>,
 
     last_modified: Option<crate::types::DateTime>,
 
@@ -212,22 +195,32 @@ struct InnerObject {
 }
 
 #[derive(Debug, Default)]
-struct InnerPart {
+struct ObjectPart {
     part_number: i32,
-    body: ByteStream,
+    body: Bytes,
     e_tag: String,
 }
 
+#[allow(clippy::result_large_err)]
 impl ServiceInner {
+    fn create_bucket(&mut self, name: &str) {
+        debug!(name, "create_bucket");
+        if self.storage.contains_key(name) {
+            panic!("bucket already exists: {name}");
+        }
+        self.storage.insert(name.to_string(), Default::default());
+    }
+
     fn create_multipart_upload(
         &mut self,
         bucket: String,
         key: String,
-    ) -> Result<CreateMultipartUploadOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
+    ) -> Result<CreateMultipartUploadOutput, CreateMultipartUploadError> {
+        debug!(bucket, key, "create_multipart_upload");
+        let object = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| CreateMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .entry(key)
             .or_default();
 
@@ -244,29 +237,30 @@ impl ServiceInner {
         }
     }
 
-    async fn upload_part(
+    fn upload_part(
         &mut self,
         bucket: String,
         key: String,
-        body: ByteStream,
+        body: Bytes,
         _content_length: i64,
         part_number: i32,
         upload_id: String,
-    ) -> Result<UploadPartOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
+    ) -> Result<UploadPartOutput, UploadPartError> {
+        debug!(bucket, key, upload_id, part_number, "upload_part");
+        let object = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| UploadPartError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or(Error::InvalidKey(key))?;
+            .ok_or_else(|| UploadPartError::unhandled(no_such_key(&key)))?;
 
         let parts = object
             .parts
             .get_mut(&upload_id)
-            .ok_or(Error::InvalidUploadId(upload_id))?;
+            .ok_or_else(|| UploadPartError::unhandled(no_such_upload(&upload_id)))?;
 
         let e_tag = thread_rng().gen::<u32>().to_string();
-        let part = InnerPart {
+        let part = ObjectPart {
             part_number,
             body,
             e_tag: e_tag.clone(),
@@ -283,22 +277,19 @@ impl ServiceInner {
         key: String,
         multipart: crate::model::CompletedMultipartUpload,
         upload_id: String,
-    ) -> Result<CompleteMultipartUploadOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
+    ) -> Result<CompleteMultipartUploadOutput, CompleteMultipartUploadError> {
+        debug!(bucket, key, upload_id, "complete_multipart_upload");
+        let object = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or(Error::InvalidKey(key))?;
-
-        if !object.parts.contains_key(&upload_id) {
-            return Err(Error::InvalidUploadId(upload_id));
-        }
+            .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_key(&key)))?;
 
         let parts = object
             .parts
             .get_mut(&upload_id)
-            .ok_or_else(|| Error::InvalidUploadId(upload_id.clone()))?;
+            .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_upload(&upload_id)))?;
 
         if let Some(mut multipart) = multipart.parts {
             multipart.sort_by_key(|part| part.part_number);
@@ -329,7 +320,7 @@ impl ServiceInner {
                     if *next_idx != idx {
                         continue;
                     } else {
-                        body.push(part.body);
+                        body.extend(part.body);
                         selection_idx.pop_front();
                     }
                 } else {
@@ -337,7 +328,7 @@ impl ServiceInner {
                 }
             }
 
-            object.body = ByteStream::flatten(body);
+            object.body = body.into();
             object.completed = true;
             object.parts.remove(&upload_id);
 
@@ -356,141 +347,130 @@ impl ServiceInner {
         bucket: String,
         key: String,
         upload_id: String,
-    ) -> Result<AbortMultipartUploadOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
+    ) -> Result<AbortMultipartUploadOutput, AbortMultipartUploadError> {
+        debug!(bucket, key, upload_id, "abort_multipart_upload");
+        let object = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_bucket(&bucket)))?
             .get_mut(&key)
-            .ok_or(Error::InvalidKey(key))?;
+            .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_key(&key)))?;
 
         object
             .parts
             .remove(&upload_id)
-            .ok_or(Error::InvalidUploadId(upload_id))?;
+            .ok_or_else(|| AbortMultipartUploadError::unhandled(no_such_upload(&upload_id)))?;
         Ok(AbortMultipartUploadOutput {})
     }
 
-    async fn get_object(
+    fn get_object(
         &self,
         bucket: String,
         key: String,
         range: Option<String>,
         part_number: Option<i32>,
-    ) -> Result<GetObjectOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
-            .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
-            .get_mut(&key)
-            .ok_or_else(|| Error::InvalidKey(key.clone()))?;
-
+    ) -> Result<GetObjectOutput, GetObjectError> {
+        debug!(bucket, key, range, part_number, "get_object");
+        let object = self
+            .storage
+            .get(&bucket)
+            .ok_or_else(|| GetObjectError::unhandled(no_such_bucket(&bucket)))?
+            .get(&key)
+            .ok_or_else(|| {
+                GetObjectError::new(GetObjectErrorKind::NoSuchKey(no_such_key(&key)), meta())
+            })?;
         if !object.completed {
-            Err(Error::InvalidKey(key))
-        } else if let Some(range) = range {
+            return Err(GetObjectError::new(
+                GetObjectErrorKind::NoSuchKey(no_such_key(&key)),
+                meta(),
+            ));
+        }
+
+        if let Some(range) = range {
+            let invalid_range = || GetObjectError::unhandled(format!("invalid range: {range}"));
             // https://www.rfc-editor.org/rfc/rfc9110.html#name-range
             let mut split = range.split('=');
-            let range_unit = split
-                .next()
-                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+            let range_unit = split.next().ok_or_else(invalid_range)?;
 
             if range_unit != "bytes" {
-                return Err(Error::UnsupportRangeUnit(range_unit.to_string()));
+                return Err(GetObjectError::unhandled(format!(
+                    "unsupported range unit: {range_unit}"
+                )));
             }
 
-            let range_set = split
-                .next()
-                .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?;
+            let range_set = split.next().ok_or_else(invalid_range)?;
 
-            let body = if range_set.starts_with('-') {
-                let begin_pos = range_set
-                    .split_once('-')
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .0
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                object.body.after(begin_pos).await
-            } else if range_set.ends_with('-') {
-                let end_pos = range_set
-                    .split_once('-')
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .0
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                object.body.before(end_pos).await
+            let (begin_str, end_str) = range_set.split_once('-').ok_or_else(invalid_range)?;
+            let begin_pos = if begin_str.is_empty() {
+                None
             } else {
-                let begin_pos = range_set
-                    .split('-')
-                    .next()
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                let end_pos = range_set
-                    .split('-')
-                    .next()
-                    .ok_or_else(|| Error::InvalidRangeSpecifier(range.clone()))?
-                    .parse::<usize>()
-                    .map_err(|_| Error::InvalidRangeSpecifier(range.clone()))?;
-
-                object.body.between(begin_pos, end_pos).await
+                Some(begin_str.parse::<usize>().map_err(|_| invalid_range())?)
+            };
+            let end_pos = if end_str.is_empty() {
+                None
+            } else {
+                Some(end_str.parse::<usize>().map_err(|_| invalid_range())?)
+            };
+            let body = match (begin_pos, end_pos) {
+                (Some(begin), Some(end)) => object.body.slice(begin..=end),
+                (Some(begin), None) => object.body.slice(begin..),
+                (None, Some(len)) => object.body.slice(object.body.len() - len..),
+                (None, None) => object.body.slice(..),
             };
 
-            Ok(GetObjectOutput { body })
+            Ok(GetObjectOutput { body: body.into() })
         } else if let Some(part_number) = part_number {
-            if part_number >= 0 {
-                let part_number = part_number as usize;
-
-                if part_number < object.body.len().await {
-                    return Ok(GetObjectOutput {
-                        body: object.body.between(part_number, part_number + 1).await,
-                    });
-                }
-            }
-            Err(Error::InvalidPartNumberSpecifier(part_number))
+            if part_number < 0 || part_number as usize >= object.body.len() {
+                return Err(GetObjectError::unhandled(format!(
+                    "invalid part number: {part_number}"
+                )));
+            };
+            let _part_number = part_number as usize;
+            todo!("get object by part number");
         } else {
             Ok(GetObjectOutput {
-                body: object.body.clone(),
+                body: object.body.clone().into(),
             })
         }
     }
 
-    async fn put_object(
+    fn put_object(
         &mut self,
         bucket: String,
         key: String,
-        body: ByteStream,
-    ) -> Result<PutObjectOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
+        body: Bytes,
+    ) -> Result<PutObjectOutput, PutObjectError> {
+        debug!(bucket, key, len = body.len(), "put_object");
+        let object = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| PutObjectError::unhandled(no_such_bucket(&bucket)))?
             .entry(key)
             .or_default();
 
-        let body = body.collect().await;
-        let body = body.expect("error read data").into_bytes().to_vec();
-
-        object.body = ByteStream::from_bytes(body);
+        object.body = body;
         object.completed = true;
 
         Ok(PutObjectOutput {})
     }
 
-    fn delete_object(&mut self, bucket: String, key: String) -> Result<DeleteObjectOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
+    fn delete_object(
+        &mut self,
+        bucket: String,
+        key: String,
+    ) -> Result<DeleteObjectOutput, DeleteObjectError> {
+        debug!(bucket, key, "delete_object");
+        let object = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+            .ok_or_else(|| DeleteObjectError::unhandled(no_such_bucket(&bucket)))?
             .entry(key.clone());
 
         match object {
-            Vacant(_) => Err(Error::InvalidKey(key)),
+            Vacant(_) => Err(DeleteObjectError::unhandled(no_such_key(&key))),
             Occupied(mut o) => {
                 if !o.get().completed {
-                    Err(Error::InvalidKey(key))
+                    Err(DeleteObjectError::unhandled(no_such_key(&key)))
                 } else if o.get().parts.is_empty() {
                     o.remove();
                     Ok(DeleteObjectOutput {})
@@ -508,73 +488,82 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         delete: crate::model::Delete,
-    ) -> Result<DeleteObjectsOutput> {
-        let mut storage = self.storage.lock();
-        let bucket = storage
+    ) -> Result<DeleteObjectsOutput, DeleteObjectsError> {
+        debug!(bucket, "delete_objects");
+        let bucket = self
+            .storage
             .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?;
+            .ok_or_else(|| DeleteObjectsError::unhandled(no_such_bucket(&bucket)))?;
 
-        if let Some(delete) = delete.objects {
-            let delete = delete
-                .into_iter()
-                .flat_map(|i| i.key)
-                .collect::<Vec<String>>();
+        let Some(delete) = delete.objects else {
+            return Ok(DeleteObjectsOutput { errors: None });
+        };
+        let delete = delete
+            .into_iter()
+            .flat_map(|i| i.key)
+            .collect::<Vec<String>>();
 
-            let mut errors = vec![];
+        let mut errors = vec![];
 
-            for key in delete {
-                match bucket.entry(key.clone()) {
-                    Vacant(_) => errors.push(crate::model::Error {
-                        key: Some(key),
-                        version_id: None,
-                        code: None,
-                        message: Some("key not exists".to_string()),
-                    }),
-                    Occupied(mut o) => {
-                        if !o.get().completed {
-                            errors.push(crate::model::Error {
-                                key: Some(key),
-                                version_id: None,
-                                code: None,
-                                message: Some("key not exists".to_string()),
-                            })
-                        } else if o.get().parts.is_empty() {
-                            o.remove();
-                        } else {
-                            let object = o.get_mut();
-                            object.completed = false;
-                            object.body.clear();
-                        }
+        for key in delete {
+            match bucket.entry(key.clone()) {
+                Vacant(_) => errors.push(crate::model::Error {
+                    key: Some(key),
+                    version_id: None,
+                    code: None,
+                    message: Some("key not exists".to_string()),
+                }),
+                Occupied(mut o) => {
+                    if !o.get().completed {
+                        errors.push(crate::model::Error {
+                            key: Some(key),
+                            version_id: None,
+                            code: None,
+                            message: Some("key not exists".to_string()),
+                        })
+                    } else if o.get().parts.is_empty() {
+                        o.remove();
+                    } else {
+                        let object = o.get_mut();
+                        object.completed = false;
+                        object.body.clear();
                     }
                 }
             }
-
-            Ok(DeleteObjectsOutput {
-                errors: Some(errors),
-            })
-        } else {
-            Ok(DeleteObjectsOutput { errors: None })
         }
+
+        Ok(DeleteObjectsOutput {
+            errors: Some(errors),
+        })
     }
 
-    fn head_object(&self, bucket: String, key: String) -> Result<HeadObjectOutput> {
-        let mut storage = self.storage.lock();
-        let object = storage
-            .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?
+    fn head_object(
+        &self,
+        bucket: String,
+        key: String,
+    ) -> Result<HeadObjectOutput, HeadObjectError> {
+        debug!(bucket, key, "head_object");
+        let object = self
+            .storage
+            .get(&bucket)
+            .ok_or_else(|| HeadObjectError::unhandled(no_such_bucket(&bucket)))?
             .get(&key)
-            .ok_or_else(|| Error::InvalidKey(key.clone()))?;
+            .ok_or_else(|| {
+                HeadObjectError::new(HeadObjectErrorKind::NotFound(not_found(&key)), meta())
+            })?;
 
         if !object.completed {
-            Err(Error::InvalidKey(key))
-        } else {
-            let last_modified = object.last_modified;
-            let content_length = object.content_length;
-            Ok(HeadObjectOutput {
-                last_modified,
-                content_length,
-            })
+            return Err(HeadObjectError::new(
+                HeadObjectErrorKind::NotFound(not_found(&key)),
+                meta(),
+            ));
         }
+        let last_modified = object.last_modified;
+        let content_length = object.content_length;
+        Ok(HeadObjectOutput {
+            last_modified,
+            content_length,
+        })
     }
 
     fn list_objects_v2(
@@ -582,11 +571,14 @@ impl ServiceInner {
         bucket: String,
         prefix: Option<String>,
         _continuation_token: Option<String>,
-    ) -> Result<ListObjectsV2Output> {
-        let mut storage = self.storage.lock();
-        let bucket = storage
-            .get_mut(&bucket)
-            .ok_or(Error::InvalidBucket(bucket))?;
+    ) -> Result<ListObjectsV2Output, ListObjectsV2Error> {
+        debug!(bucket, prefix, "list_objects_v2");
+        let bucket = self.storage.get_mut(&bucket).ok_or_else(move || {
+            ListObjectsV2Error::new(
+                ListObjectsV2ErrorKind::NoSuchBucket(no_such_bucket(&bucket)),
+                meta(),
+            )
+        })?;
 
         if let Some(prefix) = prefix {
             let objects = bucket
@@ -627,7 +619,8 @@ impl ServiceInner {
         &mut self,
         bucket: String,
         _expected_bucket_owner: Option<String>,
-    ) -> Result<GetBucketLifecycleConfigurationOutput> {
+    ) -> Result<GetBucketLifecycleConfigurationOutput, GetBucketLifecycleConfigurationError> {
+        debug!(bucket, "get_bucket_lifecycle_configuration");
         let lifecycle = match self.lifecycle.entry(bucket) {
             Vacant(v) => {
                 v.insert(Vec::new());
@@ -646,10 +639,36 @@ impl ServiceInner {
         bucket: String,
         lifecycle_configuration: BucketLifecycleConfiguration,
         _expected_bucket_owner: Option<String>,
-    ) -> Result<PutBucketLifecycleConfigurationOutput> {
+    ) -> Result<PutBucketLifecycleConfigurationOutput, PutBucketLifecycleConfigurationError> {
+        debug!(bucket, "put_bucket_lifecycle_configuration");
         self.lifecycle
             .insert(bucket, lifecycle_configuration.rules.unwrap_or_default());
 
         Ok(PutBucketLifecycleConfigurationOutput {})
     }
+}
+
+/// Returns a `NoSuchBucket` error.
+fn no_such_bucket(bucket: &str) -> NoSuchBucket {
+    NoSuchBucket::builder().message(bucket).build()
+}
+
+/// Returns a `NoSuchKey` error.
+fn no_such_key(key: &str) -> NoSuchKey {
+    NoSuchKey::builder().message(key).build()
+}
+
+/// Returns a `NoSuchUpload` error.
+fn no_such_upload(upload_id: &str) -> NoSuchUpload {
+    NoSuchUpload::builder().message(upload_id).build()
+}
+
+/// Returns a `NotFound` error.
+fn not_found(content: &str) -> NotFound {
+    NotFound::builder().message(content).build()
+}
+
+/// Returns a meta.
+fn meta() -> aws_smithy_types::error::Error {
+    aws_smithy_types::error::Error::builder().build()
 }
