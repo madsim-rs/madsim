@@ -27,7 +27,7 @@ spin = "0.9"
 tracing = "0.1"
 
 [features]
-rustls = []
-native-tls = []
-rt-tokio = ["aws-smithy-http/rt-tokio"]
+rustls = ["aws-sdk-s3/rustls"]
+native-tls = ["aws-sdk-s3/native-tls"]
+rt-tokio = ["aws-sdk-s3/rt-tokio"]
 default = ["rustls", "rt-tokio"]
