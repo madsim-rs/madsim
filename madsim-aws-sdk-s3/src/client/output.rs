@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 #[non_exhaustive]
 #[derive(Clone, PartialEq, Eq)]
 pub struct UploadPartOutput {
-    pub e_tag: Option<String>,
+    pub(crate) e_tag: Option<String>,
 }
 impl UploadPartOutput {
     pub fn e_tag(&self) -> Option<&str> {
@@ -49,7 +49,7 @@ impl UploadPartOutput {
 #[non_exhaustive]
 #[derive(Clone, PartialEq, Eq)]
 pub struct CreateMultipartUploadOutput {
-    pub upload_id: Option<String>,
+    pub(crate) upload_id: Option<String>,
 }
 impl CreateMultipartUploadOutput {
     pub fn upload_id(&self) -> Option<&str> {
@@ -142,8 +142,8 @@ impl GetObjectOutput {
 #[non_exhaustive]
 #[derive(Clone, PartialEq)]
 pub struct HeadObjectOutput {
-    pub last_modified: Option<crate::types::DateTime>,
-    pub content_length: i64,
+    pub(crate) last_modified: Option<crate::types::DateTime>,
+    pub(crate) content_length: i64,
 }
 impl HeadObjectOutput {
     pub fn last_modified(&self) -> Option<&aws_smithy_types::DateTime> {
@@ -207,9 +207,9 @@ impl HeadObjectOutput {
 #[non_exhaustive]
 #[derive(Clone, PartialEq)]
 pub struct ListObjectsV2Output {
-    pub is_truncated: bool,
-    pub contents: Option<Vec<crate::model::Object>>,
-    pub next_continuation_token: Option<String>,
+    pub(crate) is_truncated: bool,
+    pub(crate) contents: Option<Vec<crate::model::Object>>,
+    pub(crate) next_continuation_token: Option<String>,
 }
 impl ListObjectsV2Output {
     pub fn is_truncated(&self) -> bool {
@@ -289,30 +289,43 @@ impl ListObjectsV2Output {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeleteObjectsOutput {
-    pub errors: Option<Vec<crate::model::Error>>,
+    pub(crate) deleted: Option<Vec<crate::model::DeletedObject>>,
+    pub(crate) errors: Option<Vec<crate::model::Error>>,
 }
 impl DeleteObjectsOutput {
+    pub fn deleted(&self) -> Option<&[crate::model::DeletedObject]> {
+        self.deleted.as_deref()
+    }
     pub fn errors(&self) -> Option<&[crate::model::Error]> {
         self.errors.as_deref()
-    }
-}
-impl Debug for DeleteObjectsOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("DeleteObjectsOutput");
-        formatter.field("errors", &self.errors);
-        formatter.finish()
     }
 }
 
 pub mod delete_objects_output {
 
-    #[derive(Default, Clone, PartialEq, Debug, Eq)]
+    #[derive(Default, Clone, PartialEq, Debug)]
     pub struct Builder {
+        pub(crate) deleted: Option<Vec<crate::model::DeletedObject>>,
         pub(crate) errors: Option<Vec<crate::model::Error>>,
     }
     impl Builder {
+        pub fn deleted(mut self, input: crate::model::DeletedObject) -> Self {
+            let mut v = self.deleted.unwrap_or_default();
+            v.push(input);
+            self.deleted = Some(v);
+            self
+        }
+
+        pub fn set_deleted(
+            mut self,
+            input: std::option::Option<std::vec::Vec<crate::model::DeletedObject>>,
+        ) -> Self {
+            self.deleted = input;
+            self
+        }
+
         pub fn errors(mut self, input: crate::model::Error) -> Self {
             let mut v = self.errors.unwrap_or_default();
             v.push(input);
@@ -327,6 +340,7 @@ pub mod delete_objects_output {
 
         pub fn build(self) -> crate::output::DeleteObjectsOutput {
             crate::output::DeleteObjectsOutput {
+                deleted: self.deleted,
                 errors: self.errors,
             }
         }
@@ -445,7 +459,7 @@ impl DeleteObjectOutput {
 #[non_exhaustive]
 #[derive(Clone, PartialEq)]
 pub struct GetBucketLifecycleConfigurationOutput {
-    pub rules: Option<Vec<crate::model::LifecycleRule>>,
+    pub(crate) rules: Option<Vec<crate::model::LifecycleRule>>,
 }
 impl GetBucketLifecycleConfigurationOutput {
     pub fn rules(&self) -> Option<&[crate::model::LifecycleRule]> {

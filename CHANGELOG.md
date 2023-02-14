@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.16] - 2023-02-14
+
+### Fixed
+
+- madsim: Fix `clock_gettime(CLOCK_BOOTTIME = 7)` on Linux.
+- s3: Don't return error when deleted object is not found.
+
 ## [0.2.15] - 2023-02-07
 
 ### Added
