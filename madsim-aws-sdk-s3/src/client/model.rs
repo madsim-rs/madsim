@@ -297,6 +297,87 @@ impl Error {
 }
 
 #[non_exhaustive]
+#[derive(Clone, PartialEq, Debug)]
+pub struct DeletedObject {
+    pub key: Option<String>,
+    pub version_id: Option<String>,
+    pub delete_marker: bool,
+    pub delete_marker_version_id: Option<String>,
+}
+impl DeletedObject {
+    pub fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+    pub fn version_id(&self) -> Option<&str> {
+        self.version_id.as_deref()
+    }
+    pub fn delete_marker(&self) -> bool {
+        self.delete_marker
+    }
+    pub fn delete_marker_version_id(&self) -> Option<&str> {
+        self.delete_marker_version_id.as_deref()
+    }
+}
+
+pub mod deleted_object {
+
+    #[derive(Clone, PartialEq, Default, Debug)]
+    pub struct Builder {
+        pub(crate) key: Option<String>,
+        pub(crate) version_id: Option<String>,
+        pub(crate) delete_marker: Option<bool>,
+        pub(crate) delete_marker_version_id: Option<String>,
+    }
+    impl Builder {
+        pub fn key(mut self, input: impl Into<String>) -> Self {
+            self.key = Some(input.into());
+            self
+        }
+        pub fn set_key(mut self, input: Option<String>) -> Self {
+            self.key = input;
+            self
+        }
+        pub fn version_id(mut self, input: impl Into<String>) -> Self {
+            self.version_id = Some(input.into());
+            self
+        }
+        pub fn set_version_id(mut self, input: Option<String>) -> Self {
+            self.version_id = input;
+            self
+        }
+        pub fn delete_marker(mut self, input: bool) -> Self {
+            self.delete_marker = Some(input);
+            self
+        }
+        pub fn set_delete_marker(mut self, input: Option<bool>) -> Self {
+            self.delete_marker = input;
+            self
+        }
+        pub fn delete_marker_version_id(mut self, input: impl Into<String>) -> Self {
+            self.delete_marker_version_id = Some(input.into());
+            self
+        }
+        pub fn set_delete_marker_version_id(mut self, input: Option<String>) -> Self {
+            self.delete_marker_version_id = input;
+            self
+        }
+        pub fn build(self) -> crate::model::DeletedObject {
+            crate::model::DeletedObject {
+                key: self.key,
+                version_id: self.version_id,
+                delete_marker: self.delete_marker.unwrap_or_default(),
+                delete_marker_version_id: self.delete_marker_version_id,
+            }
+        }
+    }
+}
+impl DeletedObject {
+    pub fn builder() -> crate::model::deleted_object::Builder {
+        crate::model::deleted_object::Builder::default()
+    }
+}
+
+#[non_exhaustive]
 #[derive(Clone, PartialEq)]
 pub struct Object {
     pub key: Option<String>,

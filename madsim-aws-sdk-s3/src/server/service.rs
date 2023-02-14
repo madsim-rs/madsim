@@ -1,6 +1,5 @@
 use crate::input::*;
-use crate::model::BucketLifecycleConfiguration;
-use crate::model::LifecycleRule;
+use crate::model::*;
 use crate::output::*;
 use bytes::Bytes;
 use madsim::rand::{thread_rng, Rng};
@@ -464,24 +463,20 @@ impl ServiceInner {
             .storage
             .get_mut(&bucket)
             .ok_or_else(|| DeleteObjectError::unhandled(no_such_bucket(&bucket)))?
-            .entry(key.clone());
+            .entry(key);
 
-        match object {
-            Vacant(_) => Err(DeleteObjectError::unhandled(no_such_key(&key))),
-            Occupied(mut o) => {
-                if !o.get().completed {
-                    Err(DeleteObjectError::unhandled(no_such_key(&key)))
-                } else if o.get().parts.is_empty() {
+        if let Occupied(mut o) = object {
+            if o.get().completed {
+                if o.get().parts.is_empty() {
                     o.remove();
-                    Ok(DeleteObjectOutput {})
                 } else {
                     let object = o.get_mut();
                     object.completed = false;
                     object.body.clear();
-                    Ok(DeleteObjectOutput {})
                 }
             }
         }
+        Ok(DeleteObjectOutput {})
     }
 
     fn delete_objects(
@@ -495,33 +490,15 @@ impl ServiceInner {
             .get_mut(&bucket)
             .ok_or_else(|| DeleteObjectsError::unhandled(no_such_bucket(&bucket)))?;
 
+        let mut output = DeleteObjectsOutput::builder();
         let Some(delete) = delete.objects else {
-            return Ok(DeleteObjectsOutput { errors: None });
+            return Ok(output.build());
         };
-        let delete = delete
-            .into_iter()
-            .flat_map(|i| i.key)
-            .collect::<Vec<String>>();
 
-        let mut errors = vec![];
-
-        for key in delete {
-            match bucket.entry(key.clone()) {
-                Vacant(_) => errors.push(crate::model::Error {
-                    key: Some(key),
-                    version_id: None,
-                    code: None,
-                    message: Some("key not exists".to_string()),
-                }),
-                Occupied(mut o) => {
-                    if !o.get().completed {
-                        errors.push(crate::model::Error {
-                            key: Some(key),
-                            version_id: None,
-                            code: None,
-                            message: Some("key not exists".to_string()),
-                        })
-                    } else if o.get().parts.is_empty() {
+        for key in delete.into_iter().flat_map(|i| i.key) {
+            if let Occupied(mut o) = bucket.entry(key.clone()) {
+                if o.get().completed {
+                    if o.get().parts.is_empty() {
                         o.remove();
                     } else {
                         let object = o.get_mut();
@@ -530,11 +507,9 @@ impl ServiceInner {
                     }
                 }
             }
+            output = output.deleted(DeletedObject::builder().key(key).build());
         }
-
-        Ok(DeleteObjectsOutput {
-            errors: Some(errors),
-        })
+        Ok(output.build())
     }
 
     fn head_object(
