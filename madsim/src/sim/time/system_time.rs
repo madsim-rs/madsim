@@ -61,7 +61,7 @@ unsafe extern "C" fn clock_gettime(
             // used by Instant
             libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW => instant_duration(),
             #[cfg(target_os = "linux")]
-            libc::CLOCK_MONOTONIC_COARSE => instant_duration(),
+            libc::CLOCK_MONOTONIC_COARSE | libc::CLOCK_BOOTTIME => instant_duration(),
             #[cfg(target_os = "macos")]
             libc::CLOCK_UPTIME_RAW => instant_duration(),
             _ => panic!("unsupported clockid: {clockid}"),
