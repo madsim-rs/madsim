@@ -26,7 +26,8 @@ tracing = "0.1"
 
 [target.'cfg(not(madsim))'.dependencies]
 async-trait = "0.1"
-rdkafka-sys = { version = "4.3.0", default-features = false }
+# rdkafka-sys = { version = "4.3.0", default-features = false }
+rdkafka-sys = { git = "https://github.com/MaterializeInc/rust-rdkafka", rev = "8ea07c4", default-features = false }
 futures-channel = "0.3.0"
 futures-executor = { version = "0.3.0", optional = true }
 futures-util = { version = "0.3.0", default-features = false }
