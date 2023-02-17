@@ -141,7 +141,7 @@ impl Builder {
         while let Some((seed, res)) = rt.block_on(stream.next()) {
             match res {
                 Ok(ret) => return_value = Some(ret),
-                Err(e) => super::panic_with_info(seed, self.config.hash(), e),
+                Err(e) => super::panic_with_info(seed, e),
             }
         }
         return_value.unwrap()

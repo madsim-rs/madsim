@@ -167,7 +167,6 @@ impl Runtime {
         F: Future + 'static,
         F::Output: Send,
     {
-        let hash = config.hash();
         let config0 = config.clone();
         let log = std::thread::spawn(move || {
             let rt = Runtime::with_seed_and_config(seed, config0);
@@ -176,7 +175,7 @@ impl Runtime {
             rt.rand.take_log().unwrap()
         })
         .join()
-        .map_err(|e| panic_with_info(seed, hash, e))
+        .map_err(|e| panic_with_info(seed, e))
         .unwrap();
 
         std::thread::spawn(move || {
@@ -185,16 +184,15 @@ impl Runtime {
             rt.block_on(f())
         })
         .join()
-        .map_err(|e| panic_with_info(seed, hash, e))
+        .map_err(|e| panic_with_info(seed, e))
         .unwrap()
     }
 }
 
-fn panic_with_info(seed: u64, hash: u64, payload: Box<dyn Any + Send>) -> ! {
+fn panic_with_info(seed: u64, payload: Box<dyn Any + Send>) -> ! {
     eprintln!(
         "note: run with `MADSIM_TEST_SEED={seed}` environment variable to reproduce this error"
     );
-    eprintln!("      and make sure `MADSIM_CONFIG_HASH={hash:016X}`");
     std::panic::resume_unwind(payload);
 }
 

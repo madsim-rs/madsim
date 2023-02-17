@@ -53,6 +53,7 @@ quanta = { git = "https://github.com/madsim-rs/quanta.git", rev = "a819877" }
 getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "cc95ee3" }
 tokio-retry = { git = "https://github.com/madsim-rs/rust-tokio-retry.git", rev = "95e2fd3" }
 tokio-postgres = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "1b392f1" }
+tokio-stream = { git = "https://github.com/madsim-rs/tokio.git", rev = "0c25710" }
 ```
 
 When built normally, these crates are identical to the original ones.

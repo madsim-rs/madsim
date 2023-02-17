@@ -6,13 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- etcd: Support "etcdserver: request is too large".
+## [0.2.17] - 2023-02-17
 
 ### Fixed
 
 - madsim: Prevent deadlock when killing a node.
+- etcd: Support "etcdserver: request is too large".
+- s3: Make fields public for `*Output` structs.
 
 ## [0.2.16] - 2023-02-14
 

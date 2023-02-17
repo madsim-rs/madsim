@@ -1,23 +1,17 @@
 use crate::types::ByteStream;
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::Debug;
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UploadPartOutput {
-    pub(crate) e_tag: Option<String>,
+    pub e_tag: Option<String>,
 }
 impl UploadPartOutput {
     pub fn e_tag(&self) -> Option<&str> {
         self.e_tag.as_deref()
     }
 }
-impl Debug for UploadPartOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("UploadPartOutput");
-        formatter.field("e_tag", &self.e_tag);
-        formatter.finish()
-    }
-}
+
 pub mod upload_part_output {
 
     #[derive(Default, Clone, PartialEq, Debug, Eq)]
@@ -47,22 +41,16 @@ impl UploadPartOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateMultipartUploadOutput {
-    pub(crate) upload_id: Option<String>,
+    pub upload_id: Option<String>,
 }
 impl CreateMultipartUploadOutput {
     pub fn upload_id(&self) -> Option<&str> {
         self.upload_id.as_deref()
     }
 }
-impl Debug for CreateMultipartUploadOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("CreateMultipartUploadOutput");
-        formatter.field("upload_id", &self.upload_id);
-        formatter.finish()
-    }
-}
+
 pub mod create_multipart_output {
 
     #[derive(Default, Clone, PartialEq, Debug, Eq)]
@@ -94,6 +82,7 @@ impl CreateMultipartUploadOutput {
 }
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub struct GetObjectOutput {
     pub body: ByteStream,
 }
@@ -102,13 +91,7 @@ impl GetObjectOutput {
         &self.body
     }
 }
-impl Debug for GetObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("GetObjectOutput");
-        formatter.field("body", &self.body);
-        formatter.finish()
-    }
-}
+
 pub mod get_object_output {
 
     #[derive(Default, Debug)]
@@ -140,10 +123,10 @@ impl GetObjectOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HeadObjectOutput {
-    pub(crate) last_modified: Option<crate::types::DateTime>,
-    pub(crate) content_length: i64,
+    pub last_modified: Option<crate::types::DateTime>,
+    pub content_length: i64,
 }
 impl HeadObjectOutput {
     pub fn last_modified(&self) -> Option<&aws_smithy_types::DateTime> {
@@ -154,14 +137,7 @@ impl HeadObjectOutput {
         self.content_length
     }
 }
-impl Debug for HeadObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("HeadObjectOutput");
-        formatter.field("last_modified", &self.last_modified);
-        formatter.field("content_length", &self.content_length);
-        formatter.finish()
-    }
-}
+
 pub mod head_object_output {
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -205,11 +181,11 @@ impl HeadObjectOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ListObjectsV2Output {
-    pub(crate) is_truncated: bool,
-    pub(crate) contents: Option<Vec<crate::model::Object>>,
-    pub(crate) next_continuation_token: Option<String>,
+    pub is_truncated: bool,
+    pub contents: Option<Vec<crate::model::Object>>,
+    pub next_continuation_token: Option<String>,
 }
 impl ListObjectsV2Output {
     pub fn is_truncated(&self) -> bool {
@@ -220,15 +196,6 @@ impl ListObjectsV2Output {
     }
     pub fn next_continuation_token(&self) -> Option<&str> {
         self.next_continuation_token.as_deref()
-    }
-}
-impl Debug for ListObjectsV2Output {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("ListObjectsV2Output");
-        formatter.field("is_truncated", &self.is_truncated);
-        formatter.field("contents", &self.contents);
-        formatter.field("next_continuation_token", &self.next_continuation_token);
-        formatter.finish()
     }
 }
 
@@ -291,8 +258,8 @@ impl ListObjectsV2Output {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteObjectsOutput {
-    pub(crate) deleted: Option<Vec<crate::model::DeletedObject>>,
-    pub(crate) errors: Option<Vec<crate::model::Error>>,
+    pub deleted: Option<Vec<crate::model::DeletedObject>>,
+    pub errors: Option<Vec<crate::model::Error>>,
 }
 impl DeleteObjectsOutput {
     pub fn deleted(&self) -> Option<&[crate::model::DeletedObject]> {
@@ -353,15 +320,10 @@ impl DeleteObjectsOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompleteMultipartUploadOutput {}
 impl CompleteMultipartUploadOutput {}
-impl Debug for CompleteMultipartUploadOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("CompleteMultipartUploadOutput");
-        formatter.finish()
-    }
-}
+
 pub mod complete_multipart_upload_output {
 
     #[derive(Default, Clone, PartialEq, Debug, Eq)]
@@ -379,15 +341,10 @@ impl CompleteMultipartUploadOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbortMultipartUploadOutput {}
 impl AbortMultipartUploadOutput {}
-impl Debug for AbortMultipartUploadOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("AbortMultipartUploadOutput");
-        formatter.finish()
-    }
-}
+
 pub mod abort_multipart_upload_output {
 
     #[derive(Default, Clone, PartialEq, Debug, Eq)]
@@ -405,15 +362,10 @@ impl AbortMultipartUploadOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PutObjectOutput {}
 impl PutObjectOutput {}
-impl Debug for PutObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("PutObjectOutput");
-        formatter.finish()
-    }
-}
+
 pub mod put_object_output {
 
     #[derive(Default, Clone, PartialEq, Debug, Eq)]
@@ -431,15 +383,10 @@ impl PutObjectOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteObjectOutput {}
 impl DeleteObjectOutput {}
-impl Debug for DeleteObjectOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("DeleteObjectOutput");
-        formatter.finish()
-    }
-}
+
 pub mod delete_object_output {
 
     #[derive(Default, Clone, PartialEq, Debug, Eq)]
@@ -457,22 +404,16 @@ impl DeleteObjectOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GetBucketLifecycleConfigurationOutput {
-    pub(crate) rules: Option<Vec<crate::model::LifecycleRule>>,
+    pub rules: Option<Vec<crate::model::LifecycleRule>>,
 }
 impl GetBucketLifecycleConfigurationOutput {
     pub fn rules(&self) -> Option<&[crate::model::LifecycleRule]> {
         self.rules.as_deref()
     }
 }
-impl Debug for GetBucketLifecycleConfigurationOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("GetBucketLifecycleConfigurationOutput");
-        formatter.field("rules", &self.rules);
-        formatter.finish()
-    }
-}
+
 pub mod get_bucket_lifecycle_configuration_output {
 
     #[derive(Default, Clone, PartialEq, Debug)]
@@ -502,14 +443,9 @@ impl GetBucketLifecycleConfigurationOutput {
 }
 
 #[non_exhaustive]
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PutBucketLifecycleConfigurationOutput {}
-impl Debug for PutBucketLifecycleConfigurationOutput {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let mut formatter = f.debug_struct("PutBucketLifecycleConfigurationOutput");
-        formatter.finish()
-    }
-}
+
 pub mod put_bucket_lifecycle_configuration_output {
 
     #[derive(Default, Clone, PartialEq, Eq, Debug)]

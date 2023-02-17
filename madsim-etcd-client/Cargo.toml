@@ -1,6 +1,6 @@
 [package]
 name = "madsim-etcd-client"
-version = "0.2.15"
+version = "0.2.17"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The etcd simulator on madsim."
