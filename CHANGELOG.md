@@ -6,9 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- etcd: Support "etcdserver: request is too large".
+
 ### Fixed
 
-- etcd: support "etcdserver: request is too large".
+- madsim: Prevent deadlock when killing a node.
 
 ## [0.2.16] - 2023-02-14
 
