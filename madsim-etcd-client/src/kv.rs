@@ -304,6 +304,13 @@ impl Txn {
         self.failure = operations.into();
         self
     }
+
+    /// Returns the size of the operation.
+    pub(crate) fn size(&self) -> usize {
+        self.compare.iter().map(|c| c.size()).sum::<usize>()
+            + self.success.iter().map(|c| c.size()).sum::<usize>()
+            + self.failure.iter().map(|c| c.size()).sum::<usize>()
+    }
 }
 
 /// Transaction comparison.
@@ -333,6 +340,11 @@ impl Compare {
             value: value.into().into(),
             op: cmp,
         }
+    }
+
+    /// Returns the size of the operation.
+    pub(crate) fn size(&self) -> usize {
+        self.key.len() + self.value.len()
     }
 }
 
@@ -394,6 +406,16 @@ impl TxnOp {
     #[inline]
     pub fn txn(txn: Txn) -> Self {
         TxnOp::Txn { txn }
+    }
+
+    /// Returns the size of the operation.
+    pub(crate) fn size(&self) -> usize {
+        match self {
+            TxnOp::Put { key, value, .. } => key.len() + value.len(),
+            TxnOp::Get { key, .. } => key.len(),
+            TxnOp::Delete { key, .. } => key.len(),
+            TxnOp::Txn { txn } => txn.size(),
+        }
     }
 }
 
