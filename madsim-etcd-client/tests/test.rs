@@ -51,7 +51,7 @@ async fn kv() {
 
         // error: request is too large
         let e = client
-            .put("large", vec![1; 0x200_000], None)
+            .put("large", vec![1; 0x20_0000], None) // 2 MiB
             .await
             .unwrap_err();
         assert!(e.to_string().contains("etcdserver: request is too large"));

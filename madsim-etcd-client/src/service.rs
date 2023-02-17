@@ -34,7 +34,7 @@ impl EtcdService {
         });
         EtcdService {
             timeout_rate,
-            max_request_bytes: 0x180_000, // 1.5 MiB
+            max_request_bytes: 0x18_0000, // 1.5 MiB
             inner,
         }
     }
