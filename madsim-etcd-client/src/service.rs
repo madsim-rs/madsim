@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 #[derive(Debug)]
 pub struct EtcdService {
     timeout_rate: f32,
-    /// The maximum size of any request. 1.5 MiB
+    /// The maximum size of any request.
     max_request_bytes: usize,
     inner: Arc<Mutex<ServiceInner>>,
 }
@@ -34,7 +34,7 @@ impl EtcdService {
         });
         EtcdService {
             timeout_rate,
-            max_request_bytes: 1_572_864,
+            max_request_bytes: 0x180_000, // 1.5 MiB
             inner,
         }
     }

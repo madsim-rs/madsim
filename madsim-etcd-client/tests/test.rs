@@ -48,6 +48,13 @@ async fn kv() {
         );
         // delete kv
         client.delete("foo", None).await.unwrap();
+
+        // error: request is too large
+        let e = client
+            .put("large", vec![1; 0x200_000], None)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("etcdserver: request is too large"));
     });
     task1.await.unwrap();
 }
