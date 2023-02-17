@@ -82,6 +82,8 @@ pub(crate) struct NodeInfo {
     ///
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
+    /// Temporary store of all runnables when the node is being killed.
+    runnables: Mutex<Vec<Runnable>>,
     /// Sender of the "ctrl-c" signal.
     ///
     /// This value is `None` at the beginning, meaning that `signal::ctrl_c` has never been called,
@@ -100,6 +102,12 @@ impl NodeInfo {
             // name,
             node: self.clone(),
         })
+    }
+
+    fn kill(&self) {
+        self.killed.store(true, Ordering::Relaxed);
+        self.wakers.lock().drain(..).for_each(Waker::wake);
+        self.runnables.lock().clear();
     }
 
     pub(crate) fn is_killed(&self) -> bool {
@@ -136,6 +144,7 @@ impl Executor {
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     wakers: Mutex::new(vec![]),
+                    runnables: Mutex::new(vec![]),
                     ctrl_c: Mutex::new(None),
                 }),
                 sims,
@@ -274,8 +283,7 @@ impl TaskHandle {
         let mut nodes = self.nodes.lock();
         let node = nodes.get_mut(&id).expect("node not found");
         node.paused.clear();
-        node.info.killed.store(true, Ordering::Relaxed);
-        node.info.wakers.lock().drain(..).for_each(Waker::wake);
+        node.info.kill();
 
         for sim in self.sims.lock().values() {
             sim.reset_node(id);
@@ -297,12 +305,12 @@ impl TaskHandle {
             restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
             wakers: Mutex::new(vec![]),
+            runnables: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
         node.paused.clear();
-        old_info.killed.store(true, Ordering::Relaxed);
-        old_info.wakers.lock().drain(..).for_each(Waker::wake);
+        old_info.kill();
 
         if let Some(init) = &node.init {
             init(&Spawner {
@@ -379,6 +387,7 @@ impl TaskHandle {
             killed: AtomicBool::new(false),
             restart_on_panic,
             wakers: Mutex::new(vec![]),
+            runnables: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let handle = Spawner {
@@ -509,7 +518,8 @@ impl Spawner {
             // the task's Waker must be used and dropped on the original thread.
             async_task::spawn_unchecked(future, move |runnable| {
                 if info.node.killed.load(Ordering::Relaxed) {
-                    // drop the future
+                    // store the runnable for later drop
+                    info.node.runnables.lock().push(runnable);
                     return;
                 }
                 trace!(%id, name, "wake task");
@@ -529,8 +539,7 @@ impl Spawner {
     pub(crate) fn exit(&self) {
         debug!(node = %self.info.id, "exit");
         // FIXME: clear paused tasks
-        self.info.killed.store(true, Ordering::Relaxed);
-        self.info.wakers.lock().drain(..).for_each(Waker::wake);
+        self.info.kill();
     }
 }
 
