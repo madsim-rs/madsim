@@ -12,6 +12,8 @@ use tokio::sync::mpsc;
 #[derive(Debug)]
 pub struct EtcdService {
     timeout_rate: f32,
+    /// The maximum size of any request.
+    max_request_bytes: usize,
     inner: Arc<Mutex<ServiceInner>>,
 }
 
@@ -32,6 +34,7 @@ impl EtcdService {
         });
         EtcdService {
             timeout_rate,
+            max_request_bytes: 0x18_0000, // 1.5 MiB
             inner,
         }
     }
@@ -41,24 +44,28 @@ impl EtcdService {
     }
 
     pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
+        self.assert_request_size(key.len() + value.len())?;
         self.timeout().await?;
         let rsp = self.inner.lock().put(key, value, options)?;
         Ok(rsp)
     }
 
     pub async fn get(&self, key: Key, options: GetOptions) -> Result<GetResponse> {
+        self.assert_request_size(key.len())?;
         self.timeout().await?;
         let rsp = self.inner.lock().get(key, options);
         Ok(rsp)
     }
 
     pub async fn delete(&self, key: Key, options: DeleteOptions) -> Result<DeleteResponse> {
+        self.assert_request_size(key.len())?;
         self.timeout().await?;
         let rsp = self.inner.lock().delete(key, options);
         Ok(rsp)
     }
 
     pub async fn txn(&self, txn: Txn) -> Result<TxnResponse> {
+        self.assert_request_size(txn.size())?;
         self.timeout().await?;
         let rsp = self.inner.lock().txn(txn);
         Ok(rsp)
@@ -95,6 +102,7 @@ impl EtcdService {
     }
 
     pub async fn campaign(&self, name: Key, value: Value, lease: i64) -> Result<CampaignResponse> {
+        self.assert_request_size(name.len() + value.len())?;
         self.timeout().await?;
         loop {
             let mut rx = match self.inner.lock().campaign(&name, &value, lease)? {
@@ -106,21 +114,25 @@ impl EtcdService {
     }
 
     pub async fn proclaim(&self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
+        self.assert_request_size(leader.size() + value.len())?;
         self.timeout().await?;
         self.inner.lock().proclaim(leader, value)
     }
 
     pub async fn leader(&self, name: Key) -> Result<LeaderResponse> {
+        self.assert_request_size(name.len())?;
         self.timeout().await?;
         self.inner.lock().leader(name)
     }
 
     pub async fn observe(&self, name: Key) -> Result<mpsc::Receiver<Event>> {
+        self.assert_request_size(name.len())?;
         self.timeout().await?;
         self.inner.lock().observe(name)
     }
 
     pub async fn resign(&self, leader: LeaderKey) -> Result<ResignResponse> {
+        self.assert_request_size(leader.size())?;
         self.timeout().await?;
         self.inner.lock().resign(leader)
     }
@@ -143,6 +155,16 @@ impl EtcdService {
             return Err(Error::GRpcStatus(tonic::Status::new(
                 tonic::Code::Unavailable,
                 "etcdserver: request timed out",
+            )));
+        }
+        Ok(())
+    }
+
+    fn assert_request_size(&self, size: usize) -> Result<()> {
+        if size > self.max_request_bytes {
+            return Err(Error::GRpcStatus(tonic::Status::new(
+                tonic::Code::InvalidArgument,
+                "etcdserver: request is too large",
             )));
         }
         Ok(())

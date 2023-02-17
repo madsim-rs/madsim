@@ -242,6 +242,11 @@ impl LeaderKey {
     pub const fn lease(&self) -> i64 {
         self.lease
     }
+
+    /// Return the request size.
+    pub(crate) fn size(&self) -> usize {
+        self.name.len() + self.key.len() + 16
+    }
 }
 
 /// Response for `Proclaim` operation.
