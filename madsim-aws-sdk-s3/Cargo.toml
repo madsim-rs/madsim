@@ -1,6 +1,6 @@
 [package]
 name = "madsim-aws-sdk-s3"
-version = "0.2.16"
+version = "0.2.17"
 edition = "2021"
 authors = ["Kevin Axel <kevinaxel@163.com>"]
 description = "The s3 simulator on madsim."
