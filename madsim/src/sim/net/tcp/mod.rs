@@ -273,8 +273,12 @@ mod tests {
             ipvs.add_server(ServiceAddr::Tcp("1.1.1.1:80".into()), "10.0.0.2:1");
         });
 
+        let barrier = Arc::new(Barrier::new(3));
+        let barrier1 = barrier.clone();
+        let barrier2 = barrier.clone();
         let f1 = node1.spawn(async move {
             let listener = TcpListener::bind("0.0.0.0:1").await.unwrap();
+            barrier1.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
 
             let mut buf = [0; 20];
@@ -283,6 +287,7 @@ mod tests {
         });
         let f2 = node2.spawn(async move {
             let listener = TcpListener::bind("0.0.0.0:1").await.unwrap();
+            barrier2.wait().await;
             let (mut stream, _) = listener.accept().await.unwrap();
 
             let mut buf = [0; 20];
@@ -290,6 +295,7 @@ mod tests {
             assert_eq!(&buf[0..len], b"2");
         });
         let f3 = node3.spawn(async move {
+            barrier.wait().await;
             let mut stream1 = TcpStream::connect("1.1.1.1:80").await.unwrap(); // go to node1
             let mut stream2 = TcpStream::connect("1.1.1.1:80").await.unwrap(); // go to node2
             stream1.write_all(b"1").await.unwrap();
