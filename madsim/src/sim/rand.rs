@@ -2,10 +2,8 @@
 //!
 //! This module re-exports the [`rand`] crate, except for the random number generators.
 
-use rand::{
-    distributions::Standard,
-    prelude::{Distribution, SmallRng},
-};
+use rand::{distributions::Standard, prelude::Distribution};
+use rand_xoshiro::Xoshiro256PlusPlus;
 
 use spin::Mutex;
 use std::cell::Cell;
@@ -33,7 +31,7 @@ pub struct GlobalRng {
 
 struct Inner {
     seed: u64,
-    rng: SmallRng,
+    rng: Xoshiro256PlusPlus,
     log: Option<Vec<u8>>,
     check: Option<(Vec<u8>, usize)>,
     buggify: bool,
@@ -63,7 +61,7 @@ impl GlobalRng {
     }
 
     /// Call function on the inner RNG.
-    pub(crate) fn with<T>(&self, f: impl FnOnce(&mut SmallRng) -> T) -> T {
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&mut Xoshiro256PlusPlus) -> T) -> T {
         let mut lock = self.inner.lock();
         let ret = f(&mut lock.rng);
         // log or check
