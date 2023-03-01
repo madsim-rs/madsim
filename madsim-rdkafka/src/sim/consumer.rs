@@ -286,9 +286,12 @@ where
     }
 }
 
-impl StreamConsumer {
+impl<C> StreamConsumer<C>
+where
+    C: ConsumerContext,
+{
     /// Constructs a stream that yields messages from this consumer.
-    pub fn stream(&self) -> MessageStream<'_> {
+    pub fn stream(&self) -> MessageStream<'_, C> {
         MessageStream {
             _consumer: self,
             rx: self.rx.clone(),
@@ -296,12 +299,18 @@ impl StreamConsumer {
     }
 }
 
-pub struct MessageStream<'a> {
-    _consumer: &'a StreamConsumer,
+pub struct MessageStream<'a, C>
+where
+    C: ConsumerContext,
+{
+    _consumer: &'a StreamConsumer<C>,
     rx: async_channel::Receiver<KafkaResult<OwnedMessage>>,
 }
 
-impl<'a> Stream for MessageStream<'a> {
+impl<'a, C> Stream for MessageStream<'a, C>
+where
+    C: ConsumerContext,
+{
     type Item = KafkaResult<BorrowedMessage<'a>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
