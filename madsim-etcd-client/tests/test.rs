@@ -1,7 +1,9 @@
 #![cfg(madsim)]
 
 use madsim::{net::NetSim, runtime::Handle, time::sleep};
-use madsim_etcd_client::{Client, ProclaimOptions, PutOptions, ResignOptions, SimServer};
+use madsim_etcd_client::{
+    Client, GetOptions, ProclaimOptions, PutOptions, ResignOptions, SimServer,
+};
 use std::time::Duration;
 
 #[madsim::test]
@@ -201,6 +203,7 @@ async fn election() {
     // observer
     let task3 = client3.spawn(async move {
         let client = Client::connect(["10.0.0.1:2379"], None).await.unwrap();
+        let mut kv_client = client.kv_client();
         let mut client = client.election_client();
 
         let mut leader_stream = client.observe("leader").await.unwrap();
@@ -208,6 +211,15 @@ async fn election() {
         assert_eq!(resp.kv().unwrap().value(), b"1");
         let resp = leader_stream.message().await.unwrap().unwrap();
         assert_eq!(resp.kv().unwrap().value(), b"1.1");
+
+        // sleep for a while to make sure client2 has campaigned
+        sleep(Duration::from_secs(15)).await;
+
+        // should have 2 keys with prefix "leader"
+        let opt = GetOptions::new().with_prefix();
+        let resp = kv_client.get("leader", Some(opt)).await.unwrap();
+        assert_eq!(resp.kvs().len(), 2);
+
         let resp = leader_stream.message().await.unwrap().unwrap();
         assert_eq!(resp.kv().unwrap().value(), b"2");
     });
