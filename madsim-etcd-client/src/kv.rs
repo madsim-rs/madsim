@@ -507,7 +507,7 @@ impl TxnResponse {
 }
 
 /// Key-value pair.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyValue {
     pub(crate) key: Bytes,
     pub(crate) value: Bytes,

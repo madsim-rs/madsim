@@ -39,10 +39,6 @@ impl EtcdService {
         }
     }
 
-    pub fn header(&self) -> ResponseHeader {
-        self.inner.lock().header()
-    }
-
     pub async fn put(&self, key: Key, value: Value, options: PutOptions) -> Result<PutResponse> {
         self.assert_request_size(key.len() + value.len())?;
         self.timeout().await?;
@@ -104,12 +100,25 @@ impl EtcdService {
     pub async fn campaign(&self, name: Key, value: Value, lease: i64) -> Result<CampaignResponse> {
         self.assert_request_size(name.len() + value.len())?;
         self.timeout().await?;
+        let (key, mut rx) = match self.inner.lock().campaign(&name, &value, lease)? {
+            Ok(resp) => return Ok(resp),
+            Err(e) => e,
+        };
         loop {
-            let mut rx = match self.inner.lock().campaign(&name, &value, lease)? {
-                Ok(rsp) => return Ok(rsp),
-                Err(rx) => rx,
-            };
             rx.recv().await.expect("sender should not drop");
+            let leader = self.inner.lock().leader(name.clone());
+            let kv = leader.kv.unwrap();
+            if kv.key == key {
+                return Ok(CampaignResponse {
+                    header: leader.header,
+                    leader: LeaderKey {
+                        name,
+                        key,
+                        rev: kv.modify_revision,
+                        lease: kv.lease,
+                    },
+                });
+            }
         }
     }
 
@@ -122,10 +131,15 @@ impl EtcdService {
     pub async fn leader(&self, name: Key) -> Result<LeaderResponse> {
         self.assert_request_size(name.len())?;
         self.timeout().await?;
+        Ok(self.inner.lock().leader(name))
+    }
+
+    // A sync version of leader, for use in observe.
+    pub fn _leader(&self, name: Key) -> LeaderResponse {
         self.inner.lock().leader(name)
     }
 
-    pub async fn observe(&self, name: Key) -> Result<mpsc::Receiver<Event>> {
+    pub async fn observe(&self, name: Key) -> Result<(LeaderResponse, mpsc::Receiver<Event>)> {
         self.assert_request_size(name.len())?;
         self.timeout().await?;
         self.inner.lock().observe(name)
@@ -189,43 +203,23 @@ struct EventBus {
 
 #[derive(Debug)]
 enum EventPattern {
-    Leader(Key),
     Prefix(Key),
 }
 
 impl EventPattern {
     fn is_match(&self, event: &Event) -> bool {
         match self {
-            Self::Leader(prefix) => {
-                event.kv.key.starts_with(prefix) && event.event_type == EventType::Delete
-            }
-            Self::Prefix(prefix) => event.kv.key.starts_with(prefix),
+            Self::Prefix(prefix) => match event {
+                Event::Put(kv) | Event::Delete(kv) => kv.key.starts_with(prefix),
+            },
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Event {
-    pub event_type: EventType,
-    pub kv: KeyValue,
-}
-
-impl Event {
-    /// Returns a put event.
-    fn put(kv: KeyValue) -> Self {
-        Self {
-            event_type: EventType::Put,
-            kv,
-        }
-    }
-
-    /// Returns a delete event.
-    fn delete(prev_kv: KeyValue) -> Self {
-        Self {
-            event_type: EventType::Delete,
-            kv: prev_kv,
-        }
-    }
+pub enum Event {
+    Put(KeyValue),
+    Delete(KeyValue),
 }
 
 impl EventBus {
@@ -315,7 +309,7 @@ impl ServiceInner {
             modify_revision: self.revision,
         };
         *self.kv.entry(key).or_default() = kv.clone();
-        self.watcher.publish(Event::put(kv));
+        self.watcher.publish(Event::Put(kv));
 
         Ok(PutResponse {
             header: self.header(),
@@ -356,7 +350,7 @@ impl ServiceInner {
                 let lease = self.lease.get_mut(&kv.lease).expect("no lease");
                 lease.keys.remove(&key);
             }
-            self.watcher.publish(Event::delete(kv));
+            self.watcher.publish(Event::Delete(kv));
         }
         DeleteResponse {
             header: self.header(),
@@ -424,7 +418,7 @@ impl ServiceInner {
         for key in lease.keys {
             tracing::trace!(?key, "delete");
             let kv = self.kv.remove(&key).expect("no key");
-            self.watcher.publish(Event::delete(kv));
+            self.watcher.publish(Event::Delete(kv));
         }
         self.revision += 1;
         Ok(LeaseRevokeResponse {
@@ -477,7 +471,7 @@ impl ServiceInner {
                 for key in &lease.keys {
                     tracing::trace!(?key, "delete");
                     let kv = self.kv.remove(key).expect("no key");
-                    self.watcher.publish(Event::delete(kv));
+                    self.watcher.publish(Event::Delete(kv));
                 }
                 false
             } else {
@@ -494,21 +488,15 @@ impl ServiceInner {
         name: &Key,
         value: &Value,
         lease: i64,
-    ) -> Result<std::result::Result<CampaignResponse, mpsc::Receiver<Event>>> {
-        if self.get_prefix_range(name.clone()).next().is_some() {
-            // the election name is occupied
-            let (tx, rx) = mpsc::channel(1);
-            self.watcher
-                .subscribe(EventPattern::Leader(name.clone()), tx);
-            return Ok(Err(rx));
-        }
-        tracing::trace!(?name, ?value, lease, "new leader");
+    ) -> Result<std::result::Result<CampaignResponse, (Bytes, mpsc::Receiver<Event>)>> {
+        tracing::trace!(?name, ?value, lease, "campaign");
 
         // key = format!("{name}/{lease:016x}")
         let mut key = name.clone();
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
+        self.revision += 1;
         let kv = KeyValue {
             key: key.clone(),
             value: value.clone(),
@@ -522,18 +510,24 @@ impl ServiceInner {
             .keys
             .insert(key.clone());
         self.kv.insert(key.clone(), kv.clone());
-        self.watcher.publish(Event::put(kv));
-        self.revision += 1;
+        self.watcher.publish(Event::Put(kv));
 
-        Ok(Ok(CampaignResponse {
-            header: self.header(),
-            leader: LeaderKey {
-                name: name.clone(),
-                key,
-                rev: self.revision,
-                lease,
-            },
-        }))
+        if self.leader(name.clone()).kv.unwrap().key == key {
+            Ok(Ok(CampaignResponse {
+                header: self.header(),
+                leader: LeaderKey {
+                    name: name.clone(),
+                    key,
+                    rev: self.revision,
+                    lease,
+                },
+            }))
+        } else {
+            let (tx, rx) = mpsc::channel(4);
+            self.watcher
+                .subscribe(EventPattern::Prefix(name.clone()), tx);
+            Ok(Err((key, rx)))
+        }
     }
 
     fn proclaim(&mut self, leader: LeaderKey, value: Value) -> Result<ProclaimResponse> {
@@ -544,7 +538,7 @@ impl ServiceInner {
                 self.revision += 1;
                 entry.get_mut().value = value;
                 entry.get_mut().modify_revision = self.revision;
-                self.watcher.publish(Event::put(entry.get_mut().clone()));
+                self.watcher.publish(Event::Put(entry.get_mut().clone()));
             }
         }
         Ok(ProclaimResponse {
@@ -552,24 +546,30 @@ impl ServiceInner {
         })
     }
 
-    fn leader(&self, name: Key) -> Result<LeaderResponse> {
-        Ok(LeaderResponse {
+    fn leader(&self, name: Key) -> LeaderResponse {
+        LeaderResponse {
             header: self.header(),
-            kv: self.get_prefix_range(name).next().map(|(_, v)| v.clone()),
-        })
+            kv: self
+                .get_prefix_range(name)
+                .min_by_key(|(_, v)| v.create_revision)
+                .map(|(_, v)| v.clone()),
+        }
     }
 
-    fn observe(&mut self, name: Key) -> Result<mpsc::Receiver<Event>> {
+    // NOTE: This function returns an event stream of the prefix `name`.
+    //       Caller should check the leader on each event, since the leader may not change.
+    fn observe(&mut self, name: Key) -> Result<(LeaderResponse, mpsc::Receiver<Event>)> {
         tracing::trace!(?name, "observe");
-        let (tx, rx) = mpsc::channel(10);
-        self.watcher.subscribe(EventPattern::Prefix(name), tx);
-        Ok(rx)
+        let (tx, rx) = mpsc::channel(4);
+        self.watcher
+            .subscribe(EventPattern::Prefix(name.clone()), tx);
+        Ok((self.leader(name), rx))
     }
 
     fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
         tracing::trace!(name = ?leader.name, "resign");
         let kv = self.kv.remove(&leader.key).ok_or_else(session_expired)?;
-        self.watcher.publish(Event::delete(kv));
+        self.watcher.publish(Event::Delete(kv));
         self.revision += 1;
         Ok(ResignResponse {
             header: self.header(),
