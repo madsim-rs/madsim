@@ -1,7 +1,7 @@
 use madsim::net::{Endpoint, Payload};
 use std::{io::Result, net::SocketAddr, sync::Arc};
 
-use super::{election::*, kv::*, service::EtcdService, Bytes, EventType};
+use super::{election::*, kv::*, service::EtcdService, Bytes};
 
 /// A simulated etcd server.
 #[derive(Default, Clone)]
@@ -68,21 +68,19 @@ impl SimServer {
                             Box::new(service.proclaim(leader, value).await)
                         }
                         Request::Leader { name } => Box::new(service.leader(name).await),
-                        Request::Observe { name } => match service.observe(name).await {
+                        Request::Observe { name } => match service.observe(name.clone()).await {
                             Err(e) => {
                                 let res: super::Result<LeaderResponse> = Err(e);
                                 Box::new(res)
                             }
-                            Ok(mut stream) => {
-                                while let Some(event) = stream.recv().await {
-                                    if event.event_type != EventType::Put {
+                            Ok((mut leader, mut stream)) => {
+                                while stream.recv().await.is_some() {
+                                    let new_leader = service._leader(name.clone());
+                                    if new_leader.kv == leader.kv {
                                         continue;
                                     }
-                                    let response: super::Result<LeaderResponse> =
-                                        Ok(LeaderResponse {
-                                            header: service.header(),
-                                            kv: Some(event.kv),
-                                        });
+                                    leader = new_leader.clone();
+                                    let response: super::Result<LeaderResponse> = Ok(new_leader);
                                     if tx.send(Box::new(response) as Payload).await.is_err() {
                                         return Ok(());
                                     }
