@@ -32,6 +32,15 @@ impl AnotherGreeter for MyGreeter {
         };
         Ok(Response::new(reply))
     }
+
+    async fn delay(&self, request: Request<HelloRequest>) -> Result<Response<HelloReply>, Status> {
+        println!("Got a request: {request:?}");
+        sleep(Duration::from_secs(10)).await;
+        let reply = HelloReply {
+            message: format!("Hi {}!", request.into_inner().name),
+        };
+        Ok(Response::new(reply))
+    }
 }
 
 #[tonic::async_trait]

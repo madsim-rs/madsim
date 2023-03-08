@@ -12,6 +12,7 @@ use tonic::{
 pub struct Endpoint {
     uri: Uri,
     timeout: Option<Duration>,
+    connect_timeout: Option<Duration>,
 }
 
 impl Endpoint {
@@ -38,16 +39,37 @@ impl Endpoint {
         Ok(Self::from(uri))
     }
 
+    /// Apply a timeout to each request.
+    pub fn timeout(self, dur: Duration) -> Self {
+        Endpoint {
+            timeout: Some(dur),
+            ..self
+        }
+    }
+
     /// Apply a timeout to connecting to the uri.
     ///
     /// Defaults to no timeout.
-    pub fn connect_timeout(mut self, dur: Duration) -> Self {
-        self.timeout = Some(dur);
-        self
+    pub fn connect_timeout(self, dur: Duration) -> Self {
+        Endpoint {
+            connect_timeout: Some(dur),
+            ..self
+        }
     }
 
     /// Create a channel from this config.
     pub async fn connect(&self) -> Result<Channel, Error> {
+        if let Some(dur) = self.connect_timeout {
+            madsim::time::timeout(dur, self.connect_inner())
+                .await
+                .map_err(Error::from_source)?
+        } else {
+            self.connect_inner().await
+        }
+    }
+
+    // Connect without timeout.
+    async fn connect_inner(&self) -> Result<Channel, Error> {
         let host_port = (self.uri.authority())
             .ok_or_else(Error::new_invalid_uri)?
             .as_str();
@@ -63,7 +85,10 @@ impl Endpoint {
         // handshake
         ep.connect1(addr).await.map_err(Error::from_source)?;
 
-        Ok(Channel { ep: Arc::new(ep) })
+        Ok(Channel {
+            ep: Arc::new(ep),
+            timeout: self.timeout,
+        })
     }
 
     /// Set a custom user-agent header.
@@ -145,7 +170,11 @@ impl Endpoint {
 
 impl From<Uri> for Endpoint {
     fn from(uri: Uri) -> Self {
-        Self { uri, timeout: None }
+        Self {
+            uri,
+            timeout: None,
+            connect_timeout: None,
+        }
     }
 }
 
@@ -169,6 +198,7 @@ impl TryFrom<String> for Endpoint {
 #[derive(Clone)]
 pub struct Channel {
     pub(crate) ep: Arc<madsim::net::Endpoint>,
+    pub(crate) timeout: Option<Duration>,
 }
 
 impl fmt::Debug for Channel {

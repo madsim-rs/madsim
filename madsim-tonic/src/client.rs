@@ -1,5 +1,8 @@
 //! Generic client implementation.
 
+use std::future::Future;
+use std::time::Duration;
+
 use futures_util::{pin_mut, Stream, StreamExt};
 use tonic::codegen::http::uri::PathAndQuery;
 use tracing::instrument;
@@ -56,19 +59,23 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        request.append_metadata();
-        let request = request.intercept(&mut self.interceptor)?.boxed();
-        let addr = self.inner.ep.peer_addr().unwrap();
-        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
-        // send request
-        tx.send(Box::new((path, false, request))).await?;
-        // receive response
-        let rsp = rx.recv().await?;
-        let rsp = *rsp
-            .downcast::<Result<Response<BoxMessage>, Status>>()
-            .expect("message type mismatch");
-        let rsp = rsp?.map(|msg| *msg.downcast().expect("message type mismatch"));
-        Ok(rsp)
+        let timeout = self.inner.timeout;
+        let future = async move {
+            request.append_metadata();
+            let request = request.intercept(&mut self.interceptor)?.boxed();
+            let addr = self.inner.ep.peer_addr().unwrap();
+            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            // send request
+            tx.send(Box::new((path, false, request))).await?;
+            // receive response
+            let rsp = rx.recv().await?;
+            let rsp = *rsp
+                .downcast::<Result<Response<BoxMessage>, Status>>()
+                .expect("message type mismatch");
+            let rsp = rsp?.map(|msg| *msg.downcast().expect("message type mismatch"));
+            Ok(rsp)
+        };
+        with_timeout(timeout, future).await
     }
 
     /// Send a client side streaming gRPC request.
@@ -83,19 +90,23 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        request.append_metadata();
-        let request = request.intercept(&mut self.interceptor)?;
-        let addr = self.inner.ep.peer_addr().unwrap();
-        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
-        // send requests
-        Self::send_request_stream(request, tx, path, false).await?;
-        // receive response
-        let rsp = rx.recv().await?;
-        let rsp = *rsp
-            .downcast::<Result<Response<BoxMessage>, Status>>()
-            .expect("message type mismatch");
-        let rsp = rsp?.map(|msg| *msg.downcast().expect("message type mismatch"));
-        Ok(rsp)
+        let timeout = self.inner.timeout;
+        let future = async move {
+            request.append_metadata();
+            let request = request.intercept(&mut self.interceptor)?;
+            let addr = self.inner.ep.peer_addr().unwrap();
+            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            // send requests
+            Self::send_request_stream(request, tx, path, false).await?;
+            // receive response
+            let rsp = rx.recv().await?;
+            let rsp = *rsp
+                .downcast::<Result<Response<BoxMessage>, Status>>()
+                .expect("message type mismatch");
+            let rsp = rsp?.map(|msg| *msg.downcast().expect("message type mismatch"));
+            Ok(rsp)
+        };
+        with_timeout(timeout, future).await
     }
 
     /// Send a server side streaming gRPC request.
@@ -110,18 +121,22 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        request.append_metadata();
-        let request = request.intercept(&mut self.interceptor)?.boxed();
-        let addr = self.inner.ep.peer_addr().unwrap();
-        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
-        // send request
-        tx.send(Box::new((path, true, request))).await?;
-        // receive responses
-        let res = *(rx.recv().await?)
-            .downcast::<Result<Response<()>, Status>>()
-            .unwrap();
-        let response = res?.map(move |_| Streaming::new(rx, None));
-        Ok(response)
+        let timeout = self.inner.timeout;
+        let future = async move {
+            request.append_metadata();
+            let request = request.intercept(&mut self.interceptor)?.boxed();
+            let addr = self.inner.ep.peer_addr().unwrap();
+            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            // send request
+            tx.send(Box::new((path, true, request))).await?;
+            // receive responses
+            let res = *(rx.recv().await?)
+                .downcast::<Result<Response<()>, Status>>()
+                .unwrap();
+            let response = res?.map(move |_| Streaming::new(rx, None));
+            Ok(response)
+        };
+        with_timeout(timeout, future).await
     }
 
     /// Send a bi-directional streaming gRPC request.
@@ -136,22 +151,26 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        request.append_metadata();
-        let request = request.intercept(&mut self.interceptor)?;
-        let addr = self.inner.ep.peer_addr().unwrap();
-        let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
-        // send requests in a background task
-        let task = madsim::task::spawn(async move {
-            Self::send_request_stream(request, tx, path, true)
-                .await
+        let timeout = self.inner.timeout;
+        let future = async move {
+            request.append_metadata();
+            let request = request.intercept(&mut self.interceptor)?;
+            let addr = self.inner.ep.peer_addr().unwrap();
+            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            // send requests in a background task
+            let task = madsim::task::spawn(async move {
+                Self::send_request_stream(request, tx, path, true)
+                    .await
+                    .unwrap();
+            });
+            // receive responses
+            let res = *(rx.recv().await?)
+                .downcast::<Result<Response<()>, Status>>()
                 .unwrap();
-        });
-        // receive responses
-        let res = *(rx.recv().await?)
-            .downcast::<Result<Response<()>, Status>>()
-            .unwrap();
-        let response = res?.map(move |_| Streaming::new(rx, Some(task)));
-        Ok(response)
+            let response = res?.map(move |_| Streaming::new(rx, Some(task)));
+            Ok(response)
+        };
+        with_timeout(timeout, future).await
     }
 
     async fn send_request_stream<M1>(
@@ -173,5 +192,18 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
             tx.send(Box::new(item)).await?;
         }
         Ok(())
+    }
+}
+
+async fn with_timeout<T>(
+    timeout: Option<Duration>,
+    future: impl Future<Output = Result<T, Status>>,
+) -> Result<T, Status> {
+    if let Some(timeout) = timeout {
+        madsim::time::timeout(timeout, future)
+            .await
+            .map_err(|_| Status::deadline_exceeded(format!("request timeout: {timeout:?}")))?
+    } else {
+        future.await
     }
 }
