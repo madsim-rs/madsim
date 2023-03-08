@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.18] - 2023-03-08
 
 ### Added
 
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - madsim: Replace `SmallRng` with `Xoshiro256PlusPlus` for reproducibility across platforms.
 - etcd: Fix election implementation. Put a key for each candidate.
+- tonic: Return an error when the server stream is broken.
 
 ## [0.2.17] - 2023-02-17
 

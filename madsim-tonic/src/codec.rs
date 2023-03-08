@@ -29,7 +29,12 @@ impl<T: Send + 'static> Streaming<T> {
                 // This is used to cancel the task when the stream is dropped.
                 let _task = request_sending_task.map(|t| t.cancel_on_drop());
                 // receive messages
-                while let Ok(msg) = rx.recv().await {
+                loop {
+                    let msg = rx.recv().await.map_err(|_| Status::unknown("error reading a body from connection: broken pipe"))?;
+                    if msg.downcast_ref::<()>().is_some() {
+                        // end of stream
+                        break;
+                    }
                     let msg = *msg.downcast::<Result<BoxMessage, Status>>().unwrap();
                     yield *msg?.downcast::<T>().unwrap();
                 }

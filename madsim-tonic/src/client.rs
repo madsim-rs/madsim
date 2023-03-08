@@ -34,7 +34,7 @@ impl<T> Grpc<T, IdentityInterceptor> {
 // |          |                single                  |                   stream                     |
 // |----------|----------------------------------------|----------------------------------------------|
 // | request  | (PathAndQuery, bool, Request<Box<M1>>) | (PathAndQuery, bool, Request<Box<()>>), M1.. |
-// | response | Result<Response<Box<M2>>>              | Result<Response<()>>, Result<Box<M2>>..      |
+// | response | Result<Response<Box<M2>>>              | Result<Response<()>>, Result<Box<M2>>.., ()  |
 //
 impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
     /// Creates a new gRPC client with the provided `GrpcService` and interceptor.

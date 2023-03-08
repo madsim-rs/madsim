@@ -253,7 +253,20 @@ async fn server_crash() {
                 .unwrap();
             client.say_hello(request()).await.unwrap();
 
+            let response = client.lots_of_replies(request()).await.unwrap();
+            let mut stream = response.into_inner();
+
             Handle::current().kill(node0.id());
+
+            let error = loop {
+                match stream.message().await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => panic!("stream ended"),
+                    Err(error) => break error,
+                }
+            };
+            assert_eq!(error.code(), tonic::Code::Unknown);
+            assert!(error.message().contains("broken pipe"));
 
             let error = client.say_hello(request()).await.unwrap_err();
             assert_eq!(error.code(), tonic::Code::Unavailable);
