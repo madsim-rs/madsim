@@ -8,7 +8,10 @@ use madsim::{
     runtime::Handle,
     time::sleep,
 };
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    time::{Duration, Instant},
+};
 use tonic::transport::{Endpoint, Server};
 use tonic_example::hello_world::{
     another_greeter_client::AnotherGreeterClient, another_greeter_server::AnotherGreeterServer,
@@ -345,4 +348,38 @@ async fn interceptor() {
         })
         .await
         .unwrap();
+}
+
+#[madsim::test]
+async fn request_timeout() {
+    let handle = Handle::current();
+    let addr0 = "10.0.0.1:50051".parse::<SocketAddr>().unwrap();
+    let ip1 = "10.0.0.2".parse().unwrap();
+    let node0 = handle.create_node().name("server").ip(addr0.ip()).build();
+    node0.spawn(async move {
+        Server::builder()
+            .add_service(AnotherGreeterServer::new(MyGreeter::default()))
+            .serve(addr0)
+            .await
+            .unwrap();
+    });
+    sleep(Duration::from_secs(1)).await;
+
+    let node1 = handle.create_node().name("client1").ip(ip1).build();
+    node1
+        .spawn(async move {
+            let channel = Endpoint::from_static("http://10.0.0.1:50051")
+                .timeout(Duration::from_secs(1))
+                .connect()
+                .await
+                .unwrap();
+            let mut client = AnotherGreeterClient::new(channel);
+            let t0 = Instant::now();
+            let error = client.delay(request()).await.unwrap_err();
+            assert_eq!(error.code(), tonic::Code::DeadlineExceeded);
+            assert!(t0.elapsed() < Duration::from_secs(2));
+        })
+        .await
+        .unwrap();
+    sleep(Duration::from_secs(10)).await;
 }

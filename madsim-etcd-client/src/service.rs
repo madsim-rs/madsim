@@ -107,7 +107,9 @@ impl EtcdService {
         loop {
             rx.recv().await.expect("sender should not drop");
             let leader = self.inner.lock().leader(name.clone());
-            let kv = leader.kv.unwrap();
+            let Some(kv) = leader.kv else {
+                return Err(session_expired());
+            };
             if kv.key == key {
                 return Ok(CampaignResponse {
                     header: leader.header,
