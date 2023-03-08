@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - madsim: Replace `SmallRng` with `Xoshiro256PlusPlus` for reproducibility across platforms.
 - etcd: Fix election implementation. Put a key for each candidate.
+- tonic: Return an error when the server stream is broken.
 
 ## [0.2.17] - 2023-02-17
 
