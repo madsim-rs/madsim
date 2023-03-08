@@ -280,6 +280,8 @@ impl<L> Router<L> {
                         tx.send(Box::new(rsp)).await?;
                         count += 1;
                     }
+                    // send the trailer
+                    tx.send(Box::new(())).await?;
                     debug!(parent: &span, "completed {count}");
                 } else {
                     let rsp: Result<Response<BoxMessage>, Status> = match result {
