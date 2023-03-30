@@ -384,6 +384,7 @@ impl NodeHandle {
     }
 
     /// Spawn a future onto the runtime.
+    #[track_caller]
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,

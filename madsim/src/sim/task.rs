@@ -18,6 +18,7 @@ use std::{
     future::Future,
     io,
     ops::Deref,
+    panic::Location,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -30,6 +31,8 @@ use tokio::sync::watch;
 use tracing::*;
 
 pub use tokio::task::yield_now;
+
+type StaticLocation = &'static Location<'static>;
 
 pub(crate) struct Executor {
     queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
@@ -62,6 +65,8 @@ pub(crate) struct TaskInfo {
     pub node: Arc<NodeInfo>,
     /// The span of this task.
     pub span: Span,
+    /// The spawn location.
+    pub location: StaticLocation,
 }
 
 pub(crate) struct NodeInfo {
@@ -93,6 +98,7 @@ pub(crate) struct NodeInfo {
 }
 
 impl NodeInfo {
+    #[track_caller]
     fn new_task(self: &Arc<Self>, name: Option<&str>) -> Arc<TaskInfo> {
         let id = Id::new();
         let name = name.map(|s| s.to_string());
@@ -101,6 +107,7 @@ impl NodeInfo {
             id,
             // name,
             node: self.clone(),
+            location: Location::caller(),
         })
     }
 
@@ -167,6 +174,7 @@ impl Executor {
         self.time_limit = Some(limit);
     }
 
+    #[track_caller]
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
@@ -211,29 +219,35 @@ impl Executor {
                 continue;
             }
             // run the task
-            if info.node.restart_on_panic {
-                let node_id = info.node.id;
-                let res = {
-                    let _guard = crate::context::enter_task(info);
-                    std::panic::catch_unwind(move || runnable.run())
-                };
-                if res.is_err() {
+            let res = {
+                let _guard = crate::context::enter_task(info.clone());
+                std::panic::catch_unwind(move || runnable.run())
+            };
+            if let Err(e) = res {
+                eprintln!(
+                    "context: node={} {:?}, task={} (spawned at {})",
+                    info.node.id,
+                    info.node.name.as_ref().map_or("<unnamed>", |s| s),
+                    info.id,
+                    info.location
+                );
+                if info.node.restart_on_panic {
+                    let node_id = info.node.id;
                     let delay = self
                         .rand
                         .with(|rng| rng.gen_range(Duration::from_secs(1)..Duration::from_secs(10)));
                     error!(
-                        "task panicked, restarting node {} after {:?}",
-                        node_id, delay
+                        "task panicked, restarting node {} {:?} after {:?}",
+                        node_id, info.node.name, delay
                     );
                     self.kill(node_id);
                     let h = self.handle.clone();
                     self.time
                         .handle()
                         .add_timer(delay, move || h.restart(node_id));
+                } else {
+                    std::panic::resume_unwind(e);
                 }
-            } else {
-                let _guard = crate::context::enter_task(info);
-                runnable.run();
             }
 
             // advance time: 50-100ns
@@ -482,6 +496,7 @@ impl Spawner {
     }
 
     /// Spawns a new asynchronous task, returning a [`JoinHandle`] for it.
+    #[track_caller]
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -491,6 +506,7 @@ impl Spawner {
     }
 
     /// Spawns a `!Send` future on the local task set.
+    #[track_caller]
     pub fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + 'static,
@@ -500,6 +516,7 @@ impl Spawner {
     }
 
     /// Spawns a future on with name.
+    #[track_caller]
     fn spawn_inner<F>(&self, future: F, name: Option<&str>) -> JoinHandle<F::Output>
     where
         F: Future + 'static,
