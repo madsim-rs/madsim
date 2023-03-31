@@ -94,7 +94,7 @@ const fn default_send_latency() -> Range<Duration> {
     Duration::from_millis(1)..Duration::from_millis(10)
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for Config {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.packet_loss_rate.to_bits().hash(state);
