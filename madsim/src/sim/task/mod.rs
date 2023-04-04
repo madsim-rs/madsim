@@ -73,7 +73,9 @@ pub struct TaskInfo {
     /// The span of this task.
     pub span: Span,
     /// The spawn location.
-    pub location: StaticLocation,
+    location: StaticLocation,
+    /// A flag indicating that the task has been cancelled.
+    cancelled: AtomicBool,
 }
 
 pub(crate) struct NodeInfo {
@@ -87,9 +89,9 @@ pub(crate) struct NodeInfo {
     /// The span of this node.
     span: Span,
 
-    /// A flag indicating that the task should be paused.
+    /// A flag indicating that the node has been paused.
     paused: AtomicBool,
-    /// A flag indicating that the task should no longer be executed.
+    /// A flag indicating that the node has been killed.
     killed: AtomicBool,
     /// Wakers of all spawned task.
     ///
@@ -114,6 +116,7 @@ impl NodeInfo {
             name,
             node: self.clone(),
             location: Location::caller(),
+            cancelled: AtomicBool::new(false),
         })
     }
 
@@ -213,8 +216,8 @@ impl Executor {
     fn run_all_ready(&self) {
         while let Ok(runnable) = self.queue.try_recv_random(&self.rand) {
             let info = runnable.metadata().clone();
-            if info.node.killed.load(Ordering::Relaxed) {
-                // killed task: drop the future
+            if info.cancelled.load(Ordering::Relaxed) || info.node.killed.load(Ordering::Relaxed) {
+                // cancelled task or killed node: drop the future
                 continue;
             } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
@@ -528,21 +531,16 @@ impl Spawner {
         }
         let sender = self.sender.clone();
         let info = self.info.new_task(name);
-        let id = info.id;
-        trace!(%id, name, "spawn task");
+        trace!(id = %info.id, name, "spawn task");
 
-        let (runnable, task) = async_task::Builder::new().metadata(info).spawn_local(
-            move |_| future,
-            move |runnable: Runnable| {
-                let info = runnable.metadata();
-                trace!(%id, name = &info.name, "wake task");
-                _ = sender.send(runnable);
-            },
-        );
-        self.info.wakers.lock().push(runnable.waker());
+        let (runnable, task) = async_task::Builder::new()
+            .metadata(info.clone())
+            .spawn_local(move |_| future, move |runnable| _ = sender.send(runnable));
+        let waker = runnable.waker();
+        self.info.wakers.lock().push(waker.clone());
         runnable.schedule();
 
-        JoinHandle::new(id, task.fallible())
+        JoinHandle::new(info, waker, task.fallible())
     }
 
     /// Exit the current process (node).
