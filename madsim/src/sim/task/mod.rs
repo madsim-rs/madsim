@@ -82,20 +82,19 @@ pub(crate) struct NodeInfo {
     name: Option<String>,
     /// The number of CPU cores.
     cores: usize,
-    /// A flag indicating that the task should be paused.
-    paused: AtomicBool,
-    /// A flag indicating that the task should no longer be executed.
-    killed: AtomicBool,
     /// Whether to restart the node on panic.
     restart_on_panic: bool,
     /// The span of this node.
     span: Span,
+
+    /// A flag indicating that the task should be paused.
+    paused: AtomicBool,
+    /// A flag indicating that the task should no longer be executed.
+    killed: AtomicBool,
     /// Wakers of all spawned task.
     ///
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
-    /// Temporary store of all runnables when the node is being killed.
-    runnables: Mutex<Vec<Runnable>>,
     /// Sender of the "ctrl-c" signal.
     ///
     /// This value is `None` at the beginning, meaning that `signal::ctrl_c` has never been called,
@@ -121,7 +120,6 @@ impl NodeInfo {
     fn kill(&self) {
         self.killed.store(true, Ordering::Relaxed);
         self.wakers.lock().drain(..).for_each(Waker::wake);
-        self.runnables.lock().clear();
     }
 
     pub(crate) fn is_killed(&self) -> bool {
@@ -153,12 +151,11 @@ impl Executor {
                     id: NodeId::zero(),
                     name: Some("main".into()),
                     cores: 1,
-                    paused: AtomicBool::new(false),
-                    killed: AtomicBool::new(false),
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
+                    paused: AtomicBool::new(false),
+                    killed: AtomicBool::new(false),
                     wakers: Mutex::new(vec![]),
-                    runnables: Mutex::new(vec![]),
                     ctrl_c: Mutex::new(None),
                 }),
                 sims,
@@ -217,7 +214,7 @@ impl Executor {
         while let Ok(runnable) = self.queue.try_recv_random(&self.rand) {
             let info = runnable.metadata().clone();
             if info.node.killed.load(Ordering::Relaxed) {
-                // killed task: ignore
+                // killed task: drop the future
                 continue;
             } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
@@ -320,12 +317,11 @@ impl TaskHandle {
             id,
             name: node.info.name.clone(),
             cores: node.info.cores,
+            restart_on_panic: node.info.restart_on_panic,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
             wakers: Mutex::new(vec![]),
-            runnables: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
@@ -403,11 +399,10 @@ impl TaskHandle {
             id,
             name,
             cores: cores.unwrap_or(1),
+            restart_on_panic,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            restart_on_panic,
             wakers: Mutex::new(vec![]),
-            runnables: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let handle = Spawner {
@@ -539,12 +534,7 @@ impl Spawner {
         let (runnable, task) = async_task::Builder::new().metadata(info).spawn_local(
             move |_| future,
             move |runnable: Runnable| {
-                let info = runnable.metadata().clone();
-                if info.node.killed.load(Ordering::Relaxed) {
-                    // store the runnable for later drop
-                    info.node.runnables.lock().push(runnable);
-                    return;
-                }
+                let info = runnable.metadata();
                 trace!(%id, name = &info.name, "wake task");
                 _ = sender.send(runnable);
             },
@@ -912,6 +902,10 @@ mod tests {
             // make sure the future is pending
 
             Handle::current().kill(node.id());
+            assert_eq!(Arc::strong_count(&flag), 2);
+
+            // future will be dropped after a while
+            time::sleep(Duration::from_secs(1)).await;
             assert_eq!(Arc::strong_count(&flag), 1);
         });
     }
