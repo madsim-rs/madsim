@@ -6,9 +6,6 @@ use super::{
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
-#[doc(hidden)]
-pub use async_task::FallibleTask;
-use async_task::Runnable;
 use futures_util::FutureExt;
 use rand::Rng;
 use spin::Mutex;
@@ -33,9 +30,12 @@ use tracing::*;
 pub use tokio::task::yield_now;
 
 type StaticLocation = &'static Location<'static>;
+type Runnable = async_task::Runnable<Arc<TaskInfo>>;
+#[doc(hidden)]
+pub type FallibleTask<T> = async_task::FallibleTask<T, Arc<TaskInfo>>;
 
 pub(crate) struct Executor {
-    queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
+    queue: mpsc::Receiver<Runnable>,
     handle: TaskHandle,
     rand: GlobalRng,
     time: TimeRuntime,
@@ -59,10 +59,11 @@ impl NodeId {
     }
 }
 
-pub(crate) struct TaskInfo {
+#[doc(hidden)]
+pub struct TaskInfo {
     pub id: Id,
-    // name: Option<String>,
-    pub node: Arc<NodeInfo>,
+    pub name: Option<String>,
+    pub(crate) node: Arc<NodeInfo>,
     /// The span of this task.
     pub span: Span,
     /// The spawn location.
@@ -105,7 +106,7 @@ impl NodeInfo {
         Arc::new(TaskInfo {
             span: error_span!(parent: &self.span, "task", %id, name),
             id,
-            // name,
+            name,
             node: self.clone(),
             location: Location::caller(),
         })
@@ -180,11 +181,9 @@ impl Executor {
         let sender = self.handle.sender.clone();
         let info = self.handle.main_info.new_task(None);
         let (runnable, mut task) = unsafe {
-            // Safety: The schedule is not Sync,
-            // the task's Waker must be used and dropped on the original thread.
-            async_task::spawn_unchecked(future, move |runnable| {
-                let _ = sender.send((runnable, info.clone()));
-            })
+            async_task::Builder::new()
+                .metadata(info)
+                .spawn_unchecked(move |_| future, move |runnable| _ = sender.send(runnable))
         };
         runnable.schedule();
 
@@ -209,13 +208,14 @@ impl Executor {
 
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
-        while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
+        while let Ok(runnable) = self.queue.try_recv_random(&self.rand) {
+            let info = runnable.metadata().clone();
             if info.node.killed.load(Ordering::Relaxed) {
                 // killed task: ignore
                 continue;
             } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
-                (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push((runnable, info));
+                (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push(runnable);
                 continue;
             }
             // run the task
@@ -268,7 +268,7 @@ impl Deref for Executor {
 #[derive(Clone)]
 #[doc(hidden)]
 pub struct TaskHandle {
-    sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
+    sender: mpsc::Sender<Runnable>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
     /// Info of the main node.
@@ -278,7 +278,7 @@ pub struct TaskHandle {
 
 struct Node {
     info: Arc<NodeInfo>,
-    paused: Vec<(Runnable, Arc<TaskInfo>)>,
+    paused: Vec<Runnable>,
     /// A function to spawn the initial task.
     init: Option<InitFn>,
 }
@@ -352,8 +352,8 @@ impl TaskHandle {
         node.info.paused.store(false, Ordering::Relaxed);
 
         // take paused tasks from waiting list and push them to ready queue
-        for (runnable, info) in node.paused.drain(..) {
-            self.sender.send((runnable, info)).unwrap();
+        for runnable in node.paused.drain(..) {
+            self.sender.send(runnable).unwrap();
         }
     }
 
@@ -473,7 +473,7 @@ impl<T: ToNodeId> ToNodeId for &T {
 /// A handle to spawn tasks on a node.
 #[derive(Clone)]
 pub struct Spawner {
-    sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
+    sender: mpsc::Sender<Runnable>,
     info: Arc<NodeInfo>,
 }
 
@@ -530,19 +530,19 @@ impl Spawner {
         let id = info.id;
         trace!(%id, name, "spawn task");
 
-        let (runnable, task) = unsafe {
-            // Safety: The schedule is not Sync,
-            // the task's Waker must be used and dropped on the original thread.
-            async_task::spawn_unchecked(future, move |runnable| {
+        let (runnable, task) = async_task::Builder::new().metadata(info).spawn_local(
+            move |_| future,
+            move |runnable: Runnable| {
+                let info = runnable.metadata().clone();
                 if info.node.killed.load(Ordering::Relaxed) {
                     // store the runnable for later drop
                     info.node.runnables.lock().push(runnable);
                     return;
                 }
-                trace!(%id, name, "wake task");
-                let _ = sender.send((runnable, info.clone()));
-            })
-        };
+                trace!(%id, name = &info.name, "wake task");
+                _ = sender.send(runnable);
+            },
+        );
         self.info.wakers.lock().push(runnable.waker());
         runnable.schedule();
 
@@ -649,13 +649,18 @@ impl fmt::Display for Id {
 }
 
 /// An owned permission to join on a task (await its termination).
-#[derive(Debug)]
 pub struct JoinHandle<T> {
     id: Id,
     /// The task handle.
     ///
     /// This is `None` if the task is cancelled.
     task: Mutex<Option<FallibleTask<T>>>,
+}
+
+impl<T> fmt::Debug for JoinHandle<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JoinHandle").field("id", &self.id).finish()
+    }
 }
 
 impl<T> JoinHandle<T> {
