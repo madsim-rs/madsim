@@ -671,15 +671,7 @@ impl<T> JoinHandle<T> {
 
     /// Checks if the task associated with this `JoinHandle` has finished.
     pub fn is_finished(&self) -> bool {
-        match &*self.task.lock() {
-            Some(task) => {
-                // SAFETY: `FallibleTask<T>` is a wrapper over `Task<T>`
-                //          but does not expose the `is_finished` API.
-                let task: &async_task::Task<T> = unsafe { std::mem::transmute(task) };
-                task.is_finished()
-            }
-            None => true, // aborted
-        }
+        (self.task.lock().as_ref()).map_or(true, |task| task.is_finished())
     }
 
     /// Cancel the task when this handle is dropped.
