@@ -17,7 +17,7 @@ default = ["macros", "rpc"]
 ucx = ["async-ucx"]
 rpc = ["bincode"]
 macros = ["madsim-macros", "tokio/macros"]
-erpc = ["rpc"] # "mad_rpc"
+# erpc = ["rpc"] # "mad_rpc"
 
 [dependencies]
 bincode = { version = "1", optional = true }
@@ -33,7 +33,7 @@ tracing-subscriber = "0.3"
 
 [target.'cfg(madsim)'.dependencies]
 ahash = "0.7"
-async-task = "4"
+async-task = "4.4"
 async-channel = "1.6"
 downcast-rs = "1.2"
 libc = "0.2"

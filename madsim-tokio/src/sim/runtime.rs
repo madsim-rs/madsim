@@ -1,4 +1,5 @@
-use madsim::task::JoinHandle;
+use madsim::task::{AbortHandle, JoinHandle};
+use spin::Mutex;
 use std::{future::Future, io};
 
 /// Builds Tokio Runtime with custom configuration values.
@@ -38,12 +39,16 @@ impl Builder {
 
     /// Creates the configured `Runtime`.
     pub fn build(&mut self) -> io::Result<Runtime> {
-        Ok(Runtime {})
+        Ok(Runtime {
+            abort_handles: Default::default(),
+        })
     }
 }
 
 /// A fake Tokio runtime.
-pub struct Runtime {}
+pub struct Runtime {
+    abort_handles: Mutex<Vec<AbortHandle>>,
+}
 
 impl Runtime {
     #[cfg(feature = "rt-multi-thread")]
@@ -59,12 +64,35 @@ impl Runtime {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        madsim::task::spawn(future)
+        let handle = madsim::task::spawn(future);
+        self.abort_handles.lock().push(handle.abort_handle());
+        handle
     }
 }
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        todo!("drop runtime, abort all tasks");
+        for handle in self.abort_handles.lock().drain(..) {
+            handle.abort();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_drop() {
+        let runtime = madsim::runtime::Runtime::new();
+
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let handle = rt.spawn(std::future::pending::<()>());
+            drop(rt);
+
+            let err = handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+        });
     }
 }

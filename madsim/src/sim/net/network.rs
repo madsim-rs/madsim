@@ -1,9 +1,8 @@
 use super::{Payload, PayloadReceiver, PayloadSender};
 use crate::{
     rand::*,
-    task::{JoinHandle, NodeId},
+    task::{FallibleTask, JoinHandle, NodeId},
 };
-use async_task::FallibleTask;
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,

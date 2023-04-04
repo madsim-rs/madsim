@@ -12,13 +12,13 @@ test:
 	cargo test
 
 stest:
-	$(SIM_FLAGS) cargo test
+	$(SIM_FLAGS) cargo test --all-features
 
 clippy:
 	cargo clippy --all-targets
 
 sclippy:
-	$(SIM_FLAGS) cargo clippy --all-targets
+	$(SIM_FLAGS) cargo clippy --all-features --all-targets
 
 doc:
 	$(SIM_FLAGS) cargo doc --no-deps

@@ -6,9 +6,6 @@ use super::{
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
-#[doc(hidden)]
-pub use async_task::FallibleTask;
-use async_task::Runnable;
 use futures_util::FutureExt;
 use rand::Rng;
 use spin::Mutex;
@@ -28,14 +25,23 @@ use std::{
     time::Duration,
 };
 use tokio::sync::watch;
-use tracing::*;
+use tracing::{debug, error, error_span, trace, Span};
 
 pub use tokio::task::yield_now;
 
 type StaticLocation = &'static Location<'static>;
+type Runnable = async_task::Runnable<Arc<TaskInfo>>;
+#[doc(hidden)]
+pub type FallibleTask<T> = async_task::FallibleTask<T, Arc<TaskInfo>>;
+
+mod builder;
+mod join;
+
+pub use self::builder::*;
+pub use self::join::*;
 
 pub(crate) struct Executor {
-    queue: mpsc::Receiver<(Runnable, Arc<TaskInfo>)>,
+    queue: mpsc::Receiver<Runnable>,
     handle: TaskHandle,
     rand: GlobalRng,
     time: TimeRuntime,
@@ -59,14 +65,17 @@ impl NodeId {
     }
 }
 
-pub(crate) struct TaskInfo {
+#[doc(hidden)]
+pub struct TaskInfo {
     pub id: Id,
-    // name: Option<String>,
-    pub node: Arc<NodeInfo>,
+    pub name: Option<String>,
+    pub(crate) node: Arc<NodeInfo>,
     /// The span of this task.
     pub span: Span,
     /// The spawn location.
-    pub location: StaticLocation,
+    location: StaticLocation,
+    /// A flag indicating that the task has been cancelled.
+    cancelled: AtomicBool,
 }
 
 pub(crate) struct NodeInfo {
@@ -75,20 +84,19 @@ pub(crate) struct NodeInfo {
     name: Option<String>,
     /// The number of CPU cores.
     cores: usize,
-    /// A flag indicating that the task should be paused.
-    paused: AtomicBool,
-    /// A flag indicating that the task should no longer be executed.
-    killed: AtomicBool,
     /// Whether to restart the node on panic.
     restart_on_panic: bool,
     /// The span of this node.
     span: Span,
+
+    /// A flag indicating that the node has been paused.
+    paused: AtomicBool,
+    /// A flag indicating that the node has been killed.
+    killed: AtomicBool,
     /// Wakers of all spawned task.
     ///
     /// When being killed, all spawned tasks will be woken up.
     wakers: Mutex<Vec<Waker>>,
-    /// Temporary store of all runnables when the node is being killed.
-    runnables: Mutex<Vec<Runnable>>,
     /// Sender of the "ctrl-c" signal.
     ///
     /// This value is `None` at the beginning, meaning that `signal::ctrl_c` has never been called,
@@ -105,16 +113,16 @@ impl NodeInfo {
         Arc::new(TaskInfo {
             span: error_span!(parent: &self.span, "task", %id, name),
             id,
-            // name,
+            name,
             node: self.clone(),
             location: Location::caller(),
+            cancelled: AtomicBool::new(false),
         })
     }
 
     fn kill(&self) {
         self.killed.store(true, Ordering::Relaxed);
         self.wakers.lock().drain(..).for_each(Waker::wake);
-        self.runnables.lock().clear();
     }
 
     pub(crate) fn is_killed(&self) -> bool {
@@ -146,12 +154,11 @@ impl Executor {
                     id: NodeId::zero(),
                     name: Some("main".into()),
                     cores: 1,
-                    paused: AtomicBool::new(false),
-                    killed: AtomicBool::new(false),
                     restart_on_panic: false,
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
+                    paused: AtomicBool::new(false),
+                    killed: AtomicBool::new(false),
                     wakers: Mutex::new(vec![]),
-                    runnables: Mutex::new(vec![]),
                     ctrl_c: Mutex::new(None),
                 }),
                 sims,
@@ -180,11 +187,9 @@ impl Executor {
         let sender = self.handle.sender.clone();
         let info = self.handle.main_info.new_task(None);
         let (runnable, mut task) = unsafe {
-            // Safety: The schedule is not Sync,
-            // the task's Waker must be used and dropped on the original thread.
-            async_task::spawn_unchecked(future, move |runnable| {
-                let _ = sender.send((runnable, info.clone()));
-            })
+            async_task::Builder::new()
+                .metadata(info)
+                .spawn_unchecked(move |_| future, move |runnable| _ = sender.send(runnable))
         };
         runnable.schedule();
 
@@ -209,13 +214,14 @@ impl Executor {
 
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
-        while let Ok((runnable, info)) = self.queue.try_recv_random(&self.rand) {
-            if info.node.killed.load(Ordering::Relaxed) {
-                // killed task: ignore
+        while let Ok(runnable) = self.queue.try_recv_random(&self.rand) {
+            let info = runnable.metadata().clone();
+            if info.cancelled.load(Ordering::Relaxed) || info.node.killed.load(Ordering::Relaxed) {
+                // cancelled task or killed node: drop the future
                 continue;
             } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
-                (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push((runnable, info));
+                (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push(runnable);
                 continue;
             }
             // run the task
@@ -268,7 +274,7 @@ impl Deref for Executor {
 #[derive(Clone)]
 #[doc(hidden)]
 pub struct TaskHandle {
-    sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
+    sender: mpsc::Sender<Runnable>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
     /// Info of the main node.
@@ -278,7 +284,7 @@ pub struct TaskHandle {
 
 struct Node {
     info: Arc<NodeInfo>,
-    paused: Vec<(Runnable, Arc<TaskInfo>)>,
+    paused: Vec<Runnable>,
     /// A function to spawn the initial task.
     init: Option<InitFn>,
 }
@@ -314,12 +320,11 @@ impl TaskHandle {
             id,
             name: node.info.name.clone(),
             cores: node.info.cores,
+            restart_on_panic: node.info.restart_on_panic,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            restart_on_panic: node.info.restart_on_panic,
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
             wakers: Mutex::new(vec![]),
-            runnables: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
@@ -352,8 +357,8 @@ impl TaskHandle {
         node.info.paused.store(false, Ordering::Relaxed);
 
         // take paused tasks from waiting list and push them to ready queue
-        for (runnable, info) in node.paused.drain(..) {
-            self.sender.send((runnable, info)).unwrap();
+        for runnable in node.paused.drain(..) {
+            self.sender.send(runnable).unwrap();
         }
     }
 
@@ -397,11 +402,10 @@ impl TaskHandle {
             id,
             name,
             cores: cores.unwrap_or(1),
+            restart_on_panic,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            restart_on_panic,
             wakers: Mutex::new(vec![]),
-            runnables: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let handle = Spawner {
@@ -473,7 +477,7 @@ impl<T: ToNodeId> ToNodeId for &T {
 /// A handle to spawn tasks on a node.
 #[derive(Clone)]
 pub struct Spawner {
-    sender: mpsc::Sender<(Runnable, Arc<TaskInfo>)>,
+    sender: mpsc::Sender<Runnable>,
     info: Arc<NodeInfo>,
 }
 
@@ -527,29 +531,16 @@ impl Spawner {
         }
         let sender = self.sender.clone();
         let info = self.info.new_task(name);
-        let id = info.id;
-        trace!(%id, name, "spawn task");
+        trace!(id = %info.id, name, "spawn task");
 
-        let (runnable, task) = unsafe {
-            // Safety: The schedule is not Sync,
-            // the task's Waker must be used and dropped on the original thread.
-            async_task::spawn_unchecked(future, move |runnable| {
-                if info.node.killed.load(Ordering::Relaxed) {
-                    // store the runnable for later drop
-                    info.node.runnables.lock().push(runnable);
-                    return;
-                }
-                trace!(%id, name, "wake task");
-                let _ = sender.send((runnable, info.clone()));
-            })
-        };
-        self.info.wakers.lock().push(runnable.waker());
+        let (runnable, task) = async_task::Builder::new()
+            .metadata(info.clone())
+            .spawn_local(move |_| future, move |runnable| _ = sender.send(runnable));
+        let waker = runnable.waker();
+        self.info.wakers.lock().push(waker.clone());
         runnable.schedule();
 
-        JoinHandle {
-            id,
-            task: Mutex::new(Some(task.fallible())),
-        }
+        JoinHandle::new(info, waker, task.fallible())
     }
 
     /// Exit the current process (node).
@@ -593,44 +584,6 @@ where
     Spawner::current().spawn(async move { f() })
 }
 
-/// Factory which is used to configure the properties of a new task.
-#[derive(Default, Debug)]
-pub struct Builder<'a> {
-    name: Option<&'a str>,
-}
-
-impl<'a> Builder<'a> {
-    /// Creates a new task builder.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Assigns a name to the task which will be spawned.
-    pub fn name(&self, name: &'a str) -> Self {
-        Self { name: Some(name) }
-    }
-
-    /// Spawns a task with this builder's settings on the current runtime.
-    #[track_caller]
-    pub fn spawn<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
-    where
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
-    {
-        Spawner::current().spawn_inner(future, self.name)
-    }
-
-    /// Spawns `!Send` a task on the current `LocalSet` with this builder's settings.
-    #[track_caller]
-    pub fn spawn_local<Fut>(self, future: Fut) -> JoinHandle<Fut::Output>
-    where
-        Fut: Future + 'static,
-        Fut::Output: 'static,
-    {
-        Spawner::current().spawn_inner(future, self.name)
-    }
-}
-
 /// An opaque ID that uniquely identifies a task relative to all other currently running tasks.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct Id(u64);
@@ -645,122 +598,6 @@ impl Id {
 impl fmt::Display for Id {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-/// An owned permission to join on a task (await its termination).
-#[derive(Debug)]
-pub struct JoinHandle<T> {
-    id: Id,
-    /// The task handle.
-    ///
-    /// This is `None` if the task is cancelled.
-    task: Mutex<Option<FallibleTask<T>>>,
-}
-
-impl<T> JoinHandle<T> {
-    /// Abort the task associated with the handle.
-    pub fn abort(&self) {
-        self.task.lock().take();
-    }
-
-    /// Returns a task ID that uniquely identifies this task relative to other currently spawned tasks.
-    pub fn id(&self) -> Id {
-        self.id
-    }
-
-    /// Checks if the task associated with this `JoinHandle` has finished.
-    pub fn is_finished(&self) -> bool {
-        match &*self.task.lock() {
-            Some(task) => {
-                // SAFETY: `FallibleTask<T>` is a wrapper over `Task<T>`
-                //          but does not expose the `is_finished` API.
-                let task: &async_task::Task<T> = unsafe { std::mem::transmute(task) };
-                task.is_finished()
-            }
-            None => true, // aborted
-        }
-    }
-
-    /// Cancel the task when this handle is dropped.
-    pub fn cancel_on_drop(self) -> FallibleTask<T> {
-        self.task.lock().take().expect("task is already cancelled")
-    }
-}
-
-impl<T> Future for JoinHandle<T> {
-    type Output = Result<T, JoinError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match &mut *self.task.lock() {
-            Some(task) => match task.poll_unpin(cx) {
-                Poll::Ready(Some(v)) => Poll::Ready(Ok(v)),
-                Poll::Ready(None) => Poll::Ready(Err(JoinError {
-                    id: self.id,
-                    is_panic: true,
-                })),
-                Poll::Pending => Poll::Pending,
-            },
-            None => Poll::Ready(Err(JoinError {
-                id: self.id,
-                is_panic: false,
-            })),
-        }
-    }
-}
-
-impl<T> Drop for JoinHandle<T> {
-    fn drop(&mut self) {
-        if let Some(task) = self.task.lock().take() {
-            task.detach();
-        }
-    }
-}
-
-/// Task failed to execute to completion.
-#[derive(Debug)]
-pub struct JoinError {
-    id: Id,
-    is_panic: bool,
-}
-
-impl JoinError {
-    /// Returns a task ID that identifies the task which errored relative to other currently spawned tasks.
-    pub fn id(&self) -> Id {
-        self.id
-    }
-
-    /// Returns true if the error was caused by the task being cancelled.
-    pub fn is_cancelled(&self) -> bool {
-        !self.is_panic
-    }
-
-    /// Returns true if the error was caused by the task panicking.
-    pub fn is_panic(&self) -> bool {
-        self.is_panic
-    }
-}
-
-impl fmt::Display for JoinError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.is_panic {
-            false => write!(f, "task {} was cancelled", self.id),
-            true => write!(f, "task {} panicked", self.id),
-        }
-    }
-}
-
-impl std::error::Error for JoinError {}
-
-impl From<JoinError> for io::Error {
-    fn from(src: JoinError) -> io::Error {
-        io::Error::new(
-            io::ErrorKind::Other,
-            match src.is_panic {
-                false => "task was cancelled",
-                true => "task panicked",
-            },
-        )
     }
 }
 
@@ -1063,6 +900,10 @@ mod tests {
             // make sure the future is pending
 
             Handle::current().kill(node.id());
+            assert_eq!(Arc::strong_count(&flag), 2);
+
+            // future will be dropped after a while
+            time::sleep(Duration::from_secs(1)).await;
             assert_eq!(Arc::strong_count(&flag), 1);
         });
     }
