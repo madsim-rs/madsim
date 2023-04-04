@@ -17,7 +17,7 @@ default = ["macros", "rpc"]
 ucx = ["async-ucx"]
 rpc = ["bincode"]
 macros = ["madsim-macros", "tokio/macros"]
-erpc = ["rpc"] # "mad_rpc"
+# erpc = ["rpc"] # "mad_rpc"
 
 [dependencies]
 bincode = { version = "1", optional = true }
