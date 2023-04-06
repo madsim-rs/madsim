@@ -14,8 +14,10 @@ use std::{
 
 mod builder;
 pub(crate) mod context;
+mod metrics;
 
 pub use self::builder::Builder;
+pub use self::metrics::RuntimeMetrics;
 
 /// The madsim runtime.
 ///
@@ -277,6 +279,13 @@ impl Handle {
     /// Return a handle of the specified node.
     pub fn get_node(&self, id: impl ToNodeId) -> Option<NodeHandle> {
         self.task.get_node(id).map(|task| NodeHandle { task })
+    }
+
+    /// Returns a view that lets you get information about how the runtime is performing.
+    pub fn metrics(&self) -> RuntimeMetrics {
+        RuntimeMetrics {
+            task: self.task.clone(),
+        }
     }
 }
 
