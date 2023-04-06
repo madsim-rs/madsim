@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - madsim: Print context information on panic.
 - madsim: Add `AbortHandle`.
+- madsim: Add `RuntimeMetrics`.
 - tokio: Support dropping `Runtime`.
 
 ### Changed

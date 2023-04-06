@@ -18,9 +18,9 @@ impl<T> fmt::Debug for JoinHandle<T> {
 }
 
 impl<T> JoinHandle<T> {
-    pub(super) fn new(info: Arc<TaskInfo>, waker: Waker, task: FallibleTask<T>) -> Self {
+    pub(super) fn new(info: Arc<TaskInfo>, task: FallibleTask<T>) -> Self {
         Self {
-            abort: AbortHandle { info, waker },
+            abort: AbortHandle { info },
             task: Some(task),
         }
     }
@@ -126,7 +126,6 @@ impl From<JoinError> for io::Error {
 #[derive(Clone)]
 pub struct AbortHandle {
     info: Arc<TaskInfo>,
-    waker: Waker,
 }
 
 impl AbortHandle {
@@ -138,6 +137,6 @@ impl AbortHandle {
     /// Abort the task associated with the handle.
     pub fn abort(&self) {
         self.info.cancelled.store(true, Ordering::Relaxed);
-        self.waker.wake_by_ref();
+        self.info.waker.wake_by_ref();
     }
 }

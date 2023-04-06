@@ -10,7 +10,7 @@ use futures_util::FutureExt;
 use rand::Rng;
 use spin::Mutex;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt,
     future::Future,
     io,
@@ -19,7 +19,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Weak,
     },
     task::{Context, Poll, Waker},
     time::Duration,
@@ -74,6 +74,8 @@ pub struct TaskInfo {
     pub span: Span,
     /// The spawn location.
     location: StaticLocation,
+    /// The waker of this task. Used for cancellation.
+    waker: Waker,
     /// A flag indicating that the task has been cancelled.
     cancelled: AtomicBool,
 }
@@ -93,10 +95,8 @@ pub(crate) struct NodeInfo {
     paused: AtomicBool,
     /// A flag indicating that the node has been killed.
     killed: AtomicBool,
-    /// Wakers of all spawned task.
-    ///
-    /// When being killed, all spawned tasks will be woken up.
-    wakers: Mutex<Vec<Waker>>,
+    /// All tasks spawned in this node.
+    tasks: Mutex<Vec<Weak<TaskInfo>>>,
     /// Sender of the "ctrl-c" signal.
     ///
     /// This value is `None` at the beginning, meaning that `signal::ctrl_c` has never been called,
@@ -110,19 +110,32 @@ impl NodeInfo {
     fn new_task(self: &Arc<Self>, name: Option<&str>) -> Arc<TaskInfo> {
         let id = Id::new();
         let name = name.map(|s| s.to_string());
-        Arc::new(TaskInfo {
+        let task = Arc::new(TaskInfo {
             span: error_span!(parent: &self.span, "task", %id, name),
             id,
             name,
             node: self.clone(),
             location: Location::caller(),
+            waker: futures_util::task::noop_waker(), // updated later
             cancelled: AtomicBool::new(false),
-        })
+        });
+        self.tasks.lock().push(Arc::downgrade(&task));
+        task
     }
 
     fn kill(&self) {
         self.killed.store(true, Ordering::Relaxed);
-        self.wakers.lock().drain(..).for_each(Waker::wake);
+        for task in self.tasks.lock().drain(..) {
+            if let Some(task) = task.upgrade() {
+                task.waker.wake_by_ref();
+            }
+        }
+    }
+
+    fn num_tasks(&self) -> usize {
+        let mut tasks = self.tasks.lock();
+        tasks.retain(|weak| weak.strong_count() != 0);
+        tasks.len()
     }
 
     pub(crate) fn is_killed(&self) -> bool {
@@ -158,7 +171,7 @@ impl Executor {
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
-                    wakers: Mutex::new(vec![]),
+                    tasks: Mutex::new(vec![]),
                     ctrl_c: Mutex::new(None),
                 }),
                 sims,
@@ -324,7 +337,7 @@ impl TaskHandle {
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
-            wakers: Mutex::new(vec![]),
+            tasks: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let old_info = std::mem::replace(&mut node.info, new_info);
@@ -405,7 +418,7 @@ impl TaskHandle {
             restart_on_panic,
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
-            wakers: Mutex::new(vec![]),
+            tasks: Mutex::new(vec![]),
             ctrl_c: Mutex::new(None),
         });
         let handle = Spawner {
@@ -435,6 +448,33 @@ impl TaskHandle {
             sender: self.sender.clone(),
             info,
         })
+    }
+
+    pub fn num_nodes(&self) -> usize {
+        self.nodes.lock().len()
+    }
+
+    pub fn num_tasks(&self) -> usize {
+        self.nodes
+            .lock()
+            .values()
+            .map(|node| node.info.num_tasks())
+            .sum()
+    }
+    pub fn num_tasks_by_node(&self) -> BTreeMap<String, usize> {
+        self.nodes
+            .lock()
+            .values()
+            .map(|node| {
+                (
+                    node.info
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| format!("node-{}", node.info.id)),
+                    node.info.num_tasks(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -536,11 +576,11 @@ impl Spawner {
         let (runnable, task) = async_task::Builder::new()
             .metadata(info.clone())
             .spawn_local(move |_| future, move |runnable| _ = sender.send(runnable));
-        let waker = runnable.waker();
-        self.info.wakers.lock().push(waker.clone());
+        // SAFETY: info can not be accessed by others.
+        unsafe { &mut *Arc::as_ptr(&info).cast_mut() }.waker = runnable.waker();
         runnable.schedule();
 
-        JoinHandle::new(info, waker, task.fallible())
+        JoinHandle::new(info, task.fallible())
     }
 
     /// Exit the current process (node).
