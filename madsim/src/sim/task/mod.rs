@@ -139,6 +139,20 @@ impl NodeInfo {
         tasks.len()
     }
 
+    fn num_tasks_by_spawn(&self) -> BTreeMap<String, usize> {
+        let mut tasks = self.tasks.lock();
+        let mut map = BTreeMap::new();
+        tasks.retain(|weak| {
+            if let Some(task) = weak.upgrade() {
+                *map.entry(task.location.to_string()).or_default() += 1;
+                true
+            } else {
+                false
+            }
+        });
+        map
+    }
+
     pub(crate) fn is_killed(&self) -> bool {
         self.killed.load(Ordering::Relaxed)
     }
@@ -468,6 +482,7 @@ impl TaskHandle {
             .map(|node| node.info.num_tasks())
             .sum()
     }
+
     pub fn num_tasks_by_node(&self) -> BTreeMap<String, usize> {
         self.nodes
             .lock()
@@ -482,6 +497,24 @@ impl TaskHandle {
                 )
             })
             .collect()
+    }
+
+    pub fn num_tasks_by_node_by_spawn(&self) -> String {
+        let map = self
+            .nodes
+            .lock()
+            .values()
+            .map(|node| {
+                (
+                    node.info
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| format!("node-{}", node.info.id)),
+                    node.info.num_tasks_by_spawn(),
+                )
+            })
+            .collect::<BTreeMap<String, _>>();
+        format!("{map:#?}")
     }
 }
 

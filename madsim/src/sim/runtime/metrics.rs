@@ -32,4 +32,9 @@ impl RuntimeMetrics {
     pub fn num_tasks_by_node(&self) -> BTreeMap<String, usize> {
         self.task.num_tasks_by_node()
     }
+
+    /// Returns the statistics of tasks by node by spawn.
+    pub fn num_tasks_by_node_by_spawn(&self) -> String {
+        self.task.num_tasks_by_node_by_spawn()
+    }
 }
