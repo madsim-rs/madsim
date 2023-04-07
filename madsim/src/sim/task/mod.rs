@@ -22,7 +22,7 @@ use std::{
         Arc, Weak,
     },
     task::{Context, Poll, Waker},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::watch;
 use tracing::{debug, error, error_span, trace, Span};
@@ -75,6 +75,8 @@ pub struct TaskInfo {
     pub span: Span,
     /// The spawn location.
     location: StaticLocation,
+    /// The time when this task is spawned.
+    spawn_time: Instant,
     /// The waker of this task. Used for cancellation.
     waker: Waker,
     /// A flag indicating that the task has been cancelled.
@@ -117,6 +119,7 @@ impl NodeInfo {
             name,
             node: self.clone(),
             location: Location::caller(),
+            spawn_time: Instant::now(),
             waker: futures_util::task::noop_waker(), // updated later
             cancelled: AtomicBool::new(false),
         });
