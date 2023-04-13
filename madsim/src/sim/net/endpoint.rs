@@ -1,5 +1,5 @@
 use super::{IpProtocol::Udp, *};
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use std::{
     fmt,
     pin::Pin,
@@ -239,14 +239,22 @@ impl Sender {
     #[doc(hidden)]
     pub async fn send(&self, value: Payload) -> io::Result<()> {
         (self.tx.send(value))
-            .map_err(|_| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    pub async fn closed(&self) {
+        self.tx.closed().await;
     }
 }
 
 impl Receiver {
     #[doc(hidden)]
     pub async fn recv(&mut self) -> io::Result<Payload> {
-        (self.rx.recv().await)
+        (self.rx.next().await)
             .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
     }
 }
@@ -255,7 +263,7 @@ impl Stream for Receiver {
     type Item = io::Result<Payload>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.rx.poll_recv(cx) {
+        match self.rx.poll_next_unpin(cx) {
             Poll::Ready(Some(value)) => Poll::Ready(Some(Ok(value))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,

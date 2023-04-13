@@ -92,7 +92,7 @@ impl<'de> Deserialize<'de> for Bytes {
         impl<'de> de::Visitor<'de> for EscapeStrVisitor {
             type Value = Bytes;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "an escaped string")
             }
 

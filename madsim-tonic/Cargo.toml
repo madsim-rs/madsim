@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.2.18"
+version = "0.2.20"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."
@@ -22,6 +22,6 @@ tonic = "0.8.3"
 async-stream = "0.3"
 chrono = "0.4"
 futures-util = "0.3"
-madsim = { version = "0.2.1", path = "../madsim" }
+madsim = { version = "0.2.20", path = "../madsim" }
 tracing = "0.1"
 tonic = { version = "0.8.3", default-features = false, features = ["codegen"] }

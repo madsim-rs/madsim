@@ -1,8 +1,5 @@
 use super::{Payload, PayloadReceiver, PayloadSender};
-use crate::{
-    rand::*,
-    task::{FallibleTask, JoinHandle, NodeId},
-};
+use crate::{rand::*, task::NodeId};
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
@@ -41,8 +38,6 @@ struct Node {
     ip: Option<IpAddr>,
     /// Sockets in the node.
     sockets: HashMap<(SocketAddr, IpProtocol), Arc<dyn Socket>>,
-    /// Used to close channels when the node is reset.
-    tasks: Vec<FallibleTask<()>>,
 }
 
 #[non_exhaustive]
@@ -149,7 +144,6 @@ impl Network {
         let node = self.nodes.get_mut(&id).expect("node not found");
         // close all sockets
         node.sockets.clear();
-        node.tasks.clear();
     }
 
     pub fn set_ip(&mut self, id: NodeId, ip: IpAddr) {
@@ -316,10 +310,5 @@ impl Network {
             self.nodes.get(&node).expect("node not found").ip.unwrap()
         };
         Some((src_ip, dst_node, ep.clone(), latency))
-    }
-
-    pub fn abort_task_on_reset(&mut self, node: NodeId, handle: JoinHandle<()>) {
-        let node = self.nodes.get_mut(&node).expect("node not found");
-        node.tasks.push(handle.cancel_on_drop());
     }
 }

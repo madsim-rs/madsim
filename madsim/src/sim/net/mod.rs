@@ -36,6 +36,7 @@
 //! ```
 
 use bytes::Bytes;
+use futures_util::{stream::BoxStream, StreamExt};
 use spin::Mutex;
 use std::{
     any::Any,
@@ -43,6 +44,7 @@ use std::{
     io,
     net::{IpAddr, SocketAddr},
     sync::Arc,
+    time::Instant,
 };
 use tokio::sync::{mpsc, oneshot};
 use tracing::*;
@@ -52,7 +54,7 @@ use crate::{
     plugin,
     rand::{GlobalRng, Rng},
     task::{NodeId, NodeInfo, Spawner},
-    time::{Duration, TimeHandle},
+    time::{sleep, sleep_until, Duration, TimeHandle},
 };
 
 mod addr;
@@ -85,7 +87,6 @@ pub struct NetSim {
     ipvs: IpVirtualServer,
     rand: GlobalRng,
     time: TimeHandle,
-    task: Spawner,
     hooks_req: Mutex<HashMap<NodeId, MsgHookFn>>,
     hooks_rsp: Mutex<HashMap<NodeId, MsgHookFn>>,
 }
@@ -93,8 +94,6 @@ pub struct NetSim {
 /// Message sent to a network socket.
 pub type Payload = Box<dyn Any + Send + Sync>;
 
-type PayloadSender = mpsc::UnboundedSender<Payload>;
-type PayloadReceiver = mpsc::UnboundedReceiver<Payload>;
 type MsgHookFn = Arc<dyn Fn(&Payload) -> bool + Send + Sync>;
 
 impl plugin::Simulator for NetSim {
@@ -102,14 +101,13 @@ impl plugin::Simulator for NetSim {
         unreachable!()
     }
 
-    fn new1(rand: &GlobalRng, time: &TimeHandle, task: &Spawner, config: &crate::Config) -> Self {
+    fn new1(rand: &GlobalRng, time: &TimeHandle, _task: &Spawner, config: &crate::Config) -> Self {
         NetSim {
             network: Mutex::new(Network::new(rand.clone(), config.net.clone())),
             dns: Mutex::new(DnsServer::default()),
             ipvs: IpVirtualServer::default(),
             rand: rand.clone(),
             time: time.clone(),
-            task: task.clone(),
             hooks_req: Default::default(),
             hooks_rsp: Default::default(),
         }
@@ -358,51 +356,81 @@ impl NetSim {
         let (tx1, rx1) = self.channel(node, dst, protocol);
         let (tx2, rx2) = self.channel(dst_node, src, protocol);
         trace!(?latency, "delay");
-        self.time.add_timer(latency, move || {
-            socket.new_connection(src, dst, tx2, rx1);
-        });
+        // FIXME: delay
+        // self.time.add_timer(latency, move || {
+        socket.new_connection(src, dst, tx2, rx1);
+        // });
         Ok((tx1, rx2, src))
     }
 
     /// Create a reliable, ordered channel between two endpoints.
-    fn channel<T: Send + 'static>(
+    fn channel(
         self: &Arc<Self>,
         node: NodeId,
         dst: SocketAddr,
         protocol: IpProtocol,
-    ) -> (mpsc::UnboundedSender<T>, mpsc::UnboundedReceiver<T>) {
-        let (tx1, mut rx1) = mpsc::unbounded_channel::<T>();
-        let (tx2, rx2) = mpsc::unbounded_channel::<T>();
+    ) -> (PayloadSender, PayloadReceiver) {
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let net = self.clone();
-        let handle = self.task.spawn(async move {
-            while let Some(msg) = rx1.recv().await {
-                // wait for link available
-                let mut wait = Duration::from_millis(1);
-                loop {
-                    let res = net.network.lock().try_send(node, dst, protocol);
-                    match res {
-                        Some((_, _, _, latency)) => {
-                            net.time.sleep(latency).await;
-                            break;
-                        }
-                        None => {
-                            net.time.sleep(wait).await;
-                            // backoff
-                            wait = (wait * 2).min(Duration::from_secs(10));
-                        }
-                    }
-                }
-                // receiver is closed. propagate the close to the sender.
-                if tx2.send(msg).is_err() {
-                    return;
-                }
-            }
-            // sender is closed. propagate the close to the receiver.
+        let test_link = Arc::new(move || {
+            net.network
+                .lock()
+                .try_send(node, dst, protocol)
+                .map(|(_, _, _, latency)| net.time.now_instant() + latency)
         });
-        self.network.lock().abort_task_on_reset(node, handle);
-        (tx1, rx2)
+        let sender = PayloadSender {
+            test_link: test_link.clone(),
+            tx,
+        };
+        let recver = async_stream::stream! {
+            while let Some((value, mut state)) = rx.recv().await {
+                // wait until the link is ready
+                let mut backoff = Duration::from_millis(1);
+                let arrive_time = loop {
+                    if let Some(arrive_time) = state {
+                        break arrive_time;
+                    }
+                    // backoff
+                    sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(10));
+                    // retry
+                    state = test_link();
+                };
+                sleep_until(arrive_time).await;
+                yield value;
+            }
+        }
+        .boxed();
+        (sender, recver)
     }
 }
+
+#[doc(hidden)]
+pub struct PayloadSender {
+    test_link: Arc<dyn Fn() -> State + Send + Sync>,
+    tx: mpsc::UnboundedSender<(Payload, State)>,
+}
+
+/// The link state when sending a packet.
+type State = Option<Instant>;
+
+impl PayloadSender {
+    fn send(&self, value: Payload) -> Option<()> {
+        let state = (self.test_link)();
+        self.tx.send((value, state)).ok()
+    }
+
+    fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    async fn closed(&self) {
+        self.tx.closed().await;
+    }
+}
+
+#[doc(hidden)]
+pub type PayloadReceiver = BoxStream<'static, Payload>;
 
 /// An RAII structure used to release the bound port.
 pub(crate) struct BindGuard {

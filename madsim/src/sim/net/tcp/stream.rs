@@ -3,6 +3,7 @@ use crate::{
     plugin,
 };
 use bytes::{Buf, Bytes, BytesMut};
+use futures_util::StreamExt;
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::{
@@ -128,7 +129,7 @@ impl AsyncRead for TcpStream {
             return Poll::Ready(Ok(()));
         }
         // otherwise wait on channel
-        match self.rx.poll_recv(cx) {
+        match self.rx.poll_next_unpin(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(data)) => {
                 self.read_buf = *data.downcast::<Bytes>().unwrap();
@@ -158,7 +159,7 @@ impl AsyncWrite for TcpStream {
         let data = self.write_buf.split().freeze();
         self.tx
             .send(Box::new(data))
-            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))?;
         Poll::Ready(Ok(()))
     }
 

@@ -571,6 +571,8 @@ impl ServiceInner {
     fn resign(&mut self, leader: LeaderKey) -> Result<ResignResponse> {
         tracing::trace!(name = ?leader.name, "resign");
         let kv = self.kv.remove(&leader.key).ok_or_else(session_expired)?;
+        let lease = self.lease.get_mut(&kv.lease).expect("no lease");
+        lease.keys.remove(&leader.key);
         self.watcher.publish(Event::Delete(kv));
         self.revision += 1;
         Ok(ResignResponse {

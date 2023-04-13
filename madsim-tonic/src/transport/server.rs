@@ -273,11 +273,21 @@ impl<L> Router<L> {
                     // send the header
                     tx.send(Box::new(header)).await?;
                     // send the stream
-                    let Some(mut stream) = stream else { return Ok::<(), std::io::Error>(()); };
+                    let Some(mut stream) = stream else { return Ok(()) };
                     let mut count = 0;
-                    while let Some(rsp) = stream.next().await {
+                    loop {
+                        let msg = select_biased! {
+                            _ = tx.closed().fuse() => {
+                                debug!(parent: &span, "client closed");
+                                return Ok(());
+                            }
+                            msg = stream.next().fuse() => match msg {
+                                Some(msg) => msg,
+                                None => break,
+                            }
+                        };
                         // rsp: Result<BoxMessage, Status>
-                        tx.send(Box::new(rsp)).await?;
+                        tx.send(Box::new(msg)).await?;
                         count += 1;
                     }
                     // send the trailer
@@ -287,15 +297,22 @@ impl<L> Router<L> {
                     let rsp: Result<Response<BoxMessage>, Status> = match result {
                         Ok(response) => {
                             let (metadata, extensions, mut stream) = response.into_parts();
-                            let inner: BoxMessage = stream.next().await.unwrap().unwrap();
+                            let inner: BoxMessage = select_biased! {
+                                _ = tx.closed().fuse() => {
+                                    debug!(parent: &span, "client closed");
+                                    return Ok(());
+                                }
+                                msg = stream.next().fuse() => msg.unwrap().unwrap(),
+                            };
                             Ok(Response::from_parts(metadata, extensions, inner))
                         }
                         Err(e) => Err(e),
                     };
+                    // send the response
                     tx.send(Box::new(rsp)).await?;
                     debug!(parent: &span, "completed");
                 }
-                Ok(())
+                Ok(()) as std::io::Result<()>
             });
         }
     }

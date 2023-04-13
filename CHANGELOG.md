@@ -6,9 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.20] - 2023-04-13
+
+### Added
+
+- madsim: Add detailed metrics for tasks.
+
+### Changed
+
+- madsim: Avoid spawning tasks for connection.
+
 ### Fixed
 
 - madsim: Fix leak of task introduced in 0.2.19.
+- etcd,tonic: Fix leak of RPC task in server.
 
 ## [0.2.19] - 2023-04-07
 
