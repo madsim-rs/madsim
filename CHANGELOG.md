@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- madsim: Fix leak of task introduced in 0.2.19.
+
 ## [0.2.19] - 2023-04-07
 
 ### Added
