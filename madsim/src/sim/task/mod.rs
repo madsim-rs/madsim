@@ -76,6 +76,7 @@ pub struct TaskInfo {
     /// The spawn location.
     location: StaticLocation,
     /// The time when this task is spawned.
+    #[allow(dead_code)]
     spawn_time: Instant,
     /// The waker of this task. Used for cancellation.
     waker: Waker,
