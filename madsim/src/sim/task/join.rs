@@ -20,7 +20,10 @@ impl<T> fmt::Debug for JoinHandle<T> {
 impl<T> JoinHandle<T> {
     pub(super) fn new(info: Arc<TaskInfo>, task: FallibleTask<T>) -> Self {
         Self {
-            abort: AbortHandle { info },
+            abort: AbortHandle {
+                id: info.id,
+                info: Arc::downgrade(&info),
+            },
             task: Some(task),
         }
     }
@@ -125,18 +128,21 @@ impl From<JoinError> for io::Error {
 /// An owned permission to abort a spawned task, without awaiting its completion.
 #[derive(Clone)]
 pub struct AbortHandle {
-    info: Arc<TaskInfo>,
+    id: Id,
+    info: Weak<TaskInfo>,
 }
 
 impl AbortHandle {
     /// Returns a task ID that uniquely identifies this task relative to other currently spawned tasks.
     pub fn id(&self) -> Id {
-        self.info.id
+        self.id
     }
 
     /// Abort the task associated with the handle.
     pub fn abort(&self) {
-        self.info.cancelled.store(true, Ordering::Relaxed);
-        self.info.waker.wake_by_ref();
+        if let Some(info) = self.info.upgrade() {
+            info.cancelled.store(true, Ordering::Relaxed);
+            info.waker.wake_by_ref();
+        }
     }
 }

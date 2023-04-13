@@ -30,9 +30,9 @@ use tracing::{debug, error, error_span, trace, Span};
 pub use tokio::task::yield_now;
 
 type StaticLocation = &'static Location<'static>;
-type Runnable = async_task::Runnable<Arc<TaskInfo>>;
+type Runnable = async_task::Runnable<Weak<TaskInfo>>;
 #[doc(hidden)]
-pub type FallibleTask<T> = async_task::FallibleTask<T, Arc<TaskInfo>>;
+pub type FallibleTask<T> = async_task::FallibleTask<T, Weak<TaskInfo>>;
 
 mod builder;
 mod join;
@@ -65,6 +65,7 @@ impl NodeId {
     }
 }
 
+// The lifetime of `TaskInfo` equals to the future.
 #[doc(hidden)]
 pub struct TaskInfo {
     pub id: Id,
@@ -199,20 +200,23 @@ impl Executor {
         // push the future into ready queue.
         let sender = self.handle.sender.clone();
         let info = self.handle.main_info.new_task(None);
-        let (runnable, mut task) = unsafe {
+        let (runnable, task) = unsafe {
             async_task::Builder::new()
-                .metadata(info)
-                .spawn_unchecked(move |_| future, move |runnable| _ = sender.send(runnable))
+                .metadata(Arc::downgrade(&info))
+                .spawn_unchecked(
+                    move |_| async move {
+                        let _info = info; // drop the info when the future is dropped
+                        future.await
+                    },
+                    move |runnable| _ = sender.send(runnable),
+                )
         };
         runnable.schedule();
 
-        let waker = futures_util::task::noop_waker();
-        let mut cx = Context::from_waker(&waker);
-
         loop {
             self.run_all_ready();
-            if let Poll::Ready(val) = task.poll_unpin(&mut cx) {
-                return val;
+            if task.is_finished() {
+                return task.now_or_never().unwrap();
             }
             let going = self.time.advance_to_next_event();
             assert!(going, "no events, all tasks will block forever");
@@ -228,7 +232,10 @@ impl Executor {
     /// Drain all tasks from ready queue and run them.
     fn run_all_ready(&self) {
         while let Ok(runnable) = self.queue.try_recv_random(&self.rand) {
-            let info = runnable.metadata().clone();
+            let Some(info) = runnable.metadata().upgrade() else {
+                // future has been dropped
+                continue;
+            };
             if info.cancelled.load(Ordering::Relaxed) || info.node.killed.load(Ordering::Relaxed) {
                 // cancelled task or killed node: drop the future
                 continue;
@@ -573,9 +580,16 @@ impl Spawner {
         let info = self.info.new_task(name);
         trace!(id = %info.id, name, "spawn task");
 
+        let info1 = info.clone();
         let (runnable, task) = async_task::Builder::new()
-            .metadata(info.clone())
-            .spawn_local(move |_| future, move |runnable| _ = sender.send(runnable));
+            .metadata(Arc::downgrade(&info))
+            .spawn_local(
+                move |_| async move {
+                    let _info = info1; // drop the info when the future is dropped
+                    future.await
+                },
+                move |runnable| _ = sender.send(runnable),
+            );
         // SAFETY: info can not be accessed by others.
         unsafe { &mut *Arc::as_ptr(&info).cast_mut() }.waker = runnable.waker();
         runnable.schedule();
