@@ -419,6 +419,14 @@ impl PayloadSender {
         let state = (self.test_link)();
         self.tx.send((value, state)).ok()
     }
+
+    fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    async fn closed(&self) {
+        self.tx.closed().await;
+    }
 }
 
 #[doc(hidden)]

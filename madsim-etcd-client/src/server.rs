@@ -1,3 +1,4 @@
+use futures_util::{select_biased, FutureExt};
 use madsim::net::{Endpoint, Payload};
 use std::{io::Result, net::SocketAddr, sync::Arc};
 
@@ -37,63 +38,62 @@ impl SimServer {
             let (tx, mut rx, _) = ep.accept1().await?;
             let service = service.clone();
             madsim::task::spawn(async move {
-                while let Ok(request) = rx.recv().await {
-                    let request = *request.downcast::<Request>().unwrap();
-                    let response: Payload = match request {
-                        Request::Put {
-                            key,
-                            value,
-                            options,
-                        } => Box::new(service.put(key, value, options).await),
-                        Request::Get { key, options } => Box::new(service.get(key, options).await),
-                        Request::Delete { key, options } => {
-                            Box::new(service.delete(key, options).await)
+                let request = *rx.recv().await?.downcast::<Request>().unwrap();
+                let response: Payload = match request {
+                    Request::Put {
+                        key,
+                        value,
+                        options,
+                    } => Box::new(service.put(key, value, options).await),
+                    Request::Get { key, options } => Box::new(service.get(key, options).await),
+                    Request::Delete { key, options } => {
+                        Box::new(service.delete(key, options).await)
+                    }
+                    Request::Txn { txn } => Box::new(service.txn(txn).await),
+                    Request::LeaseGrant { ttl, id } => Box::new(service.lease_grant(ttl, id).await),
+                    Request::LeaseRevoke { id } => Box::new(service.lease_revoke(id).await),
+                    Request::LeaseKeepAlive { id } => loop {
+                        let response: Payload = Box::new(service.lease_keep_alive(id).await);
+                        tx.send(response).await?;
+                        rx.recv().await?;
+                    },
+                    Request::LeaseTimeToLive { id, keys } => {
+                        Box::new(service.lease_time_to_live(id, keys).await)
+                    }
+                    Request::LeaseLeases => Box::new(service.lease_leases().await),
+                    Request::Campaign { name, value, lease } => {
+                        select_biased! {
+                            _ = tx.closed().fuse() => return Ok(()),
+                            ret = service.campaign(name, value, lease).fuse() => Box::new(ret)
                         }
-                        Request::Txn { txn } => Box::new(service.txn(txn).await),
-                        Request::LeaseGrant { ttl, id } => {
-                            Box::new(service.lease_grant(ttl, id).await)
-                        }
-                        Request::LeaseRevoke { id } => Box::new(service.lease_revoke(id).await),
-                        Request::LeaseKeepAlive { id } => {
-                            Box::new(service.lease_keep_alive(id).await)
-                        }
-                        Request::LeaseTimeToLive { id, keys } => {
-                            Box::new(service.lease_time_to_live(id, keys).await)
-                        }
-                        Request::LeaseLeases => Box::new(service.lease_leases().await),
-                        Request::Campaign { name, value, lease } => {
-                            Box::new(service.campaign(name, value, lease).await)
-                        }
-                        Request::Proclaim { leader, value } => {
-                            Box::new(service.proclaim(leader, value).await)
-                        }
-                        Request::Leader { name } => Box::new(service.leader(name).await),
-                        Request::Observe { name } => match service.observe(name.clone()).await {
-                            Err(e) => {
-                                let res: super::Result<LeaderResponse> = Err(e);
-                                Box::new(res)
-                            }
-                            Ok((mut leader, mut stream)) => {
-                                while stream.recv().await.is_some() {
-                                    let new_leader = service._leader(name.clone());
-                                    if new_leader.kv == leader.kv {
-                                        continue;
-                                    }
-                                    leader = new_leader.clone();
-                                    let response: super::Result<LeaderResponse> = Ok(new_leader);
-                                    if tx.send(Box::new(response) as Payload).await.is_err() {
-                                        return Ok(());
-                                    }
+                    }
+                    Request::Proclaim { leader, value } => {
+                        Box::new(service.proclaim(leader, value).await)
+                    }
+                    Request::Leader { name } => Box::new(service.leader(name).await),
+                    Request::Observe { name } => match service.observe(name.clone()).await {
+                        Err(e) => Box::new(Err(e) as super::Result<LeaderResponse>),
+                        Ok((mut leader, mut stream)) => loop {
+                            select_biased! {
+                                _ = tx.closed().fuse() => return Ok(()),
+                                elem = stream.recv().fuse() => if elem.is_none() {
+                                    return Ok(());
                                 }
-                                unreachable!();
                             }
+                            let new_leader = service._leader(name.clone());
+                            if new_leader.kv == leader.kv {
+                                continue;
+                            }
+                            leader = new_leader.clone();
+                            let response: super::Result<LeaderResponse> = Ok(new_leader);
+                            tx.send(Box::new(response)).await?;
                         },
-                        Request::Resign { leader } => Box::new(service.resign(leader).await),
-                        Request::Status => Box::new(service.status().await),
-                        Request::Dump => Box::new(service.dump().await),
-                    };
-                    tx.send(response).await?;
-                }
+                    },
+                    Request::Resign { leader } => Box::new(service.resign(leader).await),
+                    Request::Status => Box::new(service.status().await),
+                    Request::Dump => Box::new(service.dump().await),
+                };
+                tx.send(response).await?;
                 Ok(()) as Result<()>
             });
         }

@@ -241,6 +241,14 @@ impl Sender {
         (self.tx.send(value))
             .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))
     }
+
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    pub async fn closed(&self) {
+        self.tx.closed().await;
+    }
 }
 
 impl Receiver {
