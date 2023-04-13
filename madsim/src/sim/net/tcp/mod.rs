@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn reset() {
+    fn close() {
         let runtime = Runtime::new();
         let addr1 = "10.0.0.1:1".parse::<SocketAddr>().unwrap();
         let addr2 = "10.0.0.2:1".parse::<SocketAddr>().unwrap();
@@ -193,16 +193,12 @@ mod tests {
             barrier.wait().await;
             let (_stream, _) = listener.accept().await.unwrap();
             barrier.wait().await;
-            std::future::pending::<()>().await;
         });
 
         let f2 = node2.spawn(async move {
             barrier_.wait().await;
             let mut stream = TcpStream::connect(addr1).await.unwrap();
             barrier_.wait().await;
-
-            let net = plugin::simulator::<NetSim>();
-            net.reset_node(node1.id());
 
             let mut buf = [0; 20];
             let len = stream.read(&mut buf).await.expect("read should return EOF");
