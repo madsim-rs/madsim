@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.21] - 2023-04-14
+
+### Fixed
+
+- tonic: Fix panic on bi-directional streaming server closed.
+
 ## [0.2.20] - 2023-04-13
 
 ### Added
