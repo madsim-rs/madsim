@@ -253,10 +253,12 @@ async fn server_crash() {
                 .unwrap();
             client.say_hello(request()).await.unwrap();
 
-            let response = client.lots_of_replies(request()).await.unwrap();
+            let response = client.bidi_hello(hello_stream()).await.unwrap();
             let mut stream = response.into_inner();
 
+            sleep(Duration::from_secs(1)).await;
             Handle::current().kill(node0.id());
+            sleep(Duration::from_secs(1)).await;
 
             let error = loop {
                 match stream.message().await {

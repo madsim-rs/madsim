@@ -159,9 +159,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
             let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
             // send requests in a background task
             let task = madsim::task::spawn(async move {
-                Self::send_request_stream(request, tx, path, true)
-                    .await
-                    .unwrap();
+                _ = Self::send_request_stream(request, tx, path, true).await;
             });
             // receive responses
             let res = *(rx.recv().await?)

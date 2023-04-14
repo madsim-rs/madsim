@@ -59,13 +59,6 @@ impl TimeRuntime {
         }
     }
 
-    /// Advances time.
-    pub fn advance(&self, duration: Duration) {
-        self.handle.clock.advance(duration);
-        let time = self.handle.clock.elapsed();
-        self.handle.timer.lock().expire(time);
-    }
-
     #[allow(dead_code)]
     /// Get the current time.
     pub fn now_instant(&self) -> Instant {
@@ -104,6 +97,12 @@ impl TimeHandle {
     /// Returns the amount of time elapsed since this handle was created.
     pub fn elapsed(&self) -> Duration {
         self.clock.elapsed()
+    }
+
+    /// Advances time.
+    pub fn advance(&self, duration: Duration) {
+        let time = self.clock.advance(duration);
+        self.timer.lock().expire(time);
     }
 
     /// Waits until `duration` has elapsed.
@@ -158,6 +157,16 @@ pub fn timeout<T: Future>(
     handle.timeout(duration, future)
 }
 
+/// Advances time.
+///
+/// Increments the saved `Instant::now()` value by `duration`.
+/// Subsequent calls to `Instant::now()` will return the result of the increment.
+#[cfg_attr(docsrs, doc(cfg(madsim)))]
+pub fn advance(duration: Duration) {
+    let handle = TimeHandle::current();
+    handle.advance(duration);
+}
+
 struct Clock {
     inner: Mutex<ClockInner>,
 }
@@ -193,9 +202,10 @@ impl Clock {
         inner.advance
     }
 
-    fn advance(&self, duration: Duration) {
+    fn advance(&self, duration: Duration) -> Duration {
         let mut inner = self.inner.lock();
         inner.advance += duration;
+        inner.advance
     }
 
     fn base_instant(&self) -> Instant {
@@ -241,6 +251,16 @@ mod tests {
                     .await
                     .is_err()
             );
+        });
+    }
+
+    #[test]
+    fn test_advance() {
+        let runtime = Runtime::new();
+        runtime.block_on(async {
+            let t0 = Instant::now();
+            advance(Duration::from_secs(1));
+            assert!(t0.elapsed() >= Duration::from_secs(1));
         });
     }
 }

@@ -296,7 +296,7 @@ impl Executor {
 
             // advance time: 50-100ns
             let dur = Duration::from_nanos(self.rand.with(|rng| rng.gen_range(50..100)));
-            self.time.advance(dur);
+            self.time.handle().advance(dur);
         }
     }
 }
