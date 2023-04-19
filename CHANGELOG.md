@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.22] - 2023-04-19
+
+### Added
+
+- madsim: Add `restart_on_panic_matching` to support auto restarting on panic with certain messages.
+- rdkafka: Add `producer::DeliveryResult` and fix `ProducerContext`.
+
+
 ## [0.2.21] - 2023-04-14
 
 ### Added
