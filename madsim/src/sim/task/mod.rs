@@ -2,7 +2,7 @@
 
 use super::{
     rand::GlobalRng,
-    runtime::Simulators,
+    runtime::{NodeBuilder, Simulators},
     time::{TimeHandle, TimeRuntime},
     utils::mpsc,
 };
@@ -92,6 +92,8 @@ pub(crate) struct NodeInfo {
     cores: usize,
     /// Whether to restart the node on panic.
     restart_on_panic: bool,
+    /// The list of panic messages that will cause the node to restart.
+    restart_on_panic_matching: Vec<String>,
     /// The span of this node.
     span: Span,
 
@@ -187,6 +189,7 @@ impl Executor {
                     name: Some("main".into()),
                     cores: 1,
                     restart_on_panic: false,
+                    restart_on_panic_matching: vec![],
                     span: error_span!("node", id = %NodeId::zero(), name = "main"),
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
@@ -275,7 +278,10 @@ impl Executor {
                     info.id,
                     info.location
                 );
-                if info.node.restart_on_panic {
+                let error_msg = panic_message::panic_message(&e);
+                if info.node.restart_on_panic
+                    || (info.node.restart_on_panic_matching.iter()).any(|s| error_msg.contains(s))
+                {
                     let node_id = info.node.id;
                     let delay = self
                         .rand
@@ -359,6 +365,7 @@ impl TaskHandle {
             name: node.info.name.clone(),
             cores: node.info.cores,
             restart_on_panic: node.info.restart_on_panic,
+            restart_on_panic_matching: node.info.restart_on_panic_matching.clone(),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
             span: error_span!(parent: None, "node", %id, name = &node.info.name),
@@ -426,21 +433,17 @@ impl TaskHandle {
     }
 
     /// Create a new node.
-    pub fn create_node(
-        &self,
-        name: Option<String>,
-        init: Option<InitFn>,
-        cores: Option<usize>,
-        restart_on_panic: bool,
-    ) -> Spawner {
+    pub fn create_node(&self, builder: &NodeBuilder<'_>) -> Spawner {
         let id = NodeId(self.next_node_id.fetch_add(1, Ordering::Relaxed));
+        let name = &builder.name;
         debug!(node = %id, name, "create");
         let info = Arc::new(NodeInfo {
             span: error_span!(parent: None, "node", %id, name),
             id,
-            name,
-            cores: cores.unwrap_or(1),
-            restart_on_panic,
+            name: builder.name.clone(),
+            cores: builder.cores.unwrap_or(1),
+            restart_on_panic: builder.restart_on_panic,
+            restart_on_panic_matching: builder.restart_on_panic_matching.clone(),
             paused: AtomicBool::new(false),
             killed: AtomicBool::new(false),
             tasks: Mutex::new(vec![]),
@@ -450,13 +453,13 @@ impl TaskHandle {
             sender: self.sender.clone(),
             info: info.clone(),
         };
-        if let Some(init) = &init {
+        if let Some(init) = &builder.init {
             init(&handle);
         }
         let node = Node {
             info,
             paused: vec![],
-            init,
+            init: builder.init.clone(),
         };
         self.nodes.lock().insert(id, node);
         handle
@@ -887,6 +890,27 @@ mod tests {
             // should panic 3 times and success once
             assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
+    }
+
+    #[test]
+    #[should_panic(expected = "2")]
+    fn restart_on_panic_matching() {
+        let runtime = Runtime::new();
+        let flag = Arc::new(AtomicUsize::new(0));
+
+        runtime
+            .create_node()
+            .init(move || {
+                let flag = flag.clone();
+                async move {
+                    panic!("{}", flag.fetch_add(1, Ordering::Relaxed));
+                }
+            })
+            .restart_on_panic_matching("0")
+            .restart_on_panic_matching("1")
+            .build();
+
+        runtime.block_on(std::future::pending::<()>());
     }
 
     #[test]

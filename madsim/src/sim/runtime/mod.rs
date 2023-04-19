@@ -292,11 +292,12 @@ impl Handle {
 /// Builds a node with custom configurations.
 pub struct NodeBuilder<'a> {
     handle: &'a Handle,
-    name: Option<String>,
-    ip: Option<IpAddr>,
-    cores: Option<usize>,
-    init: Option<task::InitFn>,
-    restart_on_panic: bool,
+    pub(crate) name: Option<String>,
+    pub(crate) ip: Option<IpAddr>,
+    pub(crate) cores: Option<usize>,
+    pub(crate) init: Option<task::InitFn>,
+    pub(crate) restart_on_panic: bool,
+    pub(crate) restart_on_panic_matching: Vec<String>,
 }
 
 impl<'a> NodeBuilder<'a> {
@@ -308,6 +309,7 @@ impl<'a> NodeBuilder<'a> {
             cores: None,
             init: None,
             restart_on_panic: false,
+            restart_on_panic_matching: vec![],
         }
     }
 
@@ -345,6 +347,12 @@ impl<'a> NodeBuilder<'a> {
         self
     }
 
+    /// Automatically restart the node when it panics with a message containing the given string.
+    pub fn restart_on_panic_matching(mut self, msg: impl Into<String>) -> Self {
+        self.restart_on_panic_matching.push(msg.into());
+        self
+    }
+
     /// Set one IP address of the node.
     pub fn ip(mut self, ip: IpAddr) -> Self {
         self.ip = Some(ip);
@@ -362,10 +370,7 @@ impl<'a> NodeBuilder<'a> {
 
     /// Build a node.
     pub fn build(self) -> NodeHandle {
-        let task =
-            self.handle
-                .task
-                .create_node(self.name, self.init, self.cores, self.restart_on_panic);
+        let task = self.handle.task.create_node(&self);
         let sims = self.handle.sims.lock();
         let values = sims.values();
         for sim in values {
