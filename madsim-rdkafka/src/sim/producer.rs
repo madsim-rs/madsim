@@ -12,9 +12,11 @@ use crate::{
     error::{KafkaError, KafkaResult, RDKafkaError, RDKafkaErrorCode},
     message::{OwnedHeaders, ToBytes},
     sim_broker::Request,
-    util::Timeout,
+    util::{IntoOpaque, Timeout},
     ClientConfig,
 };
+
+pub use crate::message::DeliveryResult;
 
 /// A record for the [`BaseProducer`] and [`ThreadedProducer`].
 #[derive(Debug)]
@@ -94,7 +96,10 @@ where
 }
 
 /// Producer-specific context.
-pub trait ProducerContext: ClientContext {}
+pub trait ProducerContext: ClientContext {
+    type DeliveryOpaque: IntoOpaque;
+    fn delivery(&self, delivery_result: &DeliveryResult<'_>, delivery_opaque: Self::DeliveryOpaque);
+}
 
 /// An inert producer context that can be used when customizations are not
 /// required.
@@ -102,7 +107,10 @@ pub trait ProducerContext: ClientContext {}
 pub struct DefaultProducerContext;
 
 impl ClientContext for DefaultProducerContext {}
-impl ProducerContext for DefaultProducerContext {}
+impl ProducerContext for DefaultProducerContext {
+    type DeliveryOpaque = ();
+    fn delivery(&self, _: &DeliveryResult<'_>, _: Self::DeliveryOpaque) {}
+}
 
 #[async_trait::async_trait]
 impl FromClientConfig for BaseProducer {

@@ -1,3 +1,4 @@
+use crate::error::KafkaError;
 use crate::util::millis_to_epoch;
 use std::marker::PhantomData;
 use std::time::SystemTime;
@@ -245,6 +246,9 @@ impl Message for OwnedMessage {
         self.headers.as_ref()
     }
 }
+
+/// The result of a message production.
+pub type DeliveryResult<'a> = Result<BorrowedMessage<'a>, (KafkaError, BorrowedMessage<'a>)>;
 
 /// A zero-copy Kafka message.
 pub struct BorrowedMessage<'a> {
