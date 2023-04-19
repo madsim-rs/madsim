@@ -49,11 +49,11 @@ If your dependency graph includes the following crates, replace them by our patc
 
 ```toml
 [patch.crates-io]
-quanta = { git = "https://github.com/madsim-rs/quanta.git", rev = "a819877" }
-getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "cc95ee3" }
+quanta = { git = "https://github.com/madsim-rs/quanta.git", rev = "948bdc3" }
+getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "8daf97e" }
 tokio-retry = { git = "https://github.com/madsim-rs/rust-tokio-retry.git", rev = "95e2fd3" }
-tokio-postgres = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "1b392f1" }
-tokio-stream = { git = "https://github.com/madsim-rs/tokio.git", rev = "0c25710" }
+tokio-postgres = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "4538cd6" }
+tokio-stream = { git = "https://github.com/madsim-rs/tokio.git", rev = "ab251ad" }
 ```
 
 When built normally, these crates are identical to the original ones.
@@ -69,21 +69,10 @@ Now you have gotten rid of tokio/tonic and you are in the simulation world!
 We provide a set of APIs to control the simulator. You can use them to kill a process, disconnect the network, inject failures, etc.
 Check out the [documentation](https://docs.rs/madsim) and search for the `madsim` feature to learn more usages.
 
-### Ensure determinism
-
-Developers should eliminate any randomness in the application code. That's not easy.
-
-To make sure your code is deterministic, run your test with the following environment variable:
-
-```sh
-MADSIM_TEST_CHECK_DETERMINISM=1
-```
-
-Your test will be run at least twice with the same seed. If any non-determinism detected, it will panic as soon as possible.
-
-## Related Projects
+## Projects
 
 * [MadRaft](https://github.com/madsim-rs/madraft): The labs of Raft consensus algorithm derived from MIT 6.824 and PingCAP Talent Plan.
+* [RisingWave](https://github.com/risingwavelabs/risingwave): A distributed SQL database for stream processing that uses MadSim for deterministic testing.
 
 ## License
 
