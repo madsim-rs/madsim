@@ -112,13 +112,13 @@ impl EtcdService {
             };
             if kv.key == key {
                 return Ok(CampaignResponse {
-                    header: leader.header,
-                    leader: LeaderKey {
+                    header: Some(leader.header),
+                    leader: Some(LeaderKey {
                         name,
                         key,
                         rev: kv.modify_revision,
                         lease: kv.lease,
-                    },
+                    }),
                 });
             }
         }
@@ -498,31 +498,34 @@ impl ServiceInner {
         key.push(b'/');
         key.extend_from_slice(format!("{lease:016x}").as_bytes());
 
-        self.revision += 1;
-        let kv = KeyValue {
-            key: key.clone(),
-            value: value.clone(),
-            lease,
-            create_revision: self.revision,
-            modify_revision: self.revision,
-        };
-        self.lease
-            .get_mut(&lease)
-            .ok_or_else(lease_not_found)?
-            .keys
-            .insert(key.clone());
-        self.kv.insert(key.clone(), kv.clone());
-        self.watcher.publish(Event::Put(kv));
+        if self.kv.get(&key).map(|kv| kv.value.as_slice()) != Some(value) {
+            // put the kv if key not exists or value not match
+            self.revision += 1;
+            let kv = KeyValue {
+                key: key.clone(),
+                value: value.clone(),
+                lease,
+                create_revision: self.revision,
+                modify_revision: self.revision,
+            };
+            self.lease
+                .get_mut(&lease)
+                .ok_or_else(lease_not_found)?
+                .keys
+                .insert(key.clone());
+            self.kv.insert(key.clone(), kv.clone());
+            self.watcher.publish(Event::Put(kv));
+        }
 
         if self.leader(name.clone()).kv.unwrap().key == key {
             Ok(Ok(CampaignResponse {
-                header: self.header(),
-                leader: LeaderKey {
+                header: Some(self.header()),
+                leader: Some(LeaderKey {
                     name: name.clone(),
                     key,
                     rev: self.revision,
                     lease,
-                },
+                }),
             }))
         } else {
             let (tx, rx) = mpsc::channel(4);

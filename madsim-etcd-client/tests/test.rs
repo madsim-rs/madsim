@@ -165,17 +165,23 @@ async fn election() {
         // get leader
         let resp = client.leader("leader").await.unwrap();
         assert_eq!(resp.kv().unwrap().value(), b"1");
+        // campaign again should complete immediately
+        let resp = client.campaign("leader", "1", lease.id()).await.unwrap();
+        let _leader_key = resp.leader().unwrap();
+        // campaign with new value
+        let resp = client.campaign("leader", "1.1", lease.id()).await.unwrap();
+        let _leader_key = resp.leader().unwrap();
         // proclaim
         let opt = ProclaimOptions::new().with_leader(leader_key.clone());
-        client.proclaim("1.1", Some(opt.clone())).await.unwrap();
+        client.proclaim("1.2", Some(opt.clone())).await.unwrap();
         let resp = client.leader("leader").await.unwrap();
-        assert_eq!(resp.kv().unwrap().value(), b"1.1");
+        assert_eq!(resp.kv().unwrap().value(), b"1.2");
         // wait for 30s
         sleep(Duration::from_secs(30)).await;
         // revoke lease to release leadership
         lease_client.revoke(lease.id()).await.unwrap();
         // proclaim should fail
-        client.proclaim("1.2", Some(opt.clone())).await.unwrap_err();
+        client.proclaim("1.3", Some(opt.clone())).await.unwrap_err();
 
         // campaign with invalid lease
         client.campaign("invalid_lease", "1", 1).await.unwrap_err();
@@ -211,6 +217,8 @@ async fn election() {
         assert_eq!(resp.kv().unwrap().value(), b"1");
         let resp = leader_stream.message().await.unwrap().unwrap();
         assert_eq!(resp.kv().unwrap().value(), b"1.1");
+        let resp = leader_stream.message().await.unwrap().unwrap();
+        assert_eq!(resp.kv().unwrap().value(), b"1.2");
 
         // sleep for a while to make sure client2 has campaigned
         sleep(Duration::from_secs(15)).await;

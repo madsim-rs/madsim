@@ -103,21 +103,33 @@ impl ElectionClient {
 /// Response for `Campaign` operation.
 #[derive(Debug, Clone)]
 pub struct CampaignResponse {
-    pub(crate) header: ResponseHeader,
-    pub(crate) leader: LeaderKey,
+    pub(crate) header: Option<ResponseHeader>,
+    pub(crate) leader: Option<LeaderKey>,
 }
 
 impl CampaignResponse {
     /// Get response header.
     #[inline]
     pub fn header(&self) -> Option<&ResponseHeader> {
-        Some(&self.header)
+        self.header.as_ref()
+    }
+
+    /// Takes the header out of the response, leaving a [`None`] in its place.
+    #[inline]
+    pub fn take_header(&mut self) -> Option<ResponseHeader> {
+        self.header.take()
     }
 
     /// Describes the resources used for holding leadership of the election.
     #[inline]
     pub fn leader(&self) -> Option<&LeaderKey> {
-        Some(&self.leader)
+        self.leader.as_ref()
+    }
+
+    /// Takes the leader out of the response, leaving a [`None`] in its place.
+    #[inline]
+    pub fn take_leader(&mut self) -> Option<LeaderKey> {
+        self.leader.take()
     }
 }
 

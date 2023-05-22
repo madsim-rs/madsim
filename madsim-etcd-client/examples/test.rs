@@ -6,8 +6,14 @@ async fn main() {
     use madsim_etcd_client::*;
 
     let mut client = Client::connect(["127.0.0.1:2379"], None).await.unwrap();
+    // campaign twice
+    let lease1 = client.lease_grant(60, None).await.unwrap();
+    let resp = client.campaign("leader", "1", lease1.id()).await.unwrap();
+    println!("{resp:?}");
+    let resp = client.campaign("leader", "1", lease1.id()).await.unwrap();
+    println!("{resp:?}");
 
-    // // campaign_with_invalid_lease
+    // campaign_with_invalid_lease
     // let resp = client.campaign("leader", "1", 0x1234).await;
     // println!("{resp:?}");
 
@@ -16,10 +22,10 @@ async fn main() {
     // println!("{resp:?}");
 
     // put_with_invalid_lease
-    let resp = client
-        .put("key", "value", Some(PutOptions::new().with_lease(1)))
-        .await;
-    println!("{resp:?}");
+    // let resp = client
+    //     .put("key", "value", Some(PutOptions::new().with_lease(1)))
+    //     .await;
+    // println!("{resp:?}");
 }
 
 #[cfg(madsim)]
