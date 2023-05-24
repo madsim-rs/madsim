@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.23] - 2023-05-22
+
+### Added
+
+- etcd: Add `CampaignResponse::{take_header, take_leader}`.
+
+### Fixed
+
+- etcd: Fix the behavior when campaign is called multiple times.
+
+
 ## [0.2.22] - 2023-04-19
 
 ### Added
