@@ -29,6 +29,10 @@ mod sim {
         pub use madsim::task::*;
         #[cfg(feature = "rt")]
         pub use tokio::task::LocalKey;
+        #[cfg(feature = "rt")]
+        pub mod futures {
+            pub use tokio::task::futures::TaskLocalFuture;
+        }
     }
 
     // not simulated API
