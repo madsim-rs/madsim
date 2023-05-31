@@ -31,90 +31,31 @@ impl SimServer {
             let service = service.clone();
             madsim::task::spawn(async move {
                 let request = *rx.recv().await?.downcast::<Request>().unwrap();
-
-                use crate::input::*;
                 use Request::*;
 
                 let response: Payload = match request {
-                    CreateMultipartUpload(CreateMultipartUploadInput { bucket, key }) => {
-                        Box::new(service.create_multipart_upload(bucket, key).await)
+                    CreateMultipartUpload(input) => {
+                        Box::new(service.create_multipart_upload(input).await)
                     }
-                    UploadPart(UploadPartInput {
-                        body0,
-                        bucket,
-                        content_length,
-                        key,
-                        part_number,
-                        upload_id,
-                        ..
-                    }) => Box::new(
-                        service
-                            .upload_part(bucket, key, body0, content_length, part_number, upload_id)
-                            .await,
-                    ),
-                    CompletedMultipartUpload(CompleteMultipartUploadInput {
-                        bucket,
-                        key,
-                        multipart_upload,
-                        upload_id,
-                    }) => Box::new(
-                        service
-                            .complete_multipart_upload(bucket, key, multipart_upload, upload_id)
-                            .await,
-                    ),
-                    AbortMultipartUpload(AbortMultipartUploadInput {
-                        bucket,
-                        key,
-                        upload_id,
-                    }) => Box::new(service.abort_multipart_upload(bucket, key, upload_id).await),
-                    GetObject(GetObjectInput {
-                        bucket,
-                        key,
-                        range,
-                        part_number,
-                    }) => Box::new(service.get_object(bucket, key, range, part_number).await),
-                    PutObject(PutObjectInput {
-                        body0, bucket, key, ..
-                    }) => Box::new(service.put_object(bucket, key, body0).await),
-                    DeleteObject(DeleteObjectInput { bucket, key }) => {
-                        Box::new(service.delete_object(bucket, key).await)
+                    UploadPart(input) => Box::new(service.upload_part(input).await),
+                    CompletedMultipartUpload(input) => {
+                        Box::new(service.complete_multipart_upload(input).await)
                     }
-                    DeleteObjects(DeleteObjectsInput { bucket, delete }) => {
-                        Box::new(service.delete_objects(bucket, delete).await)
+                    AbortMultipartUpload(input) => {
+                        Box::new(service.abort_multipart_upload(input).await)
                     }
-                    HeadObject(HeadObjectInput { bucket, key }) => {
-                        Box::new(service.head_object(bucket, key).await)
+                    GetObject(input) => Box::new(service.get_object(input).await),
+                    PutObject(input) => Box::new(service.put_object(input).await),
+                    DeleteObject(input) => Box::new(service.delete_object(input).await),
+                    DeleteObjects(input) => Box::new(service.delete_objects(input).await),
+                    HeadObject(input) => Box::new(service.head_object(input).await),
+                    ListObjectsV2(input) => Box::new(service.list_objects_v2(input).await),
+                    PutBucketLifecycleConfiguration(input) => {
+                        Box::new(service.put_bucket_lifecycle_configuration(input).await)
                     }
-                    ListObjectsV2(ListObjectsV2Input {
-                        bucket,
-                        prefix,
-                        continuation_token,
-                    }) => Box::new(
-                        service
-                            .list_objects_v2(bucket, prefix, continuation_token)
-                            .await,
-                    ),
-                    PutBucketLifecycleConfiguration(PutBucketLifecycleConfigurationInput {
-                        bucket,
-                        lifecycle_configuration,
-                        expected_bucket_owner,
-                    }) => Box::new(
-                        service
-                            .put_bucket_lifecycle_configuration(
-                                bucket,
-                                lifecycle_configuration,
-                                expected_bucket_owner,
-                            )
-                            .await,
-                    ),
-                    GetBucketLifecycleConfiguration(GetBucketLifecycleConfigurationInput {
-                        bucket,
-                        expected_bucket_owner,
-                    }) => Box::new(
-                        service
-                            .get_bucket_lifecycle_configuration(bucket, expected_bucket_owner)
-                            .await,
-                    ),
+                    GetBucketLifecycleConfiguration(input) => {
+                        Box::new(service.get_bucket_lifecycle_configuration(input).await)
+                    }
                 };
                 tx.send(response).await?;
                 Ok(()) as Result<()>
