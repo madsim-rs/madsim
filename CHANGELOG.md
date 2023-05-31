@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - etcd: Add `CampaignResponse::{take_header, take_leader}`.
 - tokio: Add `tokio::task::futures::TaskLocalFuture`.
 
+### Changed
+
+- s3: Update `aws-sdk-s3` to v0.28.
+
 ### Fixed
 
 - etcd: Fix the behavior when campaign is called multiple times.
