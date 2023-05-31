@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::net::SocketAddr;
 
 pub use aws_sdk_s3::config::Credentials;
 pub use aws_sdk_s3::config::Region;
@@ -6,7 +7,7 @@ use aws_types::SdkConfig;
 
 #[derive(Debug)]
 pub struct Config {
-    pub(crate) endpoint_url: String,
+    pub(crate) endpoint_addr: SocketAddr,
 }
 
 impl Config {
@@ -48,7 +49,16 @@ impl Builder {
 
     pub fn build(self) -> Config {
         Config {
-            endpoint_url: self.endpoint_url.expect("endpoint_url must be set"),
+            endpoint_addr: self
+                .endpoint_url
+                .expect("endpoint_url must be set")
+                .parse::<http::uri::Uri>()
+                .expect("invalid URI")
+                .authority()
+                .expect("invalid URI")
+                .as_str()
+                .parse::<SocketAddr>()
+                .expect("invalid socket addr"),
         }
     }
 }

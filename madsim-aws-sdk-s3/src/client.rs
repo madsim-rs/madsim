@@ -2,7 +2,6 @@ use aws_smithy_http::result::ConnectorError;
 use aws_types::SdkConfig;
 use madsim::net::{Endpoint, Payload};
 use std::fmt::Debug;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::config::Config;
@@ -41,7 +40,7 @@ impl Client {
     }
 
     async fn send_request_io(&self, req: Request) -> std::io::Result<Payload> {
-        let addr = self.config.endpoint_url.parse::<SocketAddr>().unwrap();
+        let addr = self.config.endpoint_addr;
         let ep = Endpoint::connect(addr).await?;
         let (tx, mut rx) = ep.connect1(addr).await?;
         tx.send(Box::new(req)).await?;
