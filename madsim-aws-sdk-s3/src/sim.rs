@@ -1,9 +1,7 @@
 pub mod client;
-pub use client::*;
+pub mod config;
+pub mod operation;
 pub mod server;
 
-pub use aws_sdk_s3::{error, types};
-
-pub use aws_smithy_http::endpoint::Endpoint;
-pub use aws_types::region::Region;
-pub use aws_types::Credentials;
+pub use self::client::Client;
+pub use aws_sdk_s3::{error, primitives, types};

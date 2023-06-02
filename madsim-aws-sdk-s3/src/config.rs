@@ -1,13 +1,13 @@
 use std::fmt::Debug;
+use std::net::SocketAddr;
 
-use aws_smithy_http::endpoint::Endpoint;
-use aws_types::credentials::Credentials;
-use aws_types::region::Region;
+pub use aws_sdk_s3::config::Credentials;
+pub use aws_sdk_s3::config::Region;
 use aws_types::SdkConfig;
 
 #[derive(Debug)]
 pub struct Config {
-    pub(crate) endpoint: Endpoint,
+    pub(crate) endpoint_addr: SocketAddr,
 }
 
 impl Config {
@@ -23,7 +23,7 @@ impl Config {
 #[derive(Default)]
 pub struct Builder {
     region: Option<Region>,
-    endpoint: Option<Endpoint>,
+    endpoint_url: Option<String>,
     credentials: Option<Credentials>,
 }
 
@@ -32,8 +32,8 @@ impl Builder {
         Self::default()
     }
 
-    pub fn endpoint_resolver(mut self, endpoint_resolver: Endpoint) -> Self {
-        self.endpoint = Some(endpoint_resolver);
+    pub fn endpoint_url(mut self, endpoint_url: impl Into<String>) -> Self {
+        self.endpoint_url = Some(endpoint_url.into());
         self
     }
 
@@ -49,7 +49,16 @@ impl Builder {
 
     pub fn build(self) -> Config {
         Config {
-            endpoint: self.endpoint.expect("endpoint must be set"),
+            endpoint_addr: self
+                .endpoint_url
+                .expect("endpoint_url must be set")
+                .parse::<http::uri::Uri>()
+                .expect("invalid URI")
+                .authority()
+                .expect("invalid URI")
+                .as_str()
+                .parse::<SocketAddr>()
+                .expect("invalid socket addr"),
         }
     }
 }
