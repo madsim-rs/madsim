@@ -315,58 +315,33 @@ impl ServiceInner {
 
         let parts = object
             .parts
-            .get_mut(&upload_id)
+            .remove(&upload_id)
             .ok_or_else(|| CompleteMultipartUploadError::unhandled(no_such_upload(&upload_id)))?;
 
         if let Some(mut multipart) = multipart.parts {
+            let mut body = vec![];
+
             multipart.sort_by_key(|part| part.part_number);
-            let mut selection_idx = vec![];
             for completed_part in multipart {
-                for (idx, part) in parts.iter().enumerate() {
+                for part in parts.iter().enumerate() {
                     if part.part_number == completed_part.part_number {
                         if let Some(e_tag) = &completed_part.e_tag {
                             if e_tag == &part.e_tag {
-                                selection_idx.push(idx);
+                                body.extend(part.body);
                                 break;
                             }
                         } else {
-                            selection_idx.push(idx);
+                            body.extend(part.body);
                             break;
                         }
                     }
                 }
             }
-
-            selection_idx.sort();
-            let mut selection_idx = VecDeque::from(selection_idx);
-            let mut body = vec![];
-            let parts = object.parts.remove(&upload_id).unwrap();
-
-            for (idx, part) in parts.into_iter().enumerate() {
-                if let Some(next_idx) = selection_idx.front() {
-                    if *next_idx != idx {
-                        continue;
-                    } else {
-                        body.extend(part.body);
-                        selection_idx.pop_front();
-                    }
-                } else {
-                    break;
-                }
-            }
-
+            
             object.body = body.into();
             object.completed = true;
-            object.parts.remove(&upload_id);
-
-            Ok(CompleteMultipartUploadOutput::builder().build())
-        } else {
-            object
-                .parts
-                .remove(&upload_id)
-                .expect("empty complete multipart request, remove upload_id failed");
-            Ok(CompleteMultipartUploadOutput::builder().build())
         }
+        Ok(CompleteMultipartUploadOutput::builder().build())
     }
 
     fn abort_multipart_upload(
