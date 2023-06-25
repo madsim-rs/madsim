@@ -323,7 +323,7 @@ impl ServiceInner {
 
             multipart.sort_by_key(|part| part.part_number);
             for completed_part in multipart {
-                for part in parts.iter().enumerate() {
+                for part in parts.iter() {
                     if part.part_number == completed_part.part_number {
                         if let Some(e_tag) = &completed_part.e_tag {
                             if e_tag == &part.e_tag {
