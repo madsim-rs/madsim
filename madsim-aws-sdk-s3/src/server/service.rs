@@ -4,7 +4,7 @@ use madsim::rand::{thread_rng, Rng};
 use spin::Mutex;
 use tracing::debug;
 
-use std::collections::{btree_map::Entry::*, BTreeMap, VecDeque};
+use std::collections::{btree_map::Entry::*, BTreeMap};
 
 use crate::operation::abort_multipart_upload::*;
 use crate::operation::complete_multipart_upload::*;
@@ -327,11 +327,11 @@ impl ServiceInner {
                     if part.part_number == completed_part.part_number {
                         if let Some(e_tag) = &completed_part.e_tag {
                             if e_tag == &part.e_tag {
-                                body.extend(part.body);
+                                body.extend(&part.body);
                                 break;
                             }
                         } else {
-                            body.extend(part.body);
+                            body.extend(&part.body);
                             break;
                         }
                     }
