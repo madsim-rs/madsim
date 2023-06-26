@@ -337,7 +337,7 @@ impl ServiceInner {
                     }
                 }
             }
-            
+
             object.body = body.into();
             object.completed = true;
         }
