@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.24] - 2023-06-26
+
+### Fixed
+
+- s3: Fix missing parts ordering.
+
 ## [0.2.23] - 2023-05-22
 
 ### Added
