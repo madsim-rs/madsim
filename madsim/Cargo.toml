@@ -27,7 +27,7 @@ lazy_static = "1.4"
 madsim-macros = { version = "0.2", path = "../madsim-macros", optional = true }
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
-spin = "0.9"
+spin = "0.9.8"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
