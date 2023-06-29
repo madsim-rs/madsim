@@ -22,6 +22,10 @@ This project is created to make that easy.
 
 A part of the implementation of this crate is inspired by [tokio-rs/simulation](https://github.com/tokio-rs/simulation).
 
+See also the blog posts for a detailed writeup:
+- [Deterministic Simulation: A New Era of Distributed System Testing (Part 1 of 2)](https://www.risingwave.com/blog/deterministic-simulation-a-new-era-of-distributed-system-testing/)
+- [Applying Deterministic Simulation: The RisingWave Story (Part 2 of 2)](https://www.risingwave.com/blog/applying-deterministic-simulation-the-risingwave-story-part-2-of-2/)
+
 ## Usage
 
 Add the following lines to your Cargo.toml:
