@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- tonic: Update to `tonic` v0.9.3.
+
 ## [0.2.24] - 2023-06-26
 
 ### Fixed
