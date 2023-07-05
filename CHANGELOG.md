@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.25] - 2023-07-03
+
+### Added
+
+- tonic: Support setting timeout for each request.
+
+### Fixed
+
+- s3: Fix compile error.
+
 ## [0.2.24] - 2023-06-26
 
 ### Fixed

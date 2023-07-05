@@ -45,6 +45,7 @@ impl<T> AppendMetadata for Result<Response<T>, Status> {
 pub mod codegen {
     use std::any::Any;
     pub use std::net::SocketAddr;
+    use std::time::Duration;
     use tonic::{
         metadata::MetadataMap, service::Interceptor, Extensions, Request, Response, Status,
     };
@@ -60,6 +61,7 @@ pub mod codegen {
     pub type IdentityInterceptor = fn(Request<()>) -> Result<Request<()>, Status>;
 
     pub trait RequestExt<T>: Sized {
+        fn timeout(&self) -> Option<Duration>;
         fn set_remote_addr(&mut self, addr: SocketAddr);
         fn intercept<F: Interceptor>(self, interceptor: &mut F) -> Result<Self, Status>;
         fn boxed(self) -> Request<BoxMessage>
@@ -68,6 +70,22 @@ pub mod codegen {
     }
 
     impl<T> RequestExt<T> for Request<T> {
+        /// Get the timeout of Request.
+        fn timeout(&self) -> Option<Duration> {
+            let s = self.metadata().get("grpc-timeout")?.to_str().unwrap();
+            let (value, unit) = s.split_at(s.len() - 1);
+            let value = value.parse::<u64>().expect("invalid grpc-timeout value");
+            Some(match unit {
+                "H" => Duration::from_secs(value * 60 * 60),
+                "M" => Duration::from_secs(value * 60),
+                "S" => Duration::from_secs(value),
+                "m" => Duration::from_millis(value),
+                "u" => Duration::from_micros(value),
+                "n" => Duration::from_nanos(value),
+                _ => panic!("invalid grpc-timeout unit: {unit}"),
+            })
+        }
+
         /// Set the remote address of Request.
         fn set_remote_addr(&mut self, addr: SocketAddr) {
             let tcp_info: tonic::transport::server::TcpConnectInfo =
