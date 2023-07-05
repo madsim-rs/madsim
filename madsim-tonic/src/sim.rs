@@ -74,7 +74,7 @@ pub mod codegen {
         fn timeout(&self) -> Option<Duration> {
             let s = self.metadata().get("grpc-timeout")?.to_str().unwrap();
             let (value, unit) = s.split_at(s.len() - 1);
-            let value = value.parse::<u64>().ok()?;
+            let value = value.parse::<u64>().expect("invalid grpc-timeout value");
             Some(match unit {
                 "H" => Duration::from_secs(value * 60 * 60),
                 "M" => Duration::from_secs(value * 60),
