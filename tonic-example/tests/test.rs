@@ -393,6 +393,14 @@ async fn request_timeout() {
             let error = client.delay(request()).await.unwrap_err();
             assert_eq!(error.code(), tonic::Code::DeadlineExceeded);
             assert!(t0.elapsed() < Duration::from_secs(2));
+
+            // timeout set on request should override channel timeout
+            let mut req = request();
+            req.set_timeout(Duration::from_secs(5));
+            let t0 = Instant::now();
+            let error = client.delay(req).await.unwrap_err();
+            assert_eq!(error.code(), tonic::Code::DeadlineExceeded);
+            assert!(t0.elapsed() >= Duration::from_secs(5));
         })
         .await
         .unwrap();

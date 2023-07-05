@@ -59,7 +59,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        let timeout = self.inner.timeout;
+        let timeout = request.timeout().or(self.inner.timeout);
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?.boxed();
@@ -90,7 +90,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        let timeout = self.inner.timeout;
+        let timeout = request.timeout().or(self.inner.timeout);
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?;
@@ -121,7 +121,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        let timeout = self.inner.timeout;
+        let timeout = request.timeout().or(self.inner.timeout);
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?.boxed();
@@ -151,7 +151,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         M1: Send + Sync + 'static,
         M2: Send + Sync + 'static,
     {
-        let timeout = self.inner.timeout;
+        let timeout = request.timeout().or(self.inner.timeout);
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?;
