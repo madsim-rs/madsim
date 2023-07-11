@@ -10,3 +10,4 @@ members = [
     "madsim-rdkafka",
     "tonic-example",
 ]
+resolver = "2"
