@@ -1,6 +1,6 @@
 [package]
 name = "madsim-etcd-client"
-version = "0.2.23"
+version = "0.3.0+0.11.1"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The etcd simulator on madsim."
@@ -13,7 +13,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [target.'cfg(not(madsim))'.dependencies]
-etcd-client = "0.10"
+etcd-client = "0.11"
 
 [target.'cfg(madsim)'.dependencies]
 http = "0.2"
@@ -24,7 +24,7 @@ serde_with = "2"
 spin = "0.9"
 thiserror = "1"
 toml = "0.7"
-tonic = { version = "0.8", default-features = false }
+tonic = { version = "0.9", default-features = false }
 tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"
 

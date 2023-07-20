@@ -1,7 +1,7 @@
 //! Server implementation and builder.
 
 use super::{Error, NamedService};
-use crate::codegen::{BoxMessage, BoxMessageStream, RequestExt, ResponseExt};
+use crate::codegen::{BoxMessage, BoxMessageStream, RequestExt};
 use crate::sim::AppendMetadata;
 use crate::tower::layer::util::{Identity, Stack};
 use crate::{Request, Response, Status};
@@ -206,6 +206,7 @@ impl<L> Router<L> {
         signal: impl Future<Output = ()>,
     ) -> Result<(), Error> {
         let ep = Endpoint::bind(addr).await.map_err(Error::from_source)?;
+        let local_addr = ep.local_addr().unwrap();
         let mut signal = Box::pin(signal).fuse();
         loop {
             // receive a request
@@ -223,7 +224,7 @@ impl<L> Router<L> {
             let span = debug_span!("request", ?addr, ?path);
             debug!(parent: &span, "received");
 
-            request.set_remote_addr(addr);
+            request.set_tcp_connect_info(local_addr, addr);
             let request: Request<BoxMessageStream> = request.map(move |msg| {
                 if msg.downcast_ref::<()>().is_none() {
                     // single request
@@ -264,8 +265,8 @@ impl<L> Router<L> {
                 if server_streaming {
                     let (header, stream) = match result {
                         Ok(response) => {
-                            let (metadata, extensions, stream) = response.into_parts();
-                            let header = Response::from_parts(metadata, extensions, ());
+                            let (metadata, stream, extensions) = response.into_parts();
+                            let header = Response::from_parts(metadata, (), extensions);
                             (Ok(header), Some(stream))
                         }
                         Err(e) => (Err(e), None),
@@ -296,7 +297,7 @@ impl<L> Router<L> {
                 } else {
                     let rsp: Result<Response<BoxMessage>, Status> = match result {
                         Ok(response) => {
-                            let (metadata, extensions, mut stream) = response.into_parts();
+                            let (metadata, mut stream, extensions) = response.into_parts();
                             let inner: BoxMessage = select_biased! {
                                 _ = tx.closed().fuse() => {
                                     debug!(parent: &span, "client closed");
@@ -304,7 +305,7 @@ impl<L> Router<L> {
                                 }
                                 msg = stream.next().fuse() => msg.unwrap().unwrap(),
                             };
-                            Ok(Response::from_parts(metadata, extensions, inner))
+                            Ok(Response::from_parts(metadata, inner, extensions))
                         }
                         Err(e) => Err(e),
                     };
