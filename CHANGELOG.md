@@ -6,11 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## tonic [0.3.0] - 2023-07-20
+## tonic, etcd [0.3.0] - 2023-07-20
 
 ### Changed
 
-- Update to `tonic` v0.9.2.
+- tonic: Update `tonic` and `tonic-build` to v0.9.2.
+- etcd: Update `etcd-client` to v0.11.1.
 
 ## [0.2.25] - 2023-07-03
 
