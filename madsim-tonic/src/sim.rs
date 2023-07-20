@@ -45,9 +45,7 @@ impl<T> AppendMetadata for Result<Response<T>, Status> {
 pub mod codegen {
     use std::any::Any;
     pub use std::net::SocketAddr;
-    use tonic::{
-        metadata::MetadataMap, service::Interceptor, Extensions, Request, Response, Status,
-    };
+    use tonic::{service::Interceptor, Request, Status};
 
     pub use futures_util as futures;
     pub use tonic::codegen::*;
@@ -60,7 +58,7 @@ pub mod codegen {
     pub type IdentityInterceptor = fn(Request<()>) -> Result<Request<()>, Status>;
 
     pub trait RequestExt<T>: Sized {
-        fn set_remote_addr(&mut self, addr: SocketAddr);
+        fn set_tcp_connect_info(&mut self, local_addr: SocketAddr, remote_addr: SocketAddr);
         fn intercept<F: Interceptor>(self, interceptor: &mut F) -> Result<Self, Status>;
         fn boxed(self) -> Request<BoxMessage>
         where
@@ -69,9 +67,9 @@ pub mod codegen {
 
     impl<T> RequestExt<T> for Request<T> {
         /// Set the remote address of Request.
-        fn set_remote_addr(&mut self, addr: SocketAddr) {
+        fn set_tcp_connect_info(&mut self, local_addr: SocketAddr, remote_addr: SocketAddr) {
             let tcp_info: tonic::transport::server::TcpConnectInfo =
-                unsafe { std::mem::transmute(Some(addr)) };
+                unsafe { std::mem::transmute((Some(local_addr), Some(remote_addr))) };
             self.extensions_mut().insert(tcp_info);
         }
 
@@ -89,27 +87,6 @@ pub mod codegen {
             T: Send + Sync + 'static,
         {
             self.map(|inner| Box::new(inner) as BoxMessage)
-        }
-    }
-
-    pub trait ResponseExt<T>: Sized {
-        fn into_parts(self) -> (MetadataMap, Extensions, T);
-        fn from_parts(metadata: MetadataMap, extensions: Extensions, inner: T) -> Self;
-    }
-
-    impl<T> ResponseExt<T> for Response<T> {
-        fn into_parts(mut self) -> (MetadataMap, Extensions, T) {
-            let metadata = std::mem::take(self.metadata_mut());
-            let extensions = std::mem::take(self.extensions_mut());
-            let inner = self.into_inner();
-            (metadata, extensions, inner)
-        }
-
-        fn from_parts(metadata: MetadataMap, extensions: Extensions, inner: T) -> Self {
-            let mut rsp = Response::new(inner);
-            *rsp.metadata_mut() = metadata;
-            *rsp.extensions_mut() = extensions;
-            rsp
         }
     }
 }
