@@ -462,7 +462,7 @@ impl PurgeConfig {
     #[inline]
     pub fn queue(self) -> Self {
         Self {
-            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_QUEUE as i32,
+            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_QUEUE,
         }
     }
     /// Purge messages in-flight to or from the broker.
@@ -475,14 +475,14 @@ impl PurgeConfig {
     #[inline]
     pub fn inflight(self) -> Self {
         Self {
-            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_INFLIGHT as i32,
+            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_INFLIGHT,
         }
     }
     /// Don't wait for background thread queue purging to finish.
     #[inline]
     pub fn non_blocking(self) -> Self {
         Self {
-            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_NON_BLOCKING as i32,
+            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_NON_BLOCKING,
         }
     }
 }
