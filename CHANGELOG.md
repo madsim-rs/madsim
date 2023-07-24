@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic [0.3.1] - 2023-07-24
+
+### Added
+
+- tonic: Add dummy methods `max_encoding_message_size` and `max_decoding_message_size` in `client::Grpc` and generated clients and servers.
+
+### Changed
+
+- tonic-build: Update methods `send_gzip` -> `send_compressed`, `accept_gzip` -> `accept_compressed` in generated clients and servers.
+
 ## tonic, etcd [0.3.0] - 2023-07-20
 
 ### Changed

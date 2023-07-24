@@ -7,6 +7,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+pub use tonic::codec::CompressionEncoding;
 use tonic::codegen::BoxStream;
 
 /// Streaming requests and responses.

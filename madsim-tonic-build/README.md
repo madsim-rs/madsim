@@ -8,6 +8,6 @@ Compiles proto files via prost and generates service stubs and proto definitione
 This crate will generate code for simulation along with the original code.
 The macro `madsim_tonic::include_proto` will decide which version to use based on whether the `sim` feature is enabled.
 
-This code is modified from [tonic-build v0.7.2][tonic-build]. It provides exactly the same API as the original crate.
+This code is modified from [tonic-build v0.9.2][tonic-build]. It provides exactly the same API as the original crate.
 
-[tonic-build]: https://github.com/hyperium/tonic/tree/de2e4ac077c076736dc451f3415ea7da1a61a560/tonic-build
+[tonic-build]: https://github.com/hyperium/tonic/tree/v0.9.2/tonic-build

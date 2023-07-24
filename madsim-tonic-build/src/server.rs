@@ -49,22 +49,37 @@ pub fn generate<T: Service>(
 
     let configure_compression_methods = if compression_enabled {
         quote! {
-            /// Enable decompressing requests with `gzip`.
+            /// Enable decompressing requests with the given encoding.
             #[must_use]
-            pub fn accept_gzip(self) -> Self {
-                // self.accept_compression_encodings.enable_gzip();
+            pub fn accept_compressed(self, _encoding: CompressionEncoding) -> Self {
+                // self.accept_compression_encodings.enable(encoding);
                 self
             }
-
-            /// Compress responses with `gzip`, if the client supports it.
+            /// Compress responses with the given encoding, if the client supports it.
             #[must_use]
-            pub fn send_gzip(self) -> Self {
-                // self.send_compression_encodings.enable_gzip();
+            pub fn send_compressed(self, _encoding: CompressionEncoding) -> Self {
+                // self.send_compression_encodings.enable(encoding);
                 self
             }
         }
     } else {
         quote! {}
+    };
+
+    let configure_max_message_size_methods = quote! {
+        /// Limits the maximum size of a decoded message.
+        #[must_use]
+        pub fn max_decoding_message_size(self, _limit: usize) -> Self {
+            // self.max_decoding_message_size = Some(limit);
+            self
+        }
+
+        /// Limits the maximum size of an encoded message.
+        #[must_use]
+        pub fn max_encoding_message_size(self, _limit: usize) -> Self {
+            // self.max_encoding_message_size = Some(limit);
+            self
+        }
     };
 
     quote! {
@@ -117,6 +132,7 @@ pub fn generate<T: Service>(
                 }
 
                 #configure_compression_methods
+                #configure_max_message_size_methods
             }
 
             impl<T, F> tonic::codegen::Service<(PathAndQuery, tonic::Request<BoxMessageStream>)> for #server_service<T, F>
