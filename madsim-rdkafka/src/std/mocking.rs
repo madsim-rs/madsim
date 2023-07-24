@@ -414,6 +414,7 @@ mod tests {
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", &bootstrap_servers)
             .create()
+            .await
             .expect("Producer creation error");
 
         let consumer: StreamConsumer = ClientConfig::new()
@@ -421,6 +422,7 @@ mod tests {
             .set("group.id", "rust-rdkafka-mockcluster-test")
             .set("auto.offset.reset", "earliest")
             .create()
+            .await
             .expect("Client creation error");
 
         let rec = FutureRecord::to(TOPIC).key("msg1").payload("test");

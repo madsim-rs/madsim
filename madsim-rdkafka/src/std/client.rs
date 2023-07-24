@@ -21,6 +21,7 @@ use std::slice;
 use std::string::ToString;
 use std::sync::Arc;
 
+use libc::addrinfo;
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
@@ -47,7 +48,7 @@ use crate::util::{self, ErrBuf, KafkaDrop, NativePtr, Timeout};
 ///
 /// [`ConsumerContext`]: crate::consumer::ConsumerContext
 /// [`ProducerContext`]: crate::producer::ProducerContext
-pub trait ClientContext: Send + Sync {
+pub trait ClientContext: Send + Sync + 'static {
     /// Whether to periodically refresh the SASL `OAUTHBEARER` token
     /// by calling [`ClientContext::generate_oauth_token`].
     ///
@@ -114,6 +115,19 @@ pub trait ClientContext: Send + Sync {
     /// The default implementation logs the error at the `error` log level.
     fn error(&self, error: KafkaError, reason: &str) {
         error!("librdkafka: {}: {}", error, reason);
+    }
+
+    /// Rewrites a broker address for DNS resolution.
+    ///
+    /// This method is invoked before performing DNS resolution on a broker
+    /// address. The returned address is used in place of the original address.
+    /// It is useful to allow connecting to a Kafka cluster over a tunnel (e.g.,
+    /// SSH or AWS PrivateLink), where the broker addresses returned by the
+    /// bootstrap server need to be rewritten to be routed through the tunnel.
+    ///
+    /// The default implementation returns the address unchanged.
+    fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
+        addr
     }
 
     /// Generates an OAuth token from the provided configuration.
@@ -239,13 +253,28 @@ impl<C: ClientContext> Client<C> {
                 Arc::as_ptr(&context) as *mut c_void,
             )
         };
-        unsafe { rdsys::rd_kafka_conf_set_log_cb(native_config.ptr(), Some(native_log_cb::<C>)) };
         unsafe {
-            rdsys::rd_kafka_conf_set_stats_cb(native_config.ptr(), Some(native_stats_cb::<C>))
-        };
-        unsafe {
-            rdsys::rd_kafka_conf_set_error_cb(native_config.ptr(), Some(native_error_cb::<C>))
-        };
+            rdsys::rd_kafka_conf_set_log_cb(native_config.ptr(), Some(native_log_cb::<C>));
+            rdsys::rd_kafka_conf_set_stats_cb(native_config.ptr(), Some(native_stats_cb::<C>));
+            rdsys::rd_kafka_conf_set_error_cb(native_config.ptr(), Some(native_error_cb::<C>));
+            rd_kafka_conf_set_resolve_cb(native_config.ptr(), Some(native_resolve_cb::<C>));
+        }
+        // XXX(runji): This function exists in librdkafka, but is blocked by rdkafka-sys.
+        //             We import it here manually.
+        extern "C" {
+            fn rd_kafka_conf_set_resolve_cb(
+                conf: *mut rdsys::rd_kafka_conf_t,
+                resolve_cb: Option<
+                    unsafe extern "C" fn(
+                        node: *const c_char,
+                        service: *const c_char,
+                        hints: *const addrinfo,
+                        res: *mut *mut addrinfo,
+                        opaque: *mut c_void,
+                    ) -> std::ffi::c_int,
+                >,
+            );
+        }
         if C::ENABLE_REFRESH_OAUTH_TOKEN {
             unsafe {
                 rdsys::rd_kafka_conf_set_oauthbearer_token_refresh_cb(
@@ -295,7 +324,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the metadata information for the specified topic, or for all topics in the cluster
     /// if no topic is specified.
-    pub fn fetch_metadata<T: Into<Timeout>>(
+    pub async fn fetch_metadata<T: Into<Timeout>>(
         &self,
         topic: Option<&str>,
         timeout: T,
@@ -325,7 +354,7 @@ impl<C: ClientContext> Client<C> {
     }
 
     /// Returns high and low watermark for the specified topic and partition.
-    pub fn fetch_watermarks<T: Into<Timeout>>(
+    pub async fn fetch_watermarks<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
@@ -363,7 +392,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    pub fn fetch_group_list<T: Into<Timeout>>(
+    pub async fn fetch_group_list<T: Into<Timeout>>(
         &self,
         group: Option<&str>,
         timeout: T,
@@ -511,6 +540,53 @@ pub(crate) unsafe extern "C" fn native_error_cb<C: ClientContext>(
 
     let context = &mut *(opaque as *mut C);
     context.error(error, reason.trim());
+}
+
+// Cherry-picked from Materialize.
+// https://github.com/MaterializeInc/rust-rdkafka/commit/8ea07c4d2b96636ff093e670bc921892aee0d56a
+pub(crate) unsafe extern "C" fn native_resolve_cb<C: ClientContext>(
+    node: *const c_char,
+    service: *const c_char,
+    hints: *const addrinfo,
+    res: *mut *mut addrinfo,
+    opaque: *mut c_void,
+) -> i32 {
+    // Convert host and port to Rust strings.
+    let host = match CStr::from_ptr(node).to_str() {
+        Ok(host) => host.into(),
+        Err(_) => return libc::EAI_FAIL,
+    };
+    let port = match CStr::from_ptr(service).to_str() {
+        Ok(port) => port.into(),
+        Err(_) => return libc::EAI_FAIL,
+    };
+
+    // Apply the rewrite in the context.
+    let context = &mut *(opaque as *mut C);
+    let addr = context.rewrite_broker_addr(BrokerAddr { host, port });
+
+    // Convert host and port back to C strings.
+    let node = match CString::new(addr.host) {
+        Ok(node) => node,
+        Err(_) => return libc::EAI_FAIL,
+    };
+    let service = match CString::new(addr.port) {
+        Ok(service) => service,
+        Err(_) => return libc::EAI_FAIL,
+    };
+
+    // Perform DNS resolution.
+    unsafe { libc::getaddrinfo(node.as_ptr(), service.as_ptr(), hints, res) }
+}
+
+/// Describes the address of a broker in a Kafka cluster.
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct BrokerAddr {
+    /// The host name.
+    pub host: String,
+    /// The port, either as a decimal number or the name of a service in
+    /// the services database.
+    pub port: String,
 }
 
 /// A generated OAuth token and its associated metadata.
