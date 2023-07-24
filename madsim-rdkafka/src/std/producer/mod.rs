@@ -450,7 +450,7 @@ where
 /// # Example
 /// To purge both queued messages and in-flight messages:
 /// ```
-/// # use rdkafka::producer::PurgeConfig;
+/// # use madsim_rdkafka::producer::PurgeConfig;
 /// let settings = PurgeConfig::default().queue().inflight();
 /// ```
 #[derive(Default, Clone, Copy)]
