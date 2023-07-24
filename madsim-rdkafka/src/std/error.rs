@@ -27,13 +27,13 @@ pub trait IsError {
 
 impl IsError for RDKafkaRespErr {
     fn is_error(&self) -> bool {
-        *self as i32 != RDKafkaRespErr::RD_KAFKA_RESP_ERR_NO_ERROR as i32
+        *self != RDKafkaRespErr::RD_KAFKA_RESP_ERR_NO_ERROR
     }
 }
 
 impl IsError for RDKafkaConfRes {
     fn is_error(&self) -> bool {
-        *self as i32 != RDKafkaConfRes::RD_KAFKA_CONF_OK as i32
+        *self != RDKafkaConfRes::RD_KAFKA_CONF_OK
     }
 }
 
@@ -169,6 +169,8 @@ pub enum KafkaError {
     PartitionEOF(i32),
     /// Pause/Resume failed.
     PauseResume(String),
+    /// Rebalance failed.
+    Rebalance(RDKafkaErrorCode),
     /// Seeking a partition failed.
     Seek(String),
     /// Setting partition offset failed.
@@ -179,6 +181,8 @@ pub enum KafkaError {
     Subscription(String),
     /// Transaction error.
     Transaction(RDKafkaError),
+    /// Mock Cluster error
+    MockCluster(RDKafkaErrorCode),
 }
 
 impl fmt::Debug for KafkaError {
@@ -223,6 +227,7 @@ impl fmt::Debug for KafkaError {
             KafkaError::PauseResume(ref err) => {
                 write!(f, "KafkaError (Pause/resume error: {})", err)
             }
+            KafkaError::Rebalance(ref err) => write!(f, "KafkaError (Rebalance error: {})", err),
             KafkaError::Seek(ref err) => write!(f, "KafkaError (Seek error: {})", err),
             KafkaError::SetPartitionOffset(err) => {
                 write!(f, "KafkaError (Set partition offset error: {})", err)
@@ -232,6 +237,7 @@ impl fmt::Debug for KafkaError {
                 write!(f, "KafkaError (Subscription error: {})", err)
             }
             KafkaError::Transaction(err) => write!(f, "KafkaError (Transaction error: {})", err),
+            KafkaError::MockCluster(err) => write!(f, "KafkaError (Mock cluster error: {})", err),
         }
     }
 }
@@ -262,11 +268,13 @@ impl fmt::Display for KafkaError {
             KafkaError::OffsetFetch(err) => write!(f, "Offset fetch error: {}", err),
             KafkaError::PartitionEOF(part_n) => write!(f, "Partition EOF: {}", part_n),
             KafkaError::PauseResume(ref err) => write!(f, "Pause/resume error: {}", err),
+            KafkaError::Rebalance(ref err) => write!(f, "Rebalance error: {}", err),
             KafkaError::Seek(ref err) => write!(f, "Seek error: {}", err),
             KafkaError::SetPartitionOffset(err) => write!(f, "Set partition offset error: {}", err),
             KafkaError::StoreOffset(err) => write!(f, "Store offset error: {}", err),
             KafkaError::Subscription(ref err) => write!(f, "Subscription error: {}", err),
             KafkaError::Transaction(err) => write!(f, "Transaction error: {}", err),
+            KafkaError::MockCluster(err) => write!(f, "Mock cluster error: {}", err),
         }
     }
 }
@@ -291,11 +299,13 @@ impl Error for KafkaError {
             KafkaError::OffsetFetch(err) => Some(err),
             KafkaError::PartitionEOF(_) => None,
             KafkaError::PauseResume(_) => None,
+            KafkaError::Rebalance(err) => Some(err),
             KafkaError::Seek(_) => None,
             KafkaError::SetPartitionOffset(err) => Some(err),
             KafkaError::StoreOffset(err) => Some(err),
             KafkaError::Subscription(_) => None,
             KafkaError::Transaction(err) => Some(err),
+            KafkaError::MockCluster(err) => Some(err),
         }
     }
 }
@@ -328,11 +338,13 @@ impl KafkaError {
             KafkaError::OffsetFetch(err) => Some(*err),
             KafkaError::PartitionEOF(_) => None,
             KafkaError::PauseResume(_) => None,
+            KafkaError::Rebalance(err) => Some(*err),
             KafkaError::Seek(_) => None,
             KafkaError::SetPartitionOffset(err) => Some(*err),
             KafkaError::StoreOffset(err) => Some(*err),
             KafkaError::Subscription(_) => None,
             KafkaError::Transaction(err) => Some(err.code()),
+            KafkaError::MockCluster(err) => Some(*err),
         }
     }
 }

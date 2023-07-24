@@ -165,31 +165,29 @@ pub struct StreamConsumer<C = DefaultConsumerContext, R = DefaultRuntime>
 where
     C: ConsumerContext,
 {
+    queue: NativeQueue, // queue must be dropped before the base to avoid deadlock
     base: BaseConsumer<C>,
     wakers: Arc<WakerSlab>,
-    queue: NativeQueue,
     _shutdown_trigger: oneshot::Sender<()>,
     _runtime: PhantomData<R>,
 }
 
-#[async_trait::async_trait]
 impl<R> FromClientConfig for StreamConsumer<DefaultConsumerContext, R>
 where
     R: AsyncRuntime,
 {
-    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
-        StreamConsumer::from_config_and_context(config, DefaultConsumerContext).await
+    fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
+        StreamConsumer::from_config_and_context(config, DefaultConsumerContext)
     }
 }
 
 /// Creates a new `StreamConsumer` starting from a [`ClientConfig`].
-#[async_trait::async_trait]
 impl<C, R> FromClientConfigAndContext<C> for StreamConsumer<C, R>
 where
     C: ConsumerContext + 'static,
     R: AsyncRuntime,
 {
-    async fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
+    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
         let native_config = config.create_native_config()?;
         let poll_interval = {
             let millis: u64 = native_config
@@ -282,7 +280,7 @@ where
     ///
     /// ```
     /// use futures::stream::StreamExt;
-    /// # use madsim_rdkafka::consumer::StreamConsumer;
+    /// # use rdkafka::consumer::StreamConsumer;
     ///
     /// # async fn example(consumer: StreamConsumer) {
     /// consumer.stream().next().await.expect("MessageStream never returns None");
@@ -313,7 +311,7 @@ where
     /// are expected, to serve callbacks. Consider using a background task like:
     ///
     /// ```
-    /// # use madsim_rdkafka::consumer::StreamConsumer;
+    /// # use rdkafka::consumer::StreamConsumer;
     /// # use tokio::task::JoinHandle;
     /// # async fn example(stream_consumer: StreamConsumer) -> JoinHandle<()> {
     /// tokio::spawn(async move {
@@ -362,11 +360,9 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<C, R> Consumer<C> for StreamConsumer<C, R>
 where
     C: ConsumerContext,
-    R: AsyncRuntime,
 {
     fn client(&self) -> &Client<C> {
         self.base.client()
@@ -388,34 +384,54 @@ where
         self.base.assign(assignment)
     }
 
-    async fn seek<T: Into<Timeout> + Send>(
+    fn unassign(&self) -> KafkaResult<()> {
+        self.base.unassign()
+    }
+
+    fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.incremental_assign(assignment)
+    }
+
+    fn incremental_unassign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.incremental_unassign(assignment)
+    }
+
+    fn assignment_lost(&self) -> bool {
+        self.base.assignment_lost()
+    }
+
+    fn seek<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
         offset: Offset,
         timeout: T,
     ) -> KafkaResult<()> {
-        self.base.seek(topic, partition, offset, timeout).await
+        self.base.seek(topic, partition, offset, timeout)
     }
 
-    async fn commit(
+    fn seek_partitions<T: Into<Timeout>>(
+        &self,
+        topic_partition_list: TopicPartitionList,
+        timeout: T,
+    ) -> KafkaResult<TopicPartitionList> {
+        self.base.seek_partitions(topic_partition_list, timeout)
+    }
+
+    fn commit(
         &self,
         topic_partition_list: &TopicPartitionList,
         mode: CommitMode,
     ) -> KafkaResult<()> {
-        self.base.commit(topic_partition_list, mode).await
+        self.base.commit(topic_partition_list, mode)
     }
 
-    async fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()> {
-        self.base.commit_consumer_state(mode).await
+    fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()> {
+        self.base.commit_consumer_state(mode)
     }
 
-    async fn commit_message(
-        &self,
-        message: &BorrowedMessage<'_>,
-        mode: CommitMode,
-    ) -> KafkaResult<()> {
-        self.base.commit_message(message, mode).await
+    fn commit_message(&self, message: &BorrowedMessage<'_>, mode: CommitMode) -> KafkaResult<()> {
+        self.base.commit_message(message, mode)
     }
 
     fn store_offset(&self, topic: &str, partition: i32, offset: i64) -> KafkaResult<()> {
@@ -438,80 +454,80 @@ where
         self.base.assignment()
     }
 
-    async fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
+    fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.committed(timeout).await
+        self.base.committed(timeout)
     }
 
-    async fn committed_offsets<T>(
+    fn committed_offsets<T>(
         &self,
         tpl: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
     {
-        self.base.committed_offsets(tpl, timeout).await
+        self.base.committed_offsets(tpl, timeout)
     }
 
-    async fn offsets_for_timestamp<T>(
+    fn offsets_for_timestamp<T>(
         &self,
         timestamp: i64,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.offsets_for_timestamp(timestamp, timeout).await
+        self.base.offsets_for_timestamp(timestamp, timeout)
     }
 
-    async fn offsets_for_times<T>(
+    fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.offsets_for_times(timestamps, timeout).await
+        self.base.offsets_for_times(timestamps, timeout)
     }
 
     fn position(&self) -> KafkaResult<TopicPartitionList> {
         self.base.position()
     }
 
-    async fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
+    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.fetch_metadata(topic, timeout).await
+        self.base.fetch_metadata(topic, timeout)
     }
 
-    async fn fetch_watermarks<T>(
+    fn fetch_watermarks<T>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.fetch_watermarks(topic, partition, timeout).await
+        self.base.fetch_watermarks(topic, partition, timeout)
     }
 
-    async fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
+    fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.fetch_group_list(group, timeout).await
+        self.base.fetch_group_list(group, timeout)
     }
 
     fn pause(&self, partitions: &TopicPartitionList) -> KafkaResult<()> {
@@ -572,8 +588,8 @@ where
     ///
     /// ```
     /// use futures::stream::StreamExt;
-    /// # use madsim_rdkafka::consumer::ConsumerContext;
-    /// # use madsim_rdkafka::consumer::stream_consumer::StreamPartitionQueue;
+    /// # use rdkafka::consumer::ConsumerContext;
+    /// # use rdkafka::consumer::stream_consumer::StreamPartitionQueue;
     //
     /// # async fn example<C>(partition_queue: StreamPartitionQueue<C>)
     /// # where

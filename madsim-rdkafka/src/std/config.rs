@@ -181,6 +181,11 @@ impl ClientConfig {
         }
     }
 
+    /// Gets a reference to the underlying config map
+    pub fn config_map(&self) -> &HashMap<String, String> {
+        &self.conf_map
+    }
+
     /// Gets the value of a parameter in the configuration.
     ///
     /// Returns the current value set for `key`, or `None` if no value for `key`
@@ -249,17 +254,17 @@ impl ClientConfig {
     }
 
     /// Uses the current configuration to create a new Consumer or Producer.
-    pub async fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
-        T::from_config(self).await
+    pub fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
+        T::from_config(self)
     }
 
     /// Uses the current configuration and the provided context to create a new Consumer or Producer.
-    pub async fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
+    pub fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
     where
         C: ClientContext,
         T: FromClientConfigAndContext<C>,
     {
-        T::from_config_and_context(self, context).await
+        T::from_config_and_context(self, context)
     }
 }
 
@@ -297,18 +302,16 @@ fn log_level_from_global_config() -> RDKafkaLogLevel {
 }
 
 /// Create a new client based on the provided configuration.
-#[async_trait::async_trait]
 pub trait FromClientConfig: Sized {
     /// Creates a client from a client configuration. The default client context
     /// will be used.
-    async fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
+    fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
 }
 
 /// Create a new client based on the provided configuration and context.
-#[async_trait::async_trait]
 pub trait FromClientConfigAndContext<C: ClientContext>: Sized {
     /// Creates a client from a client configuration and a client context.
-    async fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
+    fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
 }
 
 #[cfg(test)]

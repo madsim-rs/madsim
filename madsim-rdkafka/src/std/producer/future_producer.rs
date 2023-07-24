@@ -14,15 +14,20 @@ use std::time::{Duration, Instant};
 use futures_channel::oneshot;
 use futures_util::FutureExt;
 
-use crate::client::{BrokerAddr, Client, ClientContext, DefaultClientContext, OAuthToken};
+use crate::client::{Client, ClientContext, DefaultClientContext, OAuthToken};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext, RDKafkaLogLevel};
 use crate::consumer::ConsumerGroupMetadata;
 use crate::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
 use crate::message::{Message, OwnedHeaders, OwnedMessage, Timestamp, ToBytes};
-use crate::producer::{BaseRecord, DeliveryResult, Producer, ProducerContext, ThreadedProducer};
+use crate::producer::{
+    BaseRecord, DeliveryResult, NoCustomPartitioner, Producer, ProducerContext, PurgeConfig,
+    ThreadedProducer,
+};
 use crate::statistics::Statistics;
 use crate::topic_partition_list::TopicPartitionList;
 use crate::util::{AsyncRuntime, DefaultRuntime, IntoOpaque, Timeout};
+
+use super::Partitioner;
 
 //
 // ********** FUTURE PRODUCER **********
@@ -156,10 +161,6 @@ impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
         self.wrapped_context.error(error, reason);
     }
 
-    fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
-        self.wrapped_context.rewrite_broker_addr(addr)
-    }
-
     fn generate_oauth_token(
         &self,
         oauthbearer_config: Option<&str>,
@@ -169,7 +170,11 @@ impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
     }
 }
 
-impl<C: ClientContext + 'static> ProducerContext for FutureProducerContext<C> {
+impl<C, Part> ProducerContext<Part> for FutureProducerContext<C>
+where
+    C: ClientContext + 'static,
+    Part: Partitioner,
+{
     type DeliveryOpaque = Box<oneshot::Sender<OwnedDeliveryResult>>;
 
     fn delivery(
@@ -197,11 +202,12 @@ impl<C: ClientContext + 'static> ProducerContext for FutureProducerContext<C> {
 /// underlying producer. The internal polling thread will be terminated when the
 /// `FutureProducer` goes out of scope.
 #[must_use = "Producer polling thread will stop immediately if unused"]
-pub struct FutureProducer<C = DefaultClientContext, R = DefaultRuntime>
+pub struct FutureProducer<C = DefaultClientContext, R = DefaultRuntime, Part = NoCustomPartitioner>
 where
+    Part: Partitioner,
     C: ClientContext + 'static,
 {
-    producer: Arc<ThreadedProducer<FutureProducerContext<C>>>,
+    producer: Arc<ThreadedProducer<FutureProducerContext<C>, Part>>,
     _runtime: PhantomData<R>,
 }
 
@@ -217,33 +223,28 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<R> FromClientConfig for FutureProducer<DefaultClientContext, R>
 where
     R: AsyncRuntime,
 {
-    async fn from_config(
-        config: &ClientConfig,
-    ) -> KafkaResult<FutureProducer<DefaultClientContext, R>> {
-        FutureProducer::from_config_and_context(config, DefaultClientContext).await
+    fn from_config(config: &ClientConfig) -> KafkaResult<FutureProducer<DefaultClientContext, R>> {
+        FutureProducer::from_config_and_context(config, DefaultClientContext)
     }
 }
 
-#[async_trait::async_trait]
 impl<C, R> FromClientConfigAndContext<C> for FutureProducer<C, R>
 where
     C: ClientContext + 'static,
     R: AsyncRuntime,
 {
-    async fn from_config_and_context(
+    fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<FutureProducer<C, R>> {
         let future_context = FutureProducerContext {
             wrapped_context: context,
         };
-        let threaded_producer =
-            ThreadedProducer::from_config_and_context(config, future_context).await?;
+        let threaded_producer = ThreadedProducer::from_config_and_context(config, future_context)?;
         Ok(FutureProducer {
             producer: Arc::new(threaded_producer),
             _runtime: PhantomData,
@@ -365,38 +366,42 @@ where
     ///
     /// This is not normally required since the `FutureProducer` has a thread
     /// dedicated to calling `poll` regularly.
-    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) {
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
         self.producer.poll(timeout);
     }
 }
 
-#[async_trait::async_trait]
-impl<C, R> Producer<FutureProducerContext<C>> for FutureProducer<C, R>
+impl<C, R, Part> Producer<FutureProducerContext<C>, Part> for FutureProducer<C, R, Part>
 where
     C: ClientContext + 'static,
     R: AsyncRuntime,
+    Part: Partitioner,
 {
     fn client(&self) -> &Client<FutureProducerContext<C>> {
         self.producer.client()
     }
 
-    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.flush(timeout).await
+    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.flush(timeout)
+    }
+
+    fn purge(&self, flags: PurgeConfig) {
+        self.producer.purge(flags)
     }
 
     fn in_flight_count(&self) -> i32 {
         self.producer.in_flight_count()
     }
 
-    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.init_transactions(timeout).await
+    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.init_transactions(timeout)
     }
 
     fn begin_transaction(&self) -> KafkaResult<()> {
         self.producer.begin_transaction()
     }
 
-    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
+    fn send_offsets_to_transaction<T: Into<Timeout>>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -404,15 +409,14 @@ where
     ) -> KafkaResult<()> {
         self.producer
             .send_offsets_to_transaction(offsets, cgm, timeout)
-            .await
     }
 
-    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.commit_transaction(timeout).await
+    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.commit_transaction(timeout)
     }
 
-    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.abort_transaction(timeout).await
+    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.abort_transaction(timeout)
     }
 }
 
@@ -426,7 +430,7 @@ mod tests {
     struct TestContext;
 
     impl ClientContext for TestContext {}
-    impl ProducerContext for TestContext {
+    impl ProducerContext<NoCustomPartitioner> for TestContext {
         type DeliveryOpaque = Box<i32>;
 
         fn delivery(&self, _: &DeliveryResult<'_>, _: Self::DeliveryOpaque) {
@@ -435,22 +439,18 @@ mod tests {
     }
 
     // Verify that the future producer is clone, according to documentation.
-    #[tokio::test]
-    async fn test_future_producer_clone() {
-        let producer = ClientConfig::new()
-            .create::<FutureProducer>()
-            .await
-            .unwrap();
+    #[test]
+    fn test_future_producer_clone() {
+        let producer = ClientConfig::new().create::<FutureProducer>().unwrap();
         let _producer_clone = producer.clone();
     }
 
     // Test that the future producer can be cloned even if the context is not Clone.
-    #[tokio::test]
-    async fn test_base_future_topic_send_sync() {
+    #[test]
+    fn test_base_future_topic_send_sync() {
         let test_context = TestContext;
         let producer = ClientConfig::new()
             .create_with_context::<_, FutureProducer<TestContext>>(test_context)
-            .await
             .unwrap();
         let _producer_clone = producer.clone();
     }
