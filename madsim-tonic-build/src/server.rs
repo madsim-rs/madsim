@@ -67,6 +67,22 @@ pub fn generate<T: Service>(
         quote! {}
     };
 
+    let configure_max_message_size_methods = quote! {
+        /// Limits the maximum size of a decoded message.
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            // self.max_decoding_message_size = Some(limit);
+            self
+        }
+
+        /// Limits the maximum size of an encoded message.
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            // self.max_encoding_message_size = Some(limit);
+            self
+        }
+    };
+
     quote! {
         /// Generated server implementations.
         // #(#mod_attributes)*
@@ -117,6 +133,7 @@ pub fn generate<T: Service>(
                 }
 
                 #configure_compression_methods
+                #configure_max_message_size_methods
             }
 
             impl<T, F> tonic::codegen::Service<(PathAndQuery, tonic::Request<BoxMessageStream>)> for #server_service<T, F>
