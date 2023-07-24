@@ -216,7 +216,7 @@ pub trait ProducerContext<Part: Partitioner = NoCustomPartitioner>: ClientContex
 pub const PARTITION_UA: i32 = -1;
 
 /// Trait allowing to customize the partitioning of messages.
-pub trait Partitioner {
+pub trait Partitioner: Send + Sync {
     /// Return partition to use for `topic_name`.
     /// `topic_name` is the name of a topic to which a message is being produced.
     /// `partition_cnt` is the number of partitions for this topic.
@@ -267,6 +267,7 @@ impl ProducerContext<NoCustomPartitioner> for DefaultProducerContext {
 }
 
 /// Common trait for all producers.
+#[async_trait::async_trait]
 pub trait Producer<C = DefaultProducerContext, Part = NoCustomPartitioner>
 where
     Part: Partitioner,
@@ -289,7 +290,7 @@ where
     ///
     /// This method should be called before termination to ensure delivery of
     /// all enqueued messages. It will call `poll()` internally.
-    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Purge messages currently handled by the producer instance.
     ///
@@ -334,7 +335,7 @@ where
     /// [`Producer::begin_transaction`].
     ///
     /// This function may block for the specified `timeout`.
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Begins a new transaction.
     ///
@@ -379,7 +380,7 @@ where
     /// partition.
     ///
     /// Use this method at the end of a consume-transform-produce loop, prior to
-    /// comitting the transaction with [`Producer::commit_transaction`].
+    /// committing the transaction with [`Producer::commit_transaction`].
     ///
     /// This function may block for the specified `timeout`.
     ///
@@ -392,7 +393,7 @@ where
     /// The consumer must not have automatic commits enabled.
     ///
     /// [`Consumer::group_metadata`]: crate::consumer::Consumer::group_metadata
-    fn send_offsets_to_transaction<T: Into<Timeout>>(
+    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -414,11 +415,11 @@ where
     /// If any of the outstanding messages fail permanently, the current
     /// transaction will enter an abortable error state and this function will
     /// return an abortable error. You must then call
-    /// [`Producer::abort_transaction`] before attemping to create another
+    /// [`Producer::abort_transaction`] before attempting to create another
     /// transaction.
     ///
     /// This function may block for the specified `timeout`.
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 
     /// Aborts the current transaction.
     ///
@@ -429,7 +430,7 @@ where
     ///
     /// # Details
     ///
-    /// Any oustanding messages will be purged and failed with
+    /// Any outstanding messages will be purged and failed with
     /// [`RDKafkaErrorCode::PurgeInflight`] or [`RDKafkaErrorCode::PurgeQueue`].
     ///
     /// This function should also be used to recover from non-fatal abortable
@@ -439,7 +440,7 @@ where
     ///
     /// [`RDKafkaErrorCode::PurgeInflight`]: crate::error::RDKafkaErrorCode::PurgeInflight
     /// [`RDKafkaErrorCode::PurgeQueue`]: crate::error::RDKafkaErrorCode::PurgeQueue
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()>;
+    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()>;
 }
 
 /// Settings to provide to [`Producer::purge`] to parametrize the purge behavior
@@ -461,7 +462,7 @@ impl PurgeConfig {
     #[inline]
     pub fn queue(self) -> Self {
         Self {
-            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_QUEUE,
+            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_QUEUE as i32,
         }
     }
     /// Purge messages in-flight to or from the broker.
@@ -474,14 +475,14 @@ impl PurgeConfig {
     #[inline]
     pub fn inflight(self) -> Self {
         Self {
-            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_INFLIGHT,
+            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_INFLIGHT as i32,
         }
     }
     /// Don't wait for background thread queue purging to finish.
     #[inline]
     pub fn non_blocking(self) -> Self {
         Self {
-            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_NON_BLOCKING,
+            flag_bits: self.flag_bits | rdkafka_sys::RD_KAFKA_PURGE_F_NON_BLOCKING as i32,
         }
     }
 }

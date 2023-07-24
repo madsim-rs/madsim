@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use futures_channel::oneshot;
 use futures_util::FutureExt;
 
-use crate::client::{Client, ClientContext, DefaultClientContext, OAuthToken};
+use crate::client::{BrokerAddr, Client, ClientContext, DefaultClientContext, OAuthToken};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext, RDKafkaLogLevel};
 use crate::consumer::ConsumerGroupMetadata;
 use crate::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
@@ -161,6 +161,10 @@ impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
         self.wrapped_context.error(error, reason);
     }
 
+    fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
+        self.wrapped_context.rewrite_broker_addr(addr)
+    }
+
     fn generate_oauth_token(
         &self,
         oauthbearer_config: Option<&str>,
@@ -223,28 +227,33 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<R> FromClientConfig for FutureProducer<DefaultClientContext, R>
 where
     R: AsyncRuntime,
 {
-    fn from_config(config: &ClientConfig) -> KafkaResult<FutureProducer<DefaultClientContext, R>> {
-        FutureProducer::from_config_and_context(config, DefaultClientContext)
+    async fn from_config(
+        config: &ClientConfig,
+    ) -> KafkaResult<FutureProducer<DefaultClientContext, R>> {
+        FutureProducer::from_config_and_context(config, DefaultClientContext).await
     }
 }
 
+#[async_trait::async_trait]
 impl<C, R> FromClientConfigAndContext<C> for FutureProducer<C, R>
 where
     C: ClientContext + 'static,
     R: AsyncRuntime,
 {
-    fn from_config_and_context(
+    async fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<FutureProducer<C, R>> {
         let future_context = FutureProducerContext {
             wrapped_context: context,
         };
-        let threaded_producer = ThreadedProducer::from_config_and_context(config, future_context)?;
+        let threaded_producer =
+            ThreadedProducer::from_config_and_context(config, future_context).await?;
         Ok(FutureProducer {
             producer: Arc::new(threaded_producer),
             _runtime: PhantomData,
@@ -366,11 +375,12 @@ where
     ///
     /// This is not normally required since the `FutureProducer` has a thread
     /// dedicated to calling `poll` regularly.
-    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
+    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) {
         self.producer.poll(timeout);
     }
 }
 
+#[async_trait::async_trait]
 impl<C, R, Part> Producer<FutureProducerContext<C>, Part> for FutureProducer<C, R, Part>
 where
     C: ClientContext + 'static,
@@ -381,8 +391,8 @@ where
         self.producer.client()
     }
 
-    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.flush(timeout)
+    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.flush(timeout).await
     }
 
     fn purge(&self, flags: PurgeConfig) {
@@ -393,15 +403,15 @@ where
         self.producer.in_flight_count()
     }
 
-    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.init_transactions(timeout)
+    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.init_transactions(timeout).await
     }
 
     fn begin_transaction(&self) -> KafkaResult<()> {
         self.producer.begin_transaction()
     }
 
-    fn send_offsets_to_transaction<T: Into<Timeout>>(
+    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -409,14 +419,15 @@ where
     ) -> KafkaResult<()> {
         self.producer
             .send_offsets_to_transaction(offsets, cgm, timeout)
+            .await
     }
 
-    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.commit_transaction(timeout)
+    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.commit_transaction(timeout).await
     }
 
-    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.abort_transaction(timeout)
+    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.abort_transaction(timeout).await
     }
 }
 
@@ -439,18 +450,22 @@ mod tests {
     }
 
     // Verify that the future producer is clone, according to documentation.
-    #[test]
-    fn test_future_producer_clone() {
-        let producer = ClientConfig::new().create::<FutureProducer>().unwrap();
+    #[tokio::test]
+    async fn test_future_producer_clone() {
+        let producer = ClientConfig::new()
+            .create::<FutureProducer>()
+            .await
+            .unwrap();
         let _producer_clone = producer.clone();
     }
 
     // Test that the future producer can be cloned even if the context is not Clone.
-    #[test]
-    fn test_base_future_topic_send_sync() {
+    #[tokio::test]
+    async fn test_base_future_topic_send_sync() {
         let test_context = TestContext;
         let producer = ClientConfig::new()
             .create_with_context::<_, FutureProducer<TestContext>>(test_context)
+            .await
             .unwrap();
         let _producer_clone = producer.clone();
     }

@@ -205,6 +205,7 @@ pub enum RebalanceProtocol {
 /// Consumer>`). Therefore, the API is optimised for the case where a concrete
 /// type is available. As a result, some methods are not available on trait
 /// objects, since they are generic.
+#[async_trait::async_trait]
 pub trait Consumer<C = DefaultConsumerContext>
 where
     C: ConsumerContext,
@@ -249,7 +250,7 @@ where
     /// Seeks to `offset` for the specified `topic` and `partition`. After a
     /// successful call to `seek`, the next poll of the consumer will return the
     /// message with `offset`.
-    fn seek<T: Into<Timeout>>(
+    async fn seek<T: Into<Timeout> + Send>(
         &self,
         topic: &str,
         partition: i32,
@@ -263,7 +264,7 @@ where
     /// Seek should only be performed on already assigned/consumed partitions.
     /// Individual partition errors are reported in the per-partition `error` field of
     /// `TopicPartitionListElem`.
-    fn seek_partitions<T: Into<Timeout>>(
+    async fn seek_partitions<T: Into<Timeout> + Send>(
         &self,
         topic_partition_list: TopicPartitionList,
         timeout: T,
@@ -279,7 +280,7 @@ where
     /// the Kafka broker (i.e. consumer server restart). This means that,
     /// in general, the offset of your [`TopicPartitionList`] should equal
     /// 1 plus the offset from your last consumed message.
-    fn commit(
+    async fn commit(
         &self,
         topic_partition_list: &TopicPartitionList,
         mode: CommitMode,
@@ -289,7 +290,7 @@ where
     /// after a message has been received, but before the message has been
     /// processed by the user code, this might lead to data loss. Check the
     /// "at-least-once delivery" section in the readme for more information.
-    fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()>;
+    async fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()>;
 
     /// Commit the provided message. Note that this will also automatically
     /// commit every message with lower offset within the same partition.
@@ -297,7 +298,11 @@ where
     /// This method is exactly equivalent to invoking [`Consumer::commit`]
     /// with a [`TopicPartitionList`] which copies the topic and partition
     /// from the message and adds 1 to the offset of the message.
-    fn commit_message(&self, message: &BorrowedMessage<'_>, mode: CommitMode) -> KafkaResult<()>;
+    async fn commit_message(
+        &self,
+        message: &BorrowedMessage<'_>,
+        mode: CommitMode,
+    ) -> KafkaResult<()>;
 
     /// Stores offset to be used on the next (auto)commit. When
     /// using this `enable.auto.offset.store` should be set to `false` in the
@@ -334,38 +339,38 @@ where
     fn assignment_lost(&self) -> bool;
 
     /// Retrieves the committed offsets for topics and partitions.
-    fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
+    async fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout>,
+        T: Into<Timeout> + Send,
         Self: Sized;
 
     /// Retrieves the committed offsets for specified topics and partitions.
-    fn committed_offsets<T>(
+    async fn committed_offsets<T>(
         &self,
         tpl: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout>;
+        T: Into<Timeout> + Send;
 
     /// Looks up the offsets for this consumer's partitions by timestamp.
-    fn offsets_for_timestamp<T>(
+    async fn offsets_for_timestamp<T>(
         &self,
         timestamp: i64,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout>,
+        T: Into<Timeout> + Send,
         Self: Sized;
 
     /// Looks up the offsets for the specified partitions by timestamp.
-    fn offsets_for_times<T>(
+    async fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout>,
+        T: Into<Timeout> + Send,
         Self: Sized;
 
     /// Retrieve current positions (offsets) for topics and partitions.
@@ -373,27 +378,27 @@ where
 
     /// Returns the metadata information for the specified topic, or for all
     /// topics in the cluster if no topic is specified.
-    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
+    async fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
     where
-        T: Into<Timeout>,
+        T: Into<Timeout> + Send,
         Self: Sized;
 
     /// Returns the low and high watermarks for a specific topic and partition.
-    fn fetch_watermarks<T>(
+    async fn fetch_watermarks<T>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout>,
+        T: Into<Timeout> + Send,
         Self: Sized;
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
+    async fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
     where
-        T: Into<Timeout>,
+        T: Into<Timeout> + Send,
         Self: Sized;
 
     /// Pauses consumption for the provided list of partitions.

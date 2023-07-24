@@ -266,11 +266,11 @@
 //! [Tokio]: https://tokio.rs/
 
 #![forbid(missing_docs)]
-#![deny(rust_2018_idioms)]
 #![allow(clippy::type_complexity)]
+#![allow(clippy::all)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod log;
+pub(crate) mod log;
 
 pub use rdkafka_sys::{bindings, helpers, types};
 
@@ -282,7 +282,7 @@ pub mod error;
 pub mod groups;
 pub mod message;
 pub mod metadata;
-pub mod mocking;
+// pub mod mocking;
 pub mod producer;
 pub mod statistics;
 pub mod topic_partition_list;
