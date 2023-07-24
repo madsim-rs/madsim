@@ -8,13 +8,13 @@ use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
 use crate::client::{Client, ClientContext, NativeClient};
-use crate::error::KafkaResult;
+use crate::error::{KafkaError, KafkaResult};
 use crate::groups::GroupList;
 use crate::log::{error, trace};
 use crate::message::BorrowedMessage;
 use crate::metadata::Metadata;
 use crate::topic_partition_list::{Offset, TopicPartitionList};
-use crate::util::{cstr_to_owned, KafkaDrop, NativePtr, Timeout};
+use crate::util::{KafkaDrop, NativePtr, Timeout};
 
 pub mod base_consumer;
 pub mod stream_consumer;
@@ -33,7 +33,7 @@ pub enum Rebalance<'a> {
     /// A new partition revocation is received.
     Revoke(&'a TopicPartitionList),
     /// Unexpected error from Kafka.
-    Error(String),
+    Error(KafkaError),
 }
 
 /// Consumer-specific context.
@@ -59,9 +59,9 @@ pub trait ConsumerContext: ClientContext {
             RDKafkaRespErr::RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS => Rebalance::Assign(tpl),
             RDKafkaRespErr::RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS => Rebalance::Revoke(tpl),
             _ => {
-                let error = unsafe { cstr_to_owned(rdsys::rd_kafka_err2str(err)) };
-                error!("Error rebalancing: {}", error);
-                Rebalance::Error(error)
+                let error_code: RDKafkaErrorCode = err.into();
+                error!("Error rebalancing: {}", error_code);
+                Rebalance::Error(KafkaError::Rebalance(error_code))
             }
         };
 
@@ -205,7 +205,6 @@ pub enum RebalanceProtocol {
 /// Consumer>`). Therefore, the API is optimised for the case where a concrete
 /// type is available. As a result, some methods are not available on trait
 /// objects, since they are generic.
-#[async_trait::async_trait]
 pub trait Consumer<C = DefaultConsumerContext>
 where
     C: ConsumerContext,
@@ -238,16 +237,37 @@ where
     /// automatic consumer rebalance won't be activated.
     fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()>;
 
+    /// Clears all topic and partitions currently assigned to the consumer
+    fn unassign(&self) -> KafkaResult<()>;
+
+    /// Incrementally add partitions from the current assignment
+    fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()>;
+
+    /// Incrementally remove partitions from the current assignment
+    fn incremental_unassign(&self, assignment: &TopicPartitionList) -> KafkaResult<()>;
+
     /// Seeks to `offset` for the specified `topic` and `partition`. After a
     /// successful call to `seek`, the next poll of the consumer will return the
     /// message with `offset`.
-    async fn seek<T: Into<Timeout> + Send>(
+    fn seek<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
         offset: Offset,
         timeout: T,
     ) -> KafkaResult<()>;
+
+    /// Seeks consumer for partitions in `topic_partition_list` to the per-partition offset
+    /// in the `offset` field of `TopicPartitionListElem`.
+    /// The offset can be either absolute (>= 0) or a logical offset.
+    /// Seek should only be performed on already assigned/consumed partitions.
+    /// Individual partition errors are reported in the per-partition `error` field of
+    /// `TopicPartitionListElem`.
+    fn seek_partitions<T: Into<Timeout>>(
+        &self,
+        topic_partition_list: TopicPartitionList,
+        timeout: T,
+    ) -> KafkaResult<TopicPartitionList>;
 
     /// Commits the offset of the specified message. The commit can be sync
     /// (blocking), or async. Notice that when a specific offset is committed,
@@ -259,7 +279,7 @@ where
     /// the Kafka broker (i.e. consumer server restart). This means that,
     /// in general, the offset of your [`TopicPartitionList`] should equal
     /// 1 plus the offset from your last consumed message.
-    async fn commit(
+    fn commit(
         &self,
         topic_partition_list: &TopicPartitionList,
         mode: CommitMode,
@@ -269,7 +289,7 @@ where
     /// after a message has been received, but before the message has been
     /// processed by the user code, this might lead to data loss. Check the
     /// "at-least-once delivery" section in the readme for more information.
-    async fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()>;
+    fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()>;
 
     /// Commit the provided message. Note that this will also automatically
     /// commit every message with lower offset within the same partition.
@@ -277,11 +297,7 @@ where
     /// This method is exactly equivalent to invoking [`Consumer::commit`]
     /// with a [`TopicPartitionList`] which copies the topic and partition
     /// from the message and adds 1 to the offset of the message.
-    async fn commit_message(
-        &self,
-        message: &BorrowedMessage<'_>,
-        mode: CommitMode,
-    ) -> KafkaResult<()>;
+    fn commit_message(&self, message: &BorrowedMessage<'_>, mode: CommitMode) -> KafkaResult<()>;
 
     /// Stores offset to be used on the next (auto)commit. When
     /// using this `enable.auto.offset.store` should be set to `false` in the
@@ -302,39 +318,54 @@ where
     /// Returns the current partition assignment.
     fn assignment(&self) -> KafkaResult<TopicPartitionList>;
 
+    /// Check whether the consumer considers the current assignment to have been lost
+    /// involuntarily.
+    ///
+    /// This method is only applicable for use with a high level subscribing consumer. Assignments
+    /// are revoked immediately when determined to have been lost, so this method is only useful
+    /// when reacting to a rebalance or from within a rebalance_cb. Partitions
+    /// that have been lost may already be owned by other members in the group and therefore
+    /// commiting offsets, for example, may fail.
+    ///
+    /// Calling rd_kafka_assign(), rd_kafka_incremental_assign() or rd_kafka_incremental_unassign()
+    /// resets this flag.
+    ///
+    /// Returns true if the current partition assignment is considered lost, false otherwise.
+    fn assignment_lost(&self) -> bool;
+
     /// Retrieves the committed offsets for topics and partitions.
-    async fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
+    fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Retrieves the committed offsets for specified topics and partitions.
-    async fn committed_offsets<T>(
+    fn committed_offsets<T>(
         &self,
         tpl: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send;
+        T: Into<Timeout>;
 
     /// Looks up the offsets for this consumer's partitions by timestamp.
-    async fn offsets_for_timestamp<T>(
+    fn offsets_for_timestamp<T>(
         &self,
         timestamp: i64,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Looks up the offsets for the specified partitions by timestamp.
-    async fn offsets_for_times<T>(
+    fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Retrieve current positions (offsets) for topics and partitions.
@@ -342,27 +373,27 @@ where
 
     /// Returns the metadata information for the specified topic, or for all
     /// topics in the cluster if no topic is specified.
-    async fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
+    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Returns the low and high watermarks for a specific topic and partition.
-    async fn fetch_watermarks<T>(
+    fn fetch_watermarks<T>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    async fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
+    fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized;
 
     /// Pauses consumption for the provided list of partitions.
