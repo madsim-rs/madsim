@@ -193,13 +193,13 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
     }
 
     /// Limits the maximum size of a decoded message.
-    pub fn max_decoding_message_size(mut self, _limit: usize) -> Self {
+    pub fn max_decoding_message_size(self, _limit: usize) -> Self {
         // self.config.max_decoding_message_size = Some(limit);
         self
     }
 
     /// Limits the maximum size of an encoded message.
-    pub fn max_encoding_message_size(mut self, _limit: usize) -> Self {
+    pub fn max_encoding_message_size(self, _limit: usize) -> Self {
         // self.config.max_encoding_message_size = Some(limit);
         self
     }

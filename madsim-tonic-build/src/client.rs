@@ -69,33 +69,31 @@ pub fn generate<T: Service>(
                     Self { inner }
                 }
 
-                /// Compress requests with `gzip`.
+                /// Compress requests with the given encoding.
                 ///
                 /// This requires the server to support it otherwise it might respond with an
                 /// error.
                 #[must_use]
-                pub fn send_gzip(self) -> Self {
-                    // self.inner = self.inner.send_gzip();
+                pub fn send_compressed(self, encoding: CompressionEncoding) -> Self {
+                    // self.inner = self.inner.send_compressed(encoding);
                     self
                 }
-
-                /// Enable decompressing responses with `gzip`.
+                /// Enable decompressing responses.
                 #[must_use]
-                pub fn accept_gzip(self) -> Self {
-                    // self.inner = self.inner.accept_gzip();
+                pub fn accept_compressed(self, encoding: CompressionEncoding) -> Self {
+                    // self.inner = self.inner.accept_compressed(encoding);
                     self
                 }
-
                 /// Limits the maximum size of a decoded message.
                 #[must_use]
-                pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+                pub fn max_decoding_message_size(self, limit: usize) -> Self {
                     // self.inner = self.inner.max_decoding_message_size(limit);
                     self
                 }
 
                 /// Limits the maximum size of an encoded message.
                 #[must_use]
-                pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+                pub fn max_encoding_message_size(self, limit: usize) -> Self {
                     // self.inner = self.inner.max_encoding_message_size(limit);
                     self
                 }
