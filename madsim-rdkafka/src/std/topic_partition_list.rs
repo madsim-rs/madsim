@@ -390,11 +390,12 @@ impl fmt::Debug for TopicPartitionList {
             }
             write!(
                 f,
-                "{}/{}: offset={:?} metadata={:?}",
+                "{}/{}: offset={:?} metadata={:?}, error={:?}",
                 elem.topic(),
                 elem.partition(),
                 elem.offset(),
                 elem.metadata(),
+                elem.error(),
             )?;
         }
         write!(f, "}}")

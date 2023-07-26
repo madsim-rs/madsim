@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## rdkafka [0.2.26] - 2023-07-24
+
+### Changed
+
+- Bump rdkafka to v0.33.2 and librdkafka to v2.2.0.
+
 ## tonic [0.3.1] - 2023-07-24
 
 ### Added
