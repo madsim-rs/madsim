@@ -165,9 +165,9 @@ pub struct StreamConsumer<C = DefaultConsumerContext, R = DefaultRuntime>
 where
     C: ConsumerContext,
 {
-    queue: NativeQueue, // queue must be dropped before the base to avoid deadlock
     base: BaseConsumer<C>,
     wakers: Arc<WakerSlab>,
+    queue: NativeQueue,
     _shutdown_trigger: oneshot::Sender<()>,
     _runtime: PhantomData<R>,
 }
@@ -388,22 +388,6 @@ where
         self.base.assign(assignment)
     }
 
-    fn unassign(&self) -> KafkaResult<()> {
-        self.base.unassign()
-    }
-
-    fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
-        self.base.incremental_assign(assignment)
-    }
-
-    fn incremental_unassign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
-        self.base.incremental_unassign(assignment)
-    }
-
-    fn assignment_lost(&self) -> bool {
-        self.base.assignment_lost()
-    }
-
     async fn seek<T: Into<Timeout> + Send>(
         &self,
         topic: &str,
@@ -412,16 +396,6 @@ where
         timeout: T,
     ) -> KafkaResult<()> {
         self.base.seek(topic, partition, offset, timeout).await
-    }
-
-    async fn seek_partitions<T: Into<Timeout> + Send>(
-        &self,
-        topic_partition_list: TopicPartitionList,
-        timeout: T,
-    ) -> KafkaResult<TopicPartitionList> {
-        self.base
-            .seek_partitions(topic_partition_list, timeout)
-            .await
     }
 
     async fn commit(

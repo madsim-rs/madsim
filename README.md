@@ -42,6 +42,7 @@ If your project depends on the following crates, replace them by our simulators:
 tokio = { version = "0.2", package = "madsim-tokio" }
 tonic = { version = "0.3", package = "madsim-tonic" }
 etcd-client = { version = "0.3", package = "madsim-etcd-client" }
+rdkafka = { version = "0.2", package = "madsim-rdkafka" }
 aws-sdk-s3 = { version = "0.2", package = "madsim-aws-sdk-s3" }
 
 [dev-dependencies]
