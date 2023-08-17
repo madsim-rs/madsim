@@ -19,15 +19,10 @@ use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext, 
 use crate::consumer::ConsumerGroupMetadata;
 use crate::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
 use crate::message::{Message, OwnedHeaders, OwnedMessage, Timestamp, ToBytes};
-use crate::producer::{
-    BaseRecord, DeliveryResult, NoCustomPartitioner, Producer, ProducerContext, PurgeConfig,
-    ThreadedProducer,
-};
+use crate::producer::{BaseRecord, DeliveryResult, Producer, ProducerContext, ThreadedProducer};
 use crate::statistics::Statistics;
 use crate::topic_partition_list::TopicPartitionList;
 use crate::util::{AsyncRuntime, DefaultRuntime, IntoOpaque, Timeout};
-
-use super::Partitioner;
 
 //
 // ********** FUTURE PRODUCER **********
@@ -174,11 +169,7 @@ impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
     }
 }
 
-impl<C, Part> ProducerContext<Part> for FutureProducerContext<C>
-where
-    C: ClientContext + 'static,
-    Part: Partitioner,
-{
+impl<C: ClientContext + 'static> ProducerContext for FutureProducerContext<C> {
     type DeliveryOpaque = Box<oneshot::Sender<OwnedDeliveryResult>>;
 
     fn delivery(
@@ -206,12 +197,11 @@ where
 /// underlying producer. The internal polling thread will be terminated when the
 /// `FutureProducer` goes out of scope.
 #[must_use = "Producer polling thread will stop immediately if unused"]
-pub struct FutureProducer<C = DefaultClientContext, R = DefaultRuntime, Part = NoCustomPartitioner>
+pub struct FutureProducer<C = DefaultClientContext, R = DefaultRuntime>
 where
-    Part: Partitioner,
     C: ClientContext + 'static,
 {
-    producer: Arc<ThreadedProducer<FutureProducerContext<C>, Part>>,
+    producer: Arc<ThreadedProducer<FutureProducerContext<C>>>,
     _runtime: PhantomData<R>,
 }
 
@@ -381,11 +371,10 @@ where
 }
 
 #[async_trait::async_trait]
-impl<C, R, Part> Producer<FutureProducerContext<C>, Part> for FutureProducer<C, R, Part>
+impl<C, R> Producer<FutureProducerContext<C>> for FutureProducer<C, R>
 where
     C: ClientContext + 'static,
     R: AsyncRuntime,
-    Part: Partitioner,
 {
     fn client(&self) -> &Client<FutureProducerContext<C>> {
         self.producer.client()
@@ -393,10 +382,6 @@ where
 
     async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
         self.producer.flush(timeout).await
-    }
-
-    fn purge(&self, flags: PurgeConfig) {
-        self.producer.purge(flags)
     }
 
     fn in_flight_count(&self) -> i32 {
@@ -441,7 +426,7 @@ mod tests {
     struct TestContext;
 
     impl ClientContext for TestContext {}
-    impl ProducerContext<NoCustomPartitioner> for TestContext {
+    impl ProducerContext for TestContext {
         type DeliveryOpaque = Box<i32>;
 
         fn delivery(&self, _: &DeliveryResult<'_>, _: Self::DeliveryOpaque) {
