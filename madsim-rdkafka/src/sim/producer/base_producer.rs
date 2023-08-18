@@ -1,22 +1,19 @@
 use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use madsim::net::Endpoint;
-use serde::Deserialize;
 use spin::Mutex;
 use tracing::*;
 
+use super::{DefaultProducerContext, ProducerConfig, ProducerContext};
 use crate::{
     broker::OwnedRecord,
-    client::ClientContext,
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult, RDKafkaError, RDKafkaErrorCode},
     message::{OwnedHeaders, ToBytes},
     sim_broker::Request,
-    util::{IntoOpaque, Timeout},
+    util::Timeout,
     ClientConfig,
 };
-
-pub use crate::message::DeliveryResult;
 
 /// A record for the [`BaseProducer`] and [`ThreadedProducer`].
 #[derive(Debug)]
@@ -86,30 +83,6 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
             delivery_opaque: (),
         }
     }
-}
-
-/// Common trait for all producers.
-pub trait Producer<C = DefaultProducerContext>
-where
-    C: ProducerContext,
-{
-}
-
-/// Producer-specific context.
-pub trait ProducerContext: ClientContext {
-    type DeliveryOpaque: IntoOpaque;
-    fn delivery(&self, delivery_result: &DeliveryResult<'_>, delivery_opaque: Self::DeliveryOpaque);
-}
-
-/// An inert producer context that can be used when customizations are not
-/// required.
-#[derive(Clone)]
-pub struct DefaultProducerContext;
-
-impl ClientContext for DefaultProducerContext {}
-impl ProducerContext for DefaultProducerContext {
-    type DeliveryOpaque = ();
-    fn delivery(&self, _: &DeliveryResult<'_>, _: Self::DeliveryOpaque) {}
 }
 
 #[async_trait::async_trait]
@@ -362,29 +335,4 @@ where
     fn deref(&self) -> &Self::Target {
         &self.base
     }
-}
-
-/// Producer configs.
-///
-/// <https://kafka.apache.org/documentation/#producerconfigs>
-#[derive(Debug, Default, Deserialize)]
-struct ProducerConfig {
-    #[serde(rename = "bootstrap.servers")]
-    bootstrap_servers: String,
-
-    #[serde(rename = "transactional.id")]
-    transactional_id: Option<String>,
-
-    /// Local message timeout.
-    #[serde(
-        rename = "message.timeout.ms",
-        deserialize_with = "super::from_str",
-        default = "default_message_timeout_ms"
-    )]
-    #[allow(dead_code)]
-    message_timeout_ms: u32,
-}
-
-const fn default_message_timeout_ms() -> u32 {
-    300_000
 }
