@@ -6,7 +6,7 @@ use madsim::runtime::Handle;
 use madsim_rdkafka::{
     admin::*,
     consumer::{BaseConsumer, StreamConsumer},
-    producer::{BaseProducer, BaseRecord},
+    producer::{BaseProducer, BaseRecord, FutureProducer, FutureRecord},
     ClientConfig, Message, SimBroker, TopicPartitionList,
 };
 use std::{
@@ -89,20 +89,24 @@ async fn test() {
         .spawn(async move {
             let producer = ClientConfig::new()
                 .set("bootstrap.servers", "broker:50051")
-                .create::<BaseProducer>()
+                .create::<FutureProducer>()
                 .await
                 .expect("failed to create producer");
 
+            let mut futures = vec![];
             // generate an element every 0.2s
             for i in 1..=30 {
                 let key = format!("2.{i}");
                 let payload = [i as u8];
-                let record = BaseRecord::to("topic").key(&key).payload(&payload);
-                producer.send(record).expect("failed to send message");
+                let record = FutureRecord::to("topic").key(&key).payload(&payload);
+                let future = producer
+                    .send_result(record)
+                    .expect("failed to send message");
+                futures.push(future);
                 madsim::time::sleep(Duration::from_millis(200)).await;
-                if i % 10 == 0 {
-                    producer.flush(None).await.expect("failed to flush");
-                }
+            }
+            for future in futures {
+                future.await.unwrap().unwrap();
             }
         });
 
