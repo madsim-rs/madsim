@@ -168,7 +168,6 @@ pub struct OwnedMessage {
     pub(crate) partition: i32,
     pub(crate) offset: i64,
     pub(crate) headers: Option<OwnedHeaders>,
-    pub(crate) delivery_opaque: usize,
 }
 
 impl OwnedMessage {

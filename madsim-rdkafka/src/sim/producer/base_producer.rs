@@ -84,8 +84,8 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized, D: IntoOpaque> BaseRecord<'a,
     }
 
     /// Creates an `OwnedMessage` from the record.
-    fn into_owned(self) -> OwnedMessage {
-        OwnedMessage {
+    fn into_owned(self) -> (OwnedMessage, D) {
+        let msg = OwnedMessage {
             topic: self.topic.to_owned(),
             partition: self.partition.unwrap_or(0),
             offset: 0,
@@ -95,8 +95,8 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized, D: IntoOpaque> BaseRecord<'a,
                 .timestamp
                 .map_or(Timestamp::NotAvailable, Timestamp::CreateTime),
             headers: self.headers.clone(),
-            delivery_opaque: self.delivery_opaque.into_ptr() as usize,
-        }
+        };
+        (msg, self.delivery_opaque)
     }
 }
 
@@ -159,21 +159,21 @@ where
     config: ProducerConfig,
     ep: Endpoint,
     addr: SocketAddr,
-    inner: Mutex<Inner>,
+    inner: Mutex<Inner<C::DeliveryOpaque>>,
 }
 
 #[derive(Debug, Default)]
-enum Inner {
+enum Inner<D> {
     #[default]
     Init,
     NonTxn {
-        buffer: Vec<OwnedMessage>,
+        buffer: Vec<(OwnedMessage, D)>,
     },
     Txn {
-        /// Indicate whether the producer is in a transaction.
-        in_txn: bool,
-        // We simulate transaction by buffering all records and sending them in a batch.
-        buffer: Vec<OwnedMessage>,
+        /// All records in an active transaction.
+        /// `None` if no transaction is active.
+        /// We simulate transaction by buffering all records and sending them in a batch.
+        buffer: Option<Vec<(OwnedMessage, D)>>,
     },
 }
 
@@ -206,11 +206,10 @@ where
                 }
                 buffer.push(record.into_owned());
             }
-            Inner::Txn { in_txn, buffer } => {
-                assert!(
-                    *in_txn,
-                    "messages should only be sent when a transaction is active"
-                );
+            Inner::Txn { buffer } => {
+                let buffer = buffer
+                    .as_mut()
+                    .expect("messages should only be sent when a transaction is active");
                 buffer.push(record.into_owned());
             }
             Inner::Init => unreachable!(),
@@ -224,26 +223,25 @@ where
         0
     }
 
-    async fn flush_internal(&self) -> KafkaResult<()> {
-        let records = match &mut *self.inner.lock() {
-            Inner::NonTxn { buffer } if !buffer.is_empty() => std::mem::take(buffer),
-            _ => return Ok(()),
-        };
+    async fn flush_internal(
+        &self,
+        records: Vec<(OwnedMessage, C::DeliveryOpaque)>,
+    ) -> KafkaResult<()> {
         debug!("flushing {} records", records.len());
         let req = Request::Produce {
-            records: records.clone(),
+            records: records.iter().map(|(msg, _)| msg.clone()).collect(),
         };
+        // FIXME: if any IO error happens, the `delivery` will not be called,
+        //        and the message will be lost.
         let (tx, mut rx) = self.ep.connect1(self.addr).await?;
         tx.send(Box::new(req)).await?;
         let result = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
 
-        for record in records {
+        for (msg, delivery_opaque) in records {
             // SAFETY: we only convert the opaque back once.
-            let delivery_opaque =
-                unsafe { C::DeliveryOpaque::from_ptr(record.delivery_opaque as _) };
             let delivery_result = match &result {
-                Ok(()) => Ok(record.borrow()),
-                Err(e) => Err((e.clone(), record.borrow())),
+                Ok(()) => Ok(msg.borrow()),
+                Err(e) => Err((e.clone(), msg.borrow())),
             };
             self.context.delivery(&delivery_result, delivery_opaque);
         }
@@ -252,7 +250,11 @@ where
 
     /// Flushes any pending messages.
     pub async fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        let future = self.flush_internal();
+        let records = match &mut *self.inner.lock() {
+            Inner::NonTxn { buffer } if !buffer.is_empty() => std::mem::take(buffer),
+            _ => return Ok(()),
+        };
+        let future = self.flush_internal(records);
         match timeout.into() {
             Timeout::After(dur) => madsim::time::timeout(dur, future)
                 .await
@@ -269,10 +271,7 @@ where
         }
         match &mut *self.inner.lock() {
             inner @ Inner::Init => {
-                *inner = Inner::Txn {
-                    in_txn: false,
-                    buffer: vec![],
-                };
+                *inner = Inner::Txn { buffer: None };
                 Ok(())
             }
             _ => Err(invalid_transaction_state(
@@ -285,9 +284,12 @@ where
     pub fn begin_transaction(&self) -> KafkaResult<()> {
         debug!("begin transaction");
         match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, .. } if !*in_txn => *in_txn = true,
-            Inner::Txn { .. } => {
-                return Err(invalid_transaction_state("transaction already in progress"));
+            Inner::Txn { buffer } => {
+                if buffer.is_none() {
+                    *buffer = Some(vec![]);
+                } else {
+                    return Err(invalid_transaction_state("transaction already in progress"));
+                }
             }
             _ => return Err(invalid_transaction_state("transaction not initialized")),
         }
@@ -295,32 +297,29 @@ where
     }
 
     /// Commits the current transaction.
-    pub async fn commit_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
+    pub async fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         debug!("commit transaction");
         let records = match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, buffer } if *in_txn => std::mem::take(buffer),
+            Inner::Txn {
+                buffer: Some(buffer),
+            } => std::mem::take(buffer),
             _ => return Err(invalid_transaction_state("no opened transaction")),
         };
-        let req = Request::Produce { records };
-        let (tx, mut rx) = self.ep.connect1(self.addr).await?;
-        tx.send(Box::new(req)).await?;
-        let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
-        // TODO: simulate transaction aborted
-        match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, .. } if *in_txn => *in_txn = false,
-            _ => panic!("state changed during commit"),
+        let future = self.flush_internal(records);
+        match timeout.into() {
+            Timeout::After(dur) => madsim::time::timeout(dur, future)
+                .await
+                .map_err(|_| KafkaError::Flush(RDKafkaErrorCode::RequestTimedOut))?,
+            Timeout::Never => future.await,
         }
-        res
+        // TODO: simulate transaction aborted
     }
 
     /// Aborts the current transaction.
     pub async fn abort_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
         debug!("abort transaction");
         match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, buffer } if *in_txn => {
-                buffer.clear();
-                *in_txn = false;
-            }
+            Inner::Txn { buffer } if buffer.is_some() => *buffer = None,
             _ => return Err(invalid_transaction_state("no opened transaction")),
         }
         Ok(())
