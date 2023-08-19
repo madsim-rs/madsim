@@ -1,26 +1,22 @@
 use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use madsim::net::Endpoint;
-use serde::Deserialize;
 use spin::Mutex;
 use tracing::*;
 
+use super::{DefaultProducerContext, IntoOpaque, ProducerConfig, ProducerContext};
 use crate::{
-    broker::OwnedRecord,
-    client::ClientContext,
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult, RDKafkaError, RDKafkaErrorCode},
-    message::{OwnedHeaders, ToBytes},
+    message::{OwnedHeaders, OwnedMessage, ToBytes},
     sim_broker::Request,
-    util::{IntoOpaque, Timeout},
-    ClientConfig,
+    util::Timeout,
+    ClientConfig, Timestamp,
 };
-
-pub use crate::message::DeliveryResult;
 
 /// A record for the [`BaseProducer`] and [`ThreadedProducer`].
 #[derive(Debug)]
-pub struct BaseRecord<'a, K: ToBytes + ?Sized = (), P: ToBytes + ?Sized = ()> {
+pub struct BaseRecord<'a, K: ToBytes + ?Sized = (), P: ToBytes + ?Sized = (), D: IntoOpaque = ()> {
     /// Required destination topic.
     pub topic: &'a str,
     /// Optional destination partition.
@@ -37,24 +33,37 @@ pub struct BaseRecord<'a, K: ToBytes + ?Sized = (), P: ToBytes + ?Sized = ()> {
     /// Optional message headers.
     pub headers: Option<OwnedHeaders>,
     /// Required delivery opaque (defaults to `()` if not required).
-    pub delivery_opaque: (),
+    pub delivery_opaque: D,
 }
 
-impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
+impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized, D: IntoOpaque> BaseRecord<'a, K, P, D> {
+    /// Creates a new record with the specified topic name and delivery opaque.
+    pub fn with_opaque_to(topic: &'a str, delivery_opaque: D) -> BaseRecord<'a, K, P, D> {
+        BaseRecord {
+            topic,
+            partition: None,
+            payload: None,
+            key: None,
+            timestamp: None,
+            headers: None,
+            delivery_opaque,
+        }
+    }
+
     /// Sets the destination partition of the record.
-    pub fn partition(mut self, partition: i32) -> BaseRecord<'a, K, P> {
+    pub fn partition(mut self, partition: i32) -> BaseRecord<'a, K, P, D> {
         self.partition = Some(partition);
         self
     }
 
     /// Sets the payload of the record.
-    pub fn payload(mut self, payload: &'a P) -> BaseRecord<'a, K, P> {
+    pub fn payload(mut self, payload: &'a P) -> BaseRecord<'a, K, P, D> {
         self.payload = Some(payload);
         self
     }
 
     /// Sets the key of the record.
-    pub fn key(mut self, key: &'a K) -> BaseRecord<'a, K, P> {
+    pub fn key(mut self, key: &'a K) -> BaseRecord<'a, K, P, D> {
         self.key = Some(key);
         self
     }
@@ -63,19 +72,37 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
     ///
     /// Note that Kafka represents timestamps as the number of milliseconds
     /// since the Unix epoch.
-    pub fn timestamp(mut self, timestamp: i64) -> BaseRecord<'a, K, P> {
+    pub fn timestamp(mut self, timestamp: i64) -> BaseRecord<'a, K, P, D> {
         self.timestamp = Some(timestamp);
         self
     }
 
     /// Sets the headers of the record.
-    pub fn headers(mut self, headers: OwnedHeaders) -> BaseRecord<'a, K, P> {
+    pub fn headers(mut self, headers: OwnedHeaders) -> BaseRecord<'a, K, P, D> {
         self.headers = Some(headers);
         self
     }
 
+    /// Creates an `OwnedMessage` from the record.
+    fn into_owned(self) -> (OwnedMessage, D) {
+        let msg = OwnedMessage {
+            topic: self.topic.to_owned(),
+            partition: self.partition.unwrap_or(-1),
+            offset: 0,
+            payload: self.payload.map(|p| p.to_bytes().to_owned()),
+            key: self.key.map(|k| k.to_bytes().to_owned()),
+            timestamp: self
+                .timestamp
+                .map_or(Timestamp::NotAvailable, Timestamp::CreateTime),
+            headers: self.headers.clone(),
+        };
+        (msg, self.delivery_opaque)
+    }
+}
+
+impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P, ()> {
     /// Creates a new record with the specified topic name.
-    pub fn to(topic: &'a str) -> BaseRecord<'a, K, P> {
+    pub fn to(topic: &'a str) -> BaseRecord<'a, K, P, ()> {
         BaseRecord {
             topic,
             partition: None,
@@ -86,30 +113,6 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
             delivery_opaque: (),
         }
     }
-}
-
-/// Common trait for all producers.
-pub trait Producer<C = DefaultProducerContext>
-where
-    C: ProducerContext,
-{
-}
-
-/// Producer-specific context.
-pub trait ProducerContext: ClientContext {
-    type DeliveryOpaque: IntoOpaque;
-    fn delivery(&self, delivery_result: &DeliveryResult<'_>, delivery_opaque: Self::DeliveryOpaque);
-}
-
-/// An inert producer context that can be used when customizations are not
-/// required.
-#[derive(Clone)]
-pub struct DefaultProducerContext;
-
-impl ClientContext for DefaultProducerContext {}
-impl ProducerContext for DefaultProducerContext {
-    type DeliveryOpaque = ();
-    fn delivery(&self, _: &DeliveryResult<'_>, _: Self::DeliveryOpaque) {}
 }
 
 #[async_trait::async_trait]
@@ -124,7 +127,7 @@ impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
-    async fn from_config_and_context(config: &ClientConfig, _context: C) -> KafkaResult<Self> {
+    async fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let config: ProducerConfig = serde_json::from_str(&config_json)
@@ -135,7 +138,7 @@ where
             .next()
             .ok_or_else(|| KafkaError::ClientCreation("invalid host or ip".into()))?;
         let p = BaseProducer {
-            _context,
+            context,
             config,
             ep: Endpoint::bind("0.0.0.0:0")
                 .await
@@ -152,25 +155,25 @@ pub struct BaseProducer<C = DefaultProducerContext>
 where
     C: ProducerContext,
 {
-    _context: C,
+    context: C,
     config: ProducerConfig,
     ep: Endpoint,
     addr: SocketAddr,
-    inner: Mutex<Inner>,
+    inner: Mutex<Inner<C::DeliveryOpaque>>,
 }
 
 #[derive(Debug, Default)]
-enum Inner {
+enum Inner<D> {
     #[default]
     Init,
     NonTxn {
-        buffer: Vec<OwnedRecord>,
+        buffer: Vec<(OwnedMessage, D)>,
     },
     Txn {
-        /// Indicate whether the producer is in a transaction.
-        in_txn: bool,
-        // We simulate transaction by buffering all records and sending them in a batch.
-        buffer: Vec<OwnedRecord>,
+        /// All records in an active transaction.
+        /// `None` if no transaction is active.
+        /// We simulate transaction by buffering all records and sending them in a batch.
+        buffer: Option<Vec<(OwnedMessage, D)>>,
     },
 }
 
@@ -179,10 +182,11 @@ where
     C: ProducerContext,
 {
     /// Sends a message to Kafka.
+    #[allow(clippy::type_complexity)]
     pub fn send<'a, K, P>(
         &self,
-        record: BaseRecord<'a, K, P>,
-    ) -> Result<(), (KafkaError, BaseRecord<'a, K, P>)>
+        record: BaseRecord<'a, K, P, C::DeliveryOpaque>,
+    ) -> Result<(), (KafkaError, BaseRecord<'a, K, P, C::DeliveryOpaque>)>
     where
         K: ToBytes + ?Sized,
         P: ToBytes + ?Sized,
@@ -193,21 +197,20 @@ where
         }
         match &mut *inner {
             Inner::NonTxn { buffer } => {
-                if buffer.len() > 10 {
+                if buffer.len() >= self.config.queue_buffering_max_messages {
                     // simulate queue full
                     return Err((
                         KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull),
                         record,
                     ));
                 }
-                buffer.push(record.to_owned());
+                buffer.push(record.into_owned());
             }
-            Inner::Txn { in_txn, buffer } => {
-                assert!(
-                    *in_txn,
-                    "messages should only be sent when a transaction is active"
-                );
-                buffer.push(record.to_owned());
+            Inner::Txn { buffer } => {
+                let buffer = buffer
+                    .as_mut()
+                    .expect("messages should only be sent when a transaction is active");
+                buffer.push(record.into_owned());
             }
             Inner::Init => unreachable!(),
         }
@@ -220,21 +223,37 @@ where
         0
     }
 
-    async fn flush_internal(&self) -> KafkaResult<()> {
-        let records = match &mut *self.inner.lock() {
-            Inner::NonTxn { buffer } if !buffer.is_empty() => std::mem::take(buffer),
-            _ => return Ok(()),
-        };
+    async fn flush_internal(
+        &self,
+        records: Vec<(OwnedMessage, C::DeliveryOpaque)>,
+    ) -> KafkaResult<()> {
         debug!("flushing {} records", records.len());
-        let req = Request::Produce { records };
+        let req = Request::Produce {
+            records: records.iter().map(|(msg, _)| msg.clone()).collect(),
+        };
+        // FIXME: if any IO error happens, the `delivery` will not be called,
+        //        and the message will be lost.
         let (tx, mut rx) = self.ep.connect1(self.addr).await?;
         tx.send(Box::new(req)).await?;
-        *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap()
+        let result = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
+
+        for (msg, delivery_opaque) in records {
+            let delivery_result = match &result {
+                Ok(()) => Ok(msg.borrow()),
+                Err(e) => Err((e.clone(), msg.borrow())),
+            };
+            self.context.delivery(&delivery_result, delivery_opaque);
+        }
+        Ok(())
     }
 
     /// Flushes any pending messages.
     pub async fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
-        let future = self.flush_internal();
+        let records = match &mut *self.inner.lock() {
+            Inner::NonTxn { buffer } if !buffer.is_empty() => std::mem::take(buffer),
+            _ => return Ok(()),
+        };
+        let future = self.flush_internal(records);
         match timeout.into() {
             Timeout::After(dur) => madsim::time::timeout(dur, future)
                 .await
@@ -251,10 +270,7 @@ where
         }
         match &mut *self.inner.lock() {
             inner @ Inner::Init => {
-                *inner = Inner::Txn {
-                    in_txn: false,
-                    buffer: vec![],
-                };
+                *inner = Inner::Txn { buffer: None };
                 Ok(())
             }
             _ => Err(invalid_transaction_state(
@@ -267,9 +283,12 @@ where
     pub fn begin_transaction(&self) -> KafkaResult<()> {
         debug!("begin transaction");
         match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, .. } if !*in_txn => *in_txn = true,
-            Inner::Txn { .. } => {
-                return Err(invalid_transaction_state("transaction already in progress"));
+            Inner::Txn { buffer } => {
+                if buffer.is_none() {
+                    *buffer = Some(vec![]);
+                } else {
+                    return Err(invalid_transaction_state("transaction already in progress"));
+                }
             }
             _ => return Err(invalid_transaction_state("transaction not initialized")),
         }
@@ -277,32 +296,29 @@ where
     }
 
     /// Commits the current transaction.
-    pub async fn commit_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
+    pub async fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         debug!("commit transaction");
         let records = match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, buffer } if *in_txn => std::mem::take(buffer),
+            Inner::Txn {
+                buffer: Some(buffer),
+            } => std::mem::take(buffer),
             _ => return Err(invalid_transaction_state("no opened transaction")),
         };
-        let req = Request::Produce { records };
-        let (tx, mut rx) = self.ep.connect1(self.addr).await?;
-        tx.send(Box::new(req)).await?;
-        let res = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
-        // TODO: simulate transaction aborted
-        match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, .. } if *in_txn => *in_txn = false,
-            _ => panic!("state changed during commit"),
+        let future = self.flush_internal(records);
+        match timeout.into() {
+            Timeout::After(dur) => madsim::time::timeout(dur, future)
+                .await
+                .map_err(|_| KafkaError::Flush(RDKafkaErrorCode::RequestTimedOut))?,
+            Timeout::Never => future.await,
         }
-        res
+        // TODO: simulate transaction aborted
     }
 
     /// Aborts the current transaction.
     pub async fn abort_transaction<T: Into<Timeout>>(&self, _timeout: T) -> KafkaResult<()> {
         debug!("abort transaction");
         match &mut *self.inner.lock() {
-            Inner::Txn { in_txn, buffer } if *in_txn => {
-                buffer.clear();
-                *in_txn = false;
-            }
+            Inner::Txn { buffer } if buffer.is_some() => *buffer = None,
             _ => return Err(invalid_transaction_state("no opened transaction")),
         }
         Ok(())
@@ -362,29 +378,4 @@ where
     fn deref(&self) -> &Self::Target {
         &self.base
     }
-}
-
-/// Producer configs.
-///
-/// <https://kafka.apache.org/documentation/#producerconfigs>
-#[derive(Debug, Default, Deserialize)]
-struct ProducerConfig {
-    #[serde(rename = "bootstrap.servers")]
-    bootstrap_servers: String,
-
-    #[serde(rename = "transactional.id")]
-    transactional_id: Option<String>,
-
-    /// Local message timeout.
-    #[serde(
-        rename = "message.timeout.ms",
-        deserialize_with = "super::from_str",
-        default = "default_message_timeout_ms"
-    )]
-    #[allow(dead_code)]
-    message_timeout_ms: u32,
-}
-
-const fn default_message_timeout_ms() -> u32 {
-    300_000
 }
