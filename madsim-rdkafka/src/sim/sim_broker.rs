@@ -1,5 +1,6 @@
 use crate::{
-    broker::{Broker, FetchOptions, OwnedRecord},
+    broker::{Broker, FetchOptions},
+    message::OwnedMessage,
     metadata::Metadata,
     TopicPartitionList,
 };
@@ -57,7 +58,7 @@ pub enum Request {
         partitions: usize,
     },
     Produce {
-        records: Vec<OwnedRecord>,
+        records: Vec<OwnedMessage>,
     },
     Fetch {
         tpl: TopicPartitionList,

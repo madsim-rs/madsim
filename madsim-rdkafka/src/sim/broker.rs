@@ -2,9 +2,8 @@
 
 use crate::{
     error::{KafkaError as Error, KafkaResult as Result, RDKafkaErrorCode as ErrorCode},
-    message::{OwnedHeaders, OwnedMessage, Timestamp, ToBytes},
+    message::{OwnedMessage, Timestamp},
     metadata::{Metadata, MetadataPartition, MetadataTopic},
-    producer::BaseRecord,
     Message, Offset, TopicPartitionList,
 };
 use std::collections::HashMap;
@@ -68,20 +67,20 @@ impl Broker {
         Ok(())
     }
 
-    /// Produces records.
-    pub fn produce(&mut self, records: Vec<OwnedRecord>) -> Result<()> {
-        debug!("produce {} records", records.len());
-        for record in records {
-            self.produce_one(record)?;
+    /// Produces messages.
+    pub fn produce(&mut self, messages: Vec<OwnedMessage>) -> Result<()> {
+        debug!("produce {} messages", messages.len());
+        for msg in messages {
+            self.produce_one(msg)?;
         }
         Ok(())
     }
 
-    /// Produces a record.
-    fn produce_one(&mut self, record: OwnedRecord) -> Result<()> {
+    /// Produces a message.
+    fn produce_one(&mut self, mut msg: OwnedMessage) -> Result<()> {
         let topic = self
             .topics
-            .get_mut(&record.topic)
+            .get_mut(&msg.topic)
             .ok_or(Error::MessageProduction(ErrorCode::UnknownTopic))?;
 
         let partition_idx = topic.last_partition;
@@ -91,18 +90,9 @@ impl Broker {
         }
 
         let partition = &mut topic.partitions[partition_idx];
+        msg.partition = partition_idx as _;
+        msg.offset = partition.log_end_offset;
 
-        let msg = OwnedMessage::new(
-            record.payload,
-            record.key,
-            record.topic,
-            record
-                .timestamp
-                .map_or(Timestamp::NotAvailable, Timestamp::CreateTime),
-            partition_idx as _,
-            partition.log_end_offset,
-            record.headers,
-        );
         trace!(?msg, "produce");
         partition.msgs.push(msg);
         partition.log_end_offset += 1;
@@ -231,38 +221,6 @@ impl Topic {
                 .iter()
                 .map(|p| MetadataPartition { id: p.id })
                 .collect(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct OwnedRecord {
-    /// Required destination topic.
-    pub topic: String,
-    /// Optional destination partition.
-    pub partition: Option<i32>,
-    /// Optional payload.
-    pub payload: Option<Vec<u8>>,
-    /// Optional key.
-    pub key: Option<Vec<u8>>,
-    /// Optional timestamp.
-    ///
-    /// Note that Kafka represents timestamps as the number of milliseconds
-    /// since the Unix epoch.
-    pub timestamp: Option<i64>,
-    /// Optional message headers.
-    pub headers: Option<OwnedHeaders>,
-}
-
-impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
-    pub(crate) fn to_owned(&self) -> OwnedRecord {
-        OwnedRecord {
-            topic: self.topic.to_owned(),
-            partition: self.partition,
-            payload: self.payload.map(|p| p.to_bytes().to_owned()),
-            key: self.key.map(|k| k.to_bytes().to_owned()),
-            timestamp: self.timestamp,
-            headers: self.headers.clone(),
         }
     }
 }

@@ -161,37 +161,17 @@ impl From<SystemTime> for Timestamp {
 /// A Kafka message that owns its backing data.
 #[derive(Debug, Clone)]
 pub struct OwnedMessage {
-    payload: Option<Vec<u8>>,
-    key: Option<Vec<u8>>,
-    topic: String,
-    timestamp: Timestamp,
-    partition: i32,
-    offset: i64,
-    headers: Option<OwnedHeaders>,
+    pub(crate) payload: Option<Vec<u8>>,
+    pub(crate) key: Option<Vec<u8>>,
+    pub(crate) topic: String,
+    pub(crate) timestamp: Timestamp,
+    pub(crate) partition: i32,
+    pub(crate) offset: i64,
+    pub(crate) headers: Option<OwnedHeaders>,
+    pub(crate) delivery_opaque: usize,
 }
 
 impl OwnedMessage {
-    /// Creates a new message with the specified content.
-    pub fn new(
-        payload: Option<Vec<u8>>,
-        key: Option<Vec<u8>>,
-        topic: String,
-        timestamp: Timestamp,
-        partition: i32,
-        offset: i64,
-        headers: Option<OwnedHeaders>,
-    ) -> OwnedMessage {
-        OwnedMessage {
-            payload,
-            key,
-            topic,
-            timestamp,
-            partition,
-            offset,
-            headers,
-        }
-    }
-
     /// Returns the estimate size in bytes.
     pub(crate) fn size(&self) -> usize {
         let mut size = 10;

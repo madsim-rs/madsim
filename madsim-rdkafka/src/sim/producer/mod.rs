@@ -1,4 +1,5 @@
 pub mod base_producer;
+// pub mod future_producer;
 
 use serde::Deserialize;
 
@@ -6,6 +7,7 @@ use crate::client::ClientContext;
 use crate::util::IntoOpaque;
 
 pub use self::base_producer::*;
+// pub use self::future_producer::*;
 pub use crate::message::DeliveryResult;
 
 /// Common trait for all producers.
@@ -51,8 +53,18 @@ struct ProducerConfig {
     )]
     #[allow(dead_code)]
     message_timeout_ms: u32,
+
+    #[serde(
+        rename = "queue.buffering.max.messages",
+        default = "default_queue_buffering_max_messages"
+    )]
+    queue_buffering_max_messages: usize,
 }
 
 const fn default_message_timeout_ms() -> u32 {
     300_000
+}
+
+const fn default_queue_buffering_max_messages() -> usize {
+    100_000
 }

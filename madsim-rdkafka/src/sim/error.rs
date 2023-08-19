@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, sync::Arc};
 
 /// Kafka result.
 pub type KafkaResult<T> = Result<T, KafkaError>;
@@ -6,7 +6,7 @@ pub type KafkaResult<T> = Result<T, KafkaError>;
 /// Represents all possible Kafka errors.
 ///
 /// If applicable, check the underlying [`RDKafkaErrorCode`] to get details.
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum KafkaError {
     /// Creation of admin operation failed.
@@ -54,7 +54,7 @@ pub enum KafkaError {
     /// Transaction error.
     Transaction(RDKafkaError),
     /// IO error.
-    Io(#[from] std::io::Error),
+    Io(#[source] Arc<std::io::Error>),
 }
 
 impl fmt::Display for KafkaError {
@@ -90,6 +90,12 @@ impl fmt::Display for KafkaError {
             KafkaError::Transaction(err) => write!(f, "Transaction error: {err}"),
             KafkaError::Io(err) => write!(f, "IO error: {err}"),
         }
+    }
+}
+
+impl From<std::io::Error> for KafkaError {
+    fn from(err: std::io::Error) -> Self {
+        KafkaError::Io(Arc::new(err))
     }
 }
 

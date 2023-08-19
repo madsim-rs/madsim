@@ -4,20 +4,19 @@ use madsim::net::Endpoint;
 use spin::Mutex;
 use tracing::*;
 
-use super::{DefaultProducerContext, ProducerConfig, ProducerContext};
+use super::{DefaultProducerContext, IntoOpaque, ProducerConfig, ProducerContext};
 use crate::{
-    broker::OwnedRecord,
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult, RDKafkaError, RDKafkaErrorCode},
-    message::{OwnedHeaders, ToBytes},
+    message::{OwnedHeaders, OwnedMessage, ToBytes},
     sim_broker::Request,
     util::Timeout,
-    ClientConfig,
+    ClientConfig, Timestamp,
 };
 
 /// A record for the [`BaseProducer`] and [`ThreadedProducer`].
 #[derive(Debug)]
-pub struct BaseRecord<'a, K: ToBytes + ?Sized = (), P: ToBytes + ?Sized = ()> {
+pub struct BaseRecord<'a, K: ToBytes + ?Sized = (), P: ToBytes + ?Sized = (), D: IntoOpaque = ()> {
     /// Required destination topic.
     pub topic: &'a str,
     /// Optional destination partition.
@@ -34,24 +33,37 @@ pub struct BaseRecord<'a, K: ToBytes + ?Sized = (), P: ToBytes + ?Sized = ()> {
     /// Optional message headers.
     pub headers: Option<OwnedHeaders>,
     /// Required delivery opaque (defaults to `()` if not required).
-    pub delivery_opaque: (),
+    pub delivery_opaque: D,
 }
 
-impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
+impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized, D: IntoOpaque> BaseRecord<'a, K, P, D> {
+    /// Creates a new record with the specified topic name and delivery opaque.
+    pub fn with_opaque_to(topic: &'a str, delivery_opaque: D) -> BaseRecord<'a, K, P, D> {
+        BaseRecord {
+            topic,
+            partition: None,
+            payload: None,
+            key: None,
+            timestamp: None,
+            headers: None,
+            delivery_opaque,
+        }
+    }
+
     /// Sets the destination partition of the record.
-    pub fn partition(mut self, partition: i32) -> BaseRecord<'a, K, P> {
+    pub fn partition(mut self, partition: i32) -> BaseRecord<'a, K, P, D> {
         self.partition = Some(partition);
         self
     }
 
     /// Sets the payload of the record.
-    pub fn payload(mut self, payload: &'a P) -> BaseRecord<'a, K, P> {
+    pub fn payload(mut self, payload: &'a P) -> BaseRecord<'a, K, P, D> {
         self.payload = Some(payload);
         self
     }
 
     /// Sets the key of the record.
-    pub fn key(mut self, key: &'a K) -> BaseRecord<'a, K, P> {
+    pub fn key(mut self, key: &'a K) -> BaseRecord<'a, K, P, D> {
         self.key = Some(key);
         self
     }
@@ -60,19 +72,37 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P> {
     ///
     /// Note that Kafka represents timestamps as the number of milliseconds
     /// since the Unix epoch.
-    pub fn timestamp(mut self, timestamp: i64) -> BaseRecord<'a, K, P> {
+    pub fn timestamp(mut self, timestamp: i64) -> BaseRecord<'a, K, P, D> {
         self.timestamp = Some(timestamp);
         self
     }
 
     /// Sets the headers of the record.
-    pub fn headers(mut self, headers: OwnedHeaders) -> BaseRecord<'a, K, P> {
+    pub fn headers(mut self, headers: OwnedHeaders) -> BaseRecord<'a, K, P, D> {
         self.headers = Some(headers);
         self
     }
 
+    /// Creates an `OwnedMessage` from the record.
+    fn into_owned(self) -> OwnedMessage {
+        OwnedMessage {
+            topic: self.topic.to_owned(),
+            partition: self.partition.unwrap_or(0),
+            offset: 0,
+            payload: self.payload.map(|p| p.to_bytes().to_owned()),
+            key: self.key.map(|k| k.to_bytes().to_owned()),
+            timestamp: self
+                .timestamp
+                .map_or(Timestamp::NotAvailable, Timestamp::CreateTime),
+            headers: self.headers.clone(),
+            delivery_opaque: self.delivery_opaque.into_ptr() as usize,
+        }
+    }
+}
+
+impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> BaseRecord<'a, K, P, ()> {
     /// Creates a new record with the specified topic name.
-    pub fn to(topic: &'a str) -> BaseRecord<'a, K, P> {
+    pub fn to(topic: &'a str) -> BaseRecord<'a, K, P, ()> {
         BaseRecord {
             topic,
             partition: None,
@@ -97,7 +127,7 @@ impl<C> FromClientConfigAndContext<C> for BaseProducer<C>
 where
     C: ProducerContext,
 {
-    async fn from_config_and_context(config: &ClientConfig, _context: C) -> KafkaResult<Self> {
+    async fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
         let config_json = serde_json::to_string(&config.conf_map)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
         let config: ProducerConfig = serde_json::from_str(&config_json)
@@ -108,7 +138,7 @@ where
             .next()
             .ok_or_else(|| KafkaError::ClientCreation("invalid host or ip".into()))?;
         let p = BaseProducer {
-            _context,
+            context,
             config,
             ep: Endpoint::bind("0.0.0.0:0")
                 .await
@@ -125,7 +155,7 @@ pub struct BaseProducer<C = DefaultProducerContext>
 where
     C: ProducerContext,
 {
-    _context: C,
+    context: C,
     config: ProducerConfig,
     ep: Endpoint,
     addr: SocketAddr,
@@ -137,13 +167,13 @@ enum Inner {
     #[default]
     Init,
     NonTxn {
-        buffer: Vec<OwnedRecord>,
+        buffer: Vec<OwnedMessage>,
     },
     Txn {
         /// Indicate whether the producer is in a transaction.
         in_txn: bool,
         // We simulate transaction by buffering all records and sending them in a batch.
-        buffer: Vec<OwnedRecord>,
+        buffer: Vec<OwnedMessage>,
     },
 }
 
@@ -152,10 +182,11 @@ where
     C: ProducerContext,
 {
     /// Sends a message to Kafka.
+    #[allow(clippy::type_complexity)]
     pub fn send<'a, K, P>(
         &self,
-        record: BaseRecord<'a, K, P>,
-    ) -> Result<(), (KafkaError, BaseRecord<'a, K, P>)>
+        record: BaseRecord<'a, K, P, C::DeliveryOpaque>,
+    ) -> Result<(), (KafkaError, BaseRecord<'a, K, P, C::DeliveryOpaque>)>
     where
         K: ToBytes + ?Sized,
         P: ToBytes + ?Sized,
@@ -166,21 +197,21 @@ where
         }
         match &mut *inner {
             Inner::NonTxn { buffer } => {
-                if buffer.len() > 10 {
+                if buffer.len() >= self.config.queue_buffering_max_messages {
                     // simulate queue full
                     return Err((
                         KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull),
                         record,
                     ));
                 }
-                buffer.push(record.to_owned());
+                buffer.push(record.into_owned());
             }
             Inner::Txn { in_txn, buffer } => {
                 assert!(
                     *in_txn,
                     "messages should only be sent when a transaction is active"
                 );
-                buffer.push(record.to_owned());
+                buffer.push(record.into_owned());
             }
             Inner::Init => unreachable!(),
         }
@@ -199,10 +230,24 @@ where
             _ => return Ok(()),
         };
         debug!("flushing {} records", records.len());
-        let req = Request::Produce { records };
+        let req = Request::Produce {
+            records: records.clone(),
+        };
         let (tx, mut rx) = self.ep.connect1(self.addr).await?;
         tx.send(Box::new(req)).await?;
-        *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap()
+        let result = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
+
+        for record in records {
+            // SAFETY: we only convert the opaque back once.
+            let delivery_opaque =
+                unsafe { C::DeliveryOpaque::from_ptr(record.delivery_opaque as _) };
+            let delivery_result = match &result {
+                Ok(()) => Ok(record.borrow()),
+                Err(e) => Err((e.clone(), record.borrow())),
+            };
+            self.context.delivery(&delivery_result, delivery_opaque);
+        }
+        Ok(())
     }
 
     /// Flushes any pending messages.
