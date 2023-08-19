@@ -238,7 +238,6 @@ where
         let result = *rx.recv().await?.downcast::<KafkaResult<()>>().unwrap();
 
         for (msg, delivery_opaque) in records {
-            // SAFETY: we only convert the opaque back once.
             let delivery_result = match &result {
                 Ok(()) => Ok(msg.borrow()),
                 Err(e) => Err((e.clone(), msg.borrow())),
