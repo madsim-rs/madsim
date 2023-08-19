@@ -269,6 +269,12 @@ impl Message for BorrowedMessage<'_> {
     }
 }
 
+impl BorrowedMessage<'_> {
+    pub fn detach(&self) -> OwnedMessage {
+        self.msg.clone()
+    }
+}
+
 /// A zero-copy collection of Kafka message headers.
 #[repr(transparent)]
 pub struct BorrowedHeaders(OwnedHeaders);

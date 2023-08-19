@@ -87,7 +87,7 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized, D: IntoOpaque> BaseRecord<'a,
     fn into_owned(self) -> (OwnedMessage, D) {
         let msg = OwnedMessage {
             topic: self.topic.to_owned(),
-            partition: self.partition.unwrap_or(0),
+            partition: self.partition.unwrap_or(-1),
             offset: 0,
             payload: self.payload.map(|p| p.to_bytes().to_owned()),
             key: self.key.map(|k| k.to_bytes().to_owned()),

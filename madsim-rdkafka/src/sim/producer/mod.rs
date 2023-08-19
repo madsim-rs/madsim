@@ -1,5 +1,5 @@
 pub mod base_producer;
-// pub mod future_producer;
+pub mod future_producer;
 
 use serde::Deserialize;
 
@@ -7,7 +7,7 @@ use crate::client::ClientContext;
 use crate::util::IntoOpaque;
 
 pub use self::base_producer::*;
-// pub use self::future_producer::*;
+pub use self::future_producer::*;
 pub use crate::message::DeliveryResult;
 
 /// Common trait for all producers.
