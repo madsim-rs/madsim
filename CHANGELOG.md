@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## rdkafka
+
+### Added
+
+- Add statistics API.
+- Add future producer API.
+
 ## tonic [0.3.1] - 2023-07-24
 
 ### Added
