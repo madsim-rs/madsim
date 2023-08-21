@@ -8,6 +8,8 @@ pub mod message;
 pub mod metadata;
 pub mod producer;
 pub(crate) mod sim_broker;
+#[path = "../std/statistics.rs"]
+pub mod statistics;
 pub mod topic_partition_list;
 pub mod types;
 pub mod util;
@@ -16,6 +18,7 @@ pub use self::client::ClientContext;
 pub use self::config::ClientConfig;
 pub use self::message::{Message, Timestamp};
 pub use self::sim_broker::SimBroker;
+pub use self::statistics::Statistics;
 pub use self::topic_partition_list::{Offset, TopicPartitionList};
 
 // custom deserialize function for serde

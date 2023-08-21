@@ -1,5 +1,17 @@
+use crate::Statistics;
+
+use tracing::info;
+
 /// Client-level context.
 pub trait ClientContext: Send + Sync + 'static {
+    /// Receives the decoded statistics of the librdkafka client. To enable, the
+    /// `statistics.interval.ms` configuration parameter must be specified.
+    ///
+    /// The default implementation logs the statistics at the `info` log level.
+    fn stats(&self, statistics: Statistics) {
+        info!("Client stats: {:?}", statistics);
+    }
+
     fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
         addr
     }
