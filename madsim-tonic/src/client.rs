@@ -63,8 +63,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?.boxed();
-            let addr = self.inner.ep.peer_addr().unwrap();
-            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            let (tx, mut rx) = self.inner.ep.connect1().await?;
             // send request
             tx.send(Box::new((path, false, request))).await?;
             // receive response
@@ -94,8 +93,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?;
-            let addr = self.inner.ep.peer_addr().unwrap();
-            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            let (tx, mut rx) = self.inner.ep.connect1().await?;
             // send requests
             Self::send_request_stream(request, tx, path, false).await?;
             // receive response
@@ -125,8 +123,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?.boxed();
-            let addr = self.inner.ep.peer_addr().unwrap();
-            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            let (tx, mut rx) = self.inner.ep.connect1().await?;
             // send request
             tx.send(Box::new((path, true, request))).await?;
             // receive responses
@@ -155,8 +152,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         let future = async move {
             request.append_metadata();
             let request = request.intercept(&mut self.interceptor)?;
-            let addr = self.inner.ep.peer_addr().unwrap();
-            let (tx, mut rx) = self.inner.ep.connect1(addr).await?;
+            let (tx, mut rx) = self.inner.ep.connect1().await?;
             // send requests in a background task
             let task = madsim::task::spawn(async move {
                 _ = Self::send_request_stream(request, tx, path, true).await;

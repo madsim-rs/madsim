@@ -274,7 +274,9 @@ impl<L> Router<L> {
                     // send the header
                     tx.send(Box::new(header)).await?;
                     // send the stream
-                    let Some(mut stream) = stream else { return Ok(()) };
+                    let Some(mut stream) = stream else {
+                        return Ok(());
+                    };
                     let mut count = 0;
                     loop {
                         let msg = select_biased! {
