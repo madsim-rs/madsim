@@ -1,11 +1,23 @@
 //! Client implementation and builder.
 
 use super::Error;
-use std::{fmt, net::SocketAddr, sync::Arc, time::Duration};
+use madsim::rand::Rng;
+use std::{
+    collections::HashMap,
+    fmt,
+    hash::Hash,
+    io,
+    net::SocketAddr,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{
     codegen::{http::HeaderValue, Bytes, StdError},
     transport::Uri,
 };
+use tower::discover::Change;
 
 /// Channel builder.
 #[derive(Debug, Clone)]
@@ -70,6 +82,16 @@ impl Endpoint {
 
     // Connect without timeout.
     async fn connect_inner(&self) -> Result<Channel, Error> {
+        // check if the endpoint is available
+        let _ep = self.connect_ep().await?;
+        Ok(Channel {
+            ep: MultiEndpoint::new_one(self.clone()),
+            timeout: self.timeout,
+        })
+    }
+
+    /// Connect to a madsim Endpoint.
+    async fn connect_ep(&self) -> Result<madsim::net::Endpoint, Error> {
         let host_port = (self.uri.authority())
             .ok_or_else(Error::new_invalid_uri)?
             .as_str();
@@ -85,10 +107,7 @@ impl Endpoint {
         // handshake
         ep.connect1(addr).await.map_err(Error::from_source)?;
 
-        Ok(Channel {
-            ep: Arc::new(ep),
-            timeout: self.timeout,
-        })
+        Ok(ep)
     }
 
     /// Set a custom user-agent header.
@@ -194,15 +213,147 @@ impl TryFrom<String> for Endpoint {
     }
 }
 
+impl FromStr for Endpoint {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.to_string())
+    }
+}
+
+/// Default buffer size of `balance_channel`.
+const DEFAULT_BUFFER_SIZE: usize = 1024;
+
 /// A default batteries included `transport` channel.
 #[derive(Clone)]
 pub struct Channel {
-    pub(crate) ep: Arc<madsim::net::Endpoint>,
+    pub(crate) ep: MultiEndpoint,
     pub(crate) timeout: Option<Duration>,
+}
+
+impl Channel {
+    /// Balance a list of [`Endpoint`]'s.
+    ///
+    /// This creates a [`Channel`] that will load balance across all the
+    /// provided endpoints.
+    pub fn balance_list(list: impl Iterator<Item = Endpoint>) -> Self {
+        let (channel, tx) = Self::balance_channel(DEFAULT_BUFFER_SIZE);
+        list.for_each(|endpoint| {
+            tx.try_send(Change::Insert(endpoint.uri.clone(), endpoint))
+                .unwrap();
+        });
+
+        channel
+    }
+
+    /// Balance a list of [`Endpoint`]'s.
+    ///
+    /// This creates a [`Channel`] that will listen to a stream of change events and will add or remove provided endpoints.
+    pub fn balance_channel<K>(capacity: usize) -> (Self, Sender<Change<K, Endpoint>>)
+    where
+        K: Hash + Eq + Send + Clone + 'static,
+    {
+        let (tx, rx) = channel(capacity);
+        let channel = Self {
+            ep: MultiEndpoint::new_multi(rx),
+            timeout: None,
+        };
+        (channel, tx)
+    }
 }
 
 impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Channel").finish()
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct MultiEndpoint {
+    balance: Arc<dyn Balance>,
+}
+
+impl MultiEndpoint {
+    /// Creates with multiple endpoints
+    pub(crate) fn new_multi<K>(rx: Receiver<Change<K, Endpoint>>) -> Self
+    where
+        K: Hash + Eq + Send + Clone + 'static,
+    {
+        Self {
+            balance: Arc::new(DynamicEp::new(HashMap::new(), Some(rx))),
+        }
+    }
+
+    /// Creates with one endpoint
+    pub(crate) fn new_one(ep: Endpoint) -> Self {
+        Self {
+            balance: Arc::new(DynamicEp::new([((), ep)].into_iter().collect(), None)),
+        }
+    }
+
+    pub(crate) async fn connect1(
+        &self,
+    ) -> io::Result<(madsim::net::Sender, madsim::net::Receiver)> {
+        let ep = self.balance.get_one().ok_or(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            "no endpoints available",
+        ))?;
+        let madsim_ep = ep
+            .connect_ep()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e.to_string()))?;
+        let addr = madsim_ep.peer_addr().unwrap();
+        madsim_ep.connect1(addr).await
+    }
+}
+
+/// Dynamically monitor changes of endpoints
+pub(crate) struct DynamicEp<K> {
+    eps: Mutex<HashMap<K, Endpoint>>,
+    rx: Option<Mutex<Receiver<Change<K, Endpoint>>>>,
+}
+
+impl<K> DynamicEp<K>
+where
+    K: Hash + Eq + Send + Clone + 'static,
+{
+    pub(crate) fn new(
+        eps: HashMap<K, Endpoint>,
+        rx: Option<Receiver<Change<K, Endpoint>>>,
+    ) -> Self {
+        Self {
+            eps: Mutex::new(eps),
+            rx: rx.map(Mutex::new),
+        }
+    }
+}
+
+impl<K> Balance for DynamicEp<K>
+where
+    K: Hash + Eq + Send + Clone + 'static,
+{
+    fn get_one(&self) -> Option<Endpoint> {
+        let mut eps = self.eps.lock().unwrap();
+        if let Some(rx) = self.rx.as_ref() {
+            let mut rx_l = rx.lock().unwrap();
+            while let Ok(change) = rx_l.try_recv() {
+                match change {
+                    Change::Insert(k, ep) => eps.insert(k, ep),
+                    Change::Remove(k) => eps.remove(&k),
+                };
+            }
+        }
+        let len = eps.len();
+        if len == 0 {
+            return None;
+        }
+        let n = madsim::rand::thread_rng().gen_range(0..len);
+        eps.values().nth(n).cloned()
+    }
+}
+
+/// Balance among endpoints
+pub(crate) trait Balance: Send + Sync {
+    /// Get a random endpoint.
+    fn get_one(&self) -> Option<Endpoint>;
 }
