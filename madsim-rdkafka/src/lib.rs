@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 #[cfg(madsim)]
 mod sim;
 #[cfg(not(madsim))]
