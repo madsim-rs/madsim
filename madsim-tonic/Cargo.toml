@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.3.1+0.9.2"
+version = "0.4.0+0.10.0"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."
@@ -16,7 +16,7 @@ license = "Apache-2.0"
 tls = ["tonic/tls"]
 
 [target.'cfg(not(madsim))'.dependencies]
-tonic = "0.9.2"
+tonic = "0.10.0"
 
 [target.'cfg(madsim)'.dependencies]
 async-stream = "0.3"
