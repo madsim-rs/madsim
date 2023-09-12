@@ -7,8 +7,8 @@ use crate::{
     util::Timeout,
     ClientConfig, ClientContext,
 };
+use futures_channel::oneshot;
 use futures_util::FutureExt;
-use tokio::sync::oneshot;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -218,7 +218,7 @@ pub struct DeliveryFuture {
 
 impl Future for DeliveryFuture {
     // the original crate returns `futures_channel::oneshot::Canceled`.
-    type Output = Result<OwnedDeliveryResult, oneshot::error::RecvError>;
+    type Output = Result<OwnedDeliveryResult, oneshot::Canceled>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.rx.poll_unpin(cx)
