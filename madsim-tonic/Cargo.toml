@@ -24,6 +24,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = "0.3"
 madsim = { version = "0.2.20", path = "../madsim" }
 tracing = "0.1"
-tonic = { version = "0.9.2", default-features = false, features = ["codegen", "transport"] }
+tonic = { version = "0.10.0", default-features = false, features = ["codegen", "transport"] }
 tokio = "1"
 tower = { version = "0.4.7" }
