@@ -6,7 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## rdkafka
+## tonic [0.4.0] - 2023-09-13
+
+### Changed
+
+- tonic: Update `tonic` and `tonic-build` to v0.10.0.
+
+## rdkafka [Unreleased] - 2023-08-21
 
 ### Added
 
