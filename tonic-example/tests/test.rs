@@ -19,6 +19,10 @@ use tonic_example::hello_world::{
 };
 use tonic_example::MyGreeter;
 
+// test compatibility with jemalloc
+#[global_allocator]
+static JEMALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[madsim::test]
 async fn basic() {
     tracing_subscriber::fmt::init();

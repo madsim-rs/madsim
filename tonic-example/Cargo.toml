@@ -9,6 +9,7 @@ async-stream = "0.3"
 futures-core = "0.3"
 madsim = { path = "../madsim" }
 prost = "0.12"
+tikv-jemallocator = { version = "0.5", features = ["unprefixed_malloc_on_supported_platforms"] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 tonic = { path = "../madsim-tonic", package = "madsim-tonic" }
 tracing-subscriber = "0.3"
