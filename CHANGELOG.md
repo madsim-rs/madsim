@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - etcd: Update `etcd-client` to v0.12.1.
 
+## tonic-build [0.4.1] - 2023-10-07
+
+### Fixed
+
+- Fix missing `futures_core` dependency.
+
 ## tonic [0.4.0] - 2023-09-13
 
 ### Changed
