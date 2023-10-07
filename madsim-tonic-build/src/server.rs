@@ -95,7 +95,7 @@ pub fn generate<T: Service>(
                 // will trigger if compression is disabled
                 clippy::let_unit_value,
             )]
-            use tonic::codegen::{http::uri::PathAndQuery, futures::{stream::{self, StreamExt}, future::FutureExt}, *};
+            use tonic::codegen::{http::uri::PathAndQuery, futures::{stream::{self, Stream, StreamExt}, future::FutureExt}, *};
 
             #generated_trait
 
@@ -241,7 +241,7 @@ fn generate_trait_methods<T: Service>(
 
                 quote! {
                     // #stream_doc
-                    type #stream: futures_core::Stream<Item = Result<#res_message, tonic::Status>> + Send + 'static;
+                    type #stream: Stream<Item = Result<#res_message, tonic::Status>> + Send + 'static;
 
                     // #method_doc
                     async fn #name(&self, request: tonic::Request<#req_message>)
@@ -257,7 +257,7 @@ fn generate_trait_methods<T: Service>(
 
                 quote! {
                     // #stream_doc
-                    type #stream: futures_core::Stream<Item = Result<#res_message, tonic::Status>> + Send + 'static;
+                    type #stream: Stream<Item = Result<#res_message, tonic::Status>> + Send + 'static;
 
                     // #method_doc
                     async fn #name(&self, request: tonic::Request<tonic::Streaming<#req_message>>)
