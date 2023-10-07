@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## etcd [0.4.0] - 2023-10-07
+
+### Changed
+
+- etcd: Update `etcd-client` to v0.12.1.
+
 ## tonic [0.4.0] - 2023-09-13
 
 ### Changed
