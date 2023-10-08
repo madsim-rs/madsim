@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic-build [0.4.2] - 2023-10-08
+
+### Added
+
+- Add missing APIs for `Builder` in v0.10.0.
+
 ## etcd [0.4.0] - 2023-10-07
 
 ### Changed
