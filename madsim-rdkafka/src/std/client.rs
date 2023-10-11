@@ -551,6 +551,11 @@ pub(crate) unsafe extern "C" fn native_resolve_cb<C: ClientContext>(
     res: *mut *mut addrinfo,
     opaque: *mut c_void,
 ) -> i32 {
+    // XXX(runji): if either node or service is null, call `getaddrinfo` directly
+    if node.is_null() || service.is_null() {
+        return unsafe { libc::getaddrinfo(node, service, hints, res) };
+    }
+
     // Convert host and port to Rust strings.
     let host = match CStr::from_ptr(node).to_str() {
         Ok(host) => host.into(),
