@@ -31,6 +31,7 @@ use crate::error::{IsError, KafkaError, KafkaResult};
 use crate::groups::GroupList;
 use crate::log::{debug, error, info, trace, warn};
 use crate::metadata::Metadata;
+use crate::mocking::MockCluster;
 use crate::statistics::Statistics;
 use crate::util::{self, ErrBuf, KafkaDrop, NativePtr, Timeout};
 
@@ -235,8 +236,17 @@ impl<C: ClientContext> Client<C> {
         rd_kafka_type: RDKafkaType,
         context: C,
     ) -> KafkaResult<Client<C>> {
+        Self::new_context_arc(config, native_config, rd_kafka_type, Arc::new(context))
+    }
+
+    /// Creates a new `Client` given a configuration, a client type and a context.
+    pub(crate) fn new_context_arc(
+        config: &ClientConfig,
+        native_config: NativeClientConfig,
+        rd_kafka_type: RDKafkaType,
+        context: Arc<C>,
+    ) -> KafkaResult<Client<C>> {
         let mut err_buf = ErrBuf::new();
-        let context = Arc::new(context);
         unsafe {
             rdsys::rd_kafka_conf_set_opaque(
                 native_config.ptr(),
@@ -247,7 +257,23 @@ impl<C: ClientContext> Client<C> {
             rdsys::rd_kafka_conf_set_log_cb(native_config.ptr(), Some(native_log_cb::<C>));
             rdsys::rd_kafka_conf_set_stats_cb(native_config.ptr(), Some(native_stats_cb::<C>));
             rdsys::rd_kafka_conf_set_error_cb(native_config.ptr(), Some(native_error_cb::<C>));
-            rdsys::rd_kafka_conf_set_resolve_cb(native_config.ptr(), Some(native_resolve_cb::<C>));
+            rd_kafka_conf_set_resolve_cb(native_config.ptr(), Some(native_resolve_cb::<C>));
+        }
+        // XXX(runji): This function exists in librdkafka, but is blocked by rdkafka-sys.
+        //             We import it here manually.
+        extern "C" {
+            fn rd_kafka_conf_set_resolve_cb(
+                conf: *mut rdsys::rd_kafka_conf_t,
+                resolve_cb: Option<
+                    unsafe extern "C" fn(
+                        node: *const c_char,
+                        service: *const c_char,
+                        hints: *const addrinfo,
+                        res: *mut *mut addrinfo,
+                        opaque: *mut c_void,
+                    ) -> std::ffi::c_int,
+                >,
+            );
         }
         if C::ENABLE_REFRESH_OAUTH_TOKEN {
             unsafe {
@@ -413,6 +439,15 @@ impl<C: ClientContext> Client<C> {
         }
     }
 
+    /// If this client was configured with `test.mock.num.brokers`,
+    /// this will return a [`MockCluster`] instance associated with this client,
+    /// otherwise `None` is returned.
+    ///
+    /// [`MockCluster`]: crate::mocking::MockCluster
+    pub fn mock_cluster(&self) -> Option<MockCluster<'_, C>> {
+        MockCluster::from_client(self)
+    }
+
     /// Returns a NativeTopic from the current client. The NativeTopic shouldn't outlive the client
     /// it was generated from.
     pub(crate) fn native_topic(&self, topic: &str) -> KafkaResult<NativeTopic> {
@@ -507,6 +542,8 @@ pub(crate) unsafe extern "C" fn native_error_cb<C: ClientContext>(
     context.error(error, reason.trim());
 }
 
+// Cherry-picked from Materialize.
+// https://github.com/MaterializeInc/rust-rdkafka/commit/8ea07c4d2b96636ff093e670bc921892aee0d56a
 pub(crate) unsafe extern "C" fn native_resolve_cb<C: ClientContext>(
     node: *const c_char,
     service: *const c_char,
@@ -514,6 +551,11 @@ pub(crate) unsafe extern "C" fn native_resolve_cb<C: ClientContext>(
     res: *mut *mut addrinfo,
     opaque: *mut c_void,
 ) -> i32 {
+    // XXX(runji): if either node or service is null, call `getaddrinfo` directly
+    if node.is_null() || service.is_null() {
+        return unsafe { libc::getaddrinfo(node, service, hints, res) };
+    }
+
     // Convert host and port to Rust strings.
     let host = match CStr::from_ptr(node).to_str() {
         Ok(host) => host.into(),

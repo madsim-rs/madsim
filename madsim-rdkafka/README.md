@@ -3,7 +3,7 @@
 [![Crate](https://img.shields.io/crates/v/madsim-rdkafka.svg)](https://crates.io/crates/madsim-rdkafka)
 [![Docs](https://docs.rs/madsim-rdkafka/badge.svg)](https://docs.rs/madsim-rdkafka)
 
-The `rdkafka` simulator on madsim. Mirrors [rdkafka v0.29.0](https://docs.rs/rdkafka/0.29.0/rdkafka/index.html).
+The `rdkafka` simulator on madsim. Mirrors [rdkafka v0.34.0](https://docs.rs/rdkafka/0.34.0/rdkafka/index.html) and librdkafka 2.2.0.
 
 ## Usage
 
@@ -11,7 +11,7 @@ Replace all `rdkafka` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-rdkafka = { version = "0.2.13-alpha", package = "madsim-rdkafka" }
+rdkafka = { version = "0.3.0", package = "madsim-rdkafka" }
 ```
 
 ## API Modification
@@ -28,6 +28,7 @@ The following functions are modified to be `async`:
 - `Client::fetch_watermarks`
 - `Client::fetch_group_list`
 - `Consumer::seek`
+- `Consumer::seek_partitions`
 - `Consumer::commit`
 - `Consumer::commit_consumer_state`
 - `Consumer::commit_message`
@@ -43,3 +44,13 @@ The following functions are modified to be `async`:
 - `Producer::send_offsets_to_transaction`
 - `Producer::commit_transaction`
 - `Producer::abort_transaction`
+
+## DNS Resolution
+
+This crate has cherry-picked [a commit] from Materialize to support rewriting broker addresses.
+
+[a commit]: https://github.com/MaterializeInc/rust-rdkafka/commit/8ea07c4d2b96636ff093e670bc921892aee0d56a
+
+A new method is added to `ClientContext`:
+
+- `ClientContext::rewrite_broker_addr`

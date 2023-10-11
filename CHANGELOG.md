@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## rdkafka [0.3.0] - 2023-10-11
+
+### Added
+
+- Add statistics API.
+- Add future producer API.
+
+### Changed
+
+- Update `rdkafka` to v0.34.0 and `librdkafka` to v2.2.0.
+
+### Fixed
+
+- Fix the error type of `DeliveryFuture`.
+
 ## tonic-build [0.4.2] - 2023-10-08
 
 ### Added
@@ -29,13 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - tonic: Update `tonic` and `tonic-build` to v0.10.0.
-
-## rdkafka [Unreleased] - 2023-08-21
-
-### Added
-
-- Add statistics API.
-- Add future producer API.
 
 ## tonic [0.3.1] - 2023-07-24
 
