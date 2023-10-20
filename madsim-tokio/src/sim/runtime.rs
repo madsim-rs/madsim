@@ -50,6 +50,8 @@ pub struct Runtime {
     abort_handles: Mutex<Vec<AbortHandle>>,
 }
 
+pub struct EnterGuard<'a>(&'a Runtime);
+
 impl Runtime {
     #[cfg(feature = "rt-multi-thread")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
@@ -67,6 +69,11 @@ impl Runtime {
         let handle = madsim::task::spawn(future);
         self.abort_handles.lock().push(handle.abort_handle());
         handle
+    }
+
+    pub fn enter(&self) -> EnterGuard<'_> {
+        // Madsim runtime is entered by default. No-op here.
+        EnterGuard(self)
     }
 }
 
