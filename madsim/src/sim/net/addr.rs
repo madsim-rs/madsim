@@ -50,6 +50,20 @@ pub async fn lookup_host(host: impl ToSocketAddrs) -> io::Result<impl Iterator<I
 /// will change. Stabilization is pending enhancements to the Rust language.
 pub trait ToSocketAddrs: sealed::ToSocketAddrsPriv + std::fmt::Debug {}
 
+macro_rules! try_opt {
+    ($e:expr, $msg:expr) => {
+        match $e {
+            Some(r) => r,
+            None => {
+                return MaybeReady(sealed::State::Err(Some(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    $msg,
+                ))))
+            }
+        }
+    };
+}
+
 type ReadyFuture<T> = future::Ready<io::Result<T>>;
 
 pub(crate) fn to_socket_addrs<T>(arg: T) -> T::Future
@@ -204,8 +218,8 @@ impl sealed::ToSocketAddrsPriv for str {
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
 
-        let (host, port) = self.rsplit_once(':').expect("invalid address");
-        let port = port.parse::<u16>().expect("invalid port");
+        let (host, port_str) = try_opt!(self.rsplit_once(':'), "invalid socket address");
+        let port: u16 = try_opt!(port_str.parse().ok(), "invalid port value");
         (host, port).to_socket_addrs(sealed::Internal)
     }
 }
@@ -238,15 +252,9 @@ impl sealed::ToSocketAddrsPriv for (&str, u16) {
             return MaybeReady(sealed::State::Ready(Some(addr)));
         }
 
-        if let Some(ip) = NetSim::current().lookup_host(host) {
-            let addr = SocketAddr::from((ip, port));
-            return MaybeReady(sealed::State::Ready(Some(addr)));
-        }
-
-        MaybeReady(sealed::State::Err(Some(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid IP address or host",
-        ))))
+        let ip = try_opt!(NetSim::current().lookup_host(host), "couldn't resolve host");
+        let addr = SocketAddr::from((ip, port));
+        MaybeReady(sealed::State::Ready(Some(addr)))
     }
 }
 
@@ -381,6 +389,21 @@ mod tests {
                 SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 1))
             );
             assert!(lookup_host(("mad.io", 1)).await.is_err());
+        });
+    }
+
+    #[test]
+    fn dns_failed_to_resolve() {
+        let runtime = Runtime::new();
+        runtime.block_on(async {
+            NetSim::current().add_dns_record("madsim.io", Ipv4Addr::new(8, 8, 8, 8).into());
+            assert_eq!(
+                lookup_host("madsim.io:1").await.unwrap().next().unwrap(),
+                SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 1))
+            );
+            assert!(lookup_host("mad.io").await.is_err());
+            assert!(lookup_host("madsim.io:65536").await.is_err());
+            assert!(lookup_host("madsim:io").await.is_err());
         });
     }
 }
