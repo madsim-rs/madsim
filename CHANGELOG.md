@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.23] - 2023-10-27
+
+### Fixed
+
+- madsim: Return an error instead of panicking when `lookup_host` receives an invalid address.
+
+## tokio [0.2.24] - 2023-10-26
+
+### Added
+
+- tokio: Add `Runtime::enter` API.
+
 ## rdkafka [0.3.0] - 2023-10-11
 
 ### Added
