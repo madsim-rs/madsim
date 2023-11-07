@@ -1,4 +1,3 @@
-use aws_smithy_http::result::ConnectorError;
 use aws_types::SdkConfig;
 use madsim::net::{Endpoint, Payload};
 use std::fmt::Debug;
@@ -31,12 +30,18 @@ impl Client {
         &self,
         req: Request,
     ) -> Result<O, SdkError<E>> {
-        let resp = self
-            .send_request_io(req)
-            .await
-            .map_err(|e| SdkError::dispatch_failure(ConnectorError::io(Box::new(e))))?;
+        let resp = self.send_request_io(req).await.map_err(|e| {
+            SdkError::dispatch_failure(aws_smithy_runtime_api::client::result::ConnectorError::io(
+                Box::new(e),
+            ))
+        })?;
         let resp = *resp.downcast::<Result<O, E>>().expect("failed to downcast");
-        resp.map_err(|e| SdkError::service_error(e, raw()))
+        resp.map_err(|e| {
+            SdkError::service_error(
+                e,
+                http::response::Response::new(aws_smithy_types::body::SdkBody::empty()),
+            )
+        })
     }
 
     async fn send_request_io(&self, req: Request) -> std::io::Result<Payload> {
@@ -46,11 +51,4 @@ impl Client {
         tx.send(Box::new(req)).await?;
         rx.recv().await
     }
-}
-
-/// Returns an empty raw response.
-fn raw() -> aws_smithy_http::operation::Response {
-    aws_smithy_http::operation::Response::new(http::response::Response::new(
-        aws_smithy_http::body::SdkBody::empty(),
-    ))
 }

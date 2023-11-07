@@ -191,8 +191,9 @@ impl S3Service {
             input.bucket.unwrap(),
             input.lifecycle_configuration.unwrap_or_else(|| {
                 BucketLifecycleConfiguration::builder()
-                    .rules(LifecycleRule::builder().build())
+                    .rules(LifecycleRule::builder().build().unwrap())
                     .build()
+                    .unwrap()
             }),
             input.expected_bucket_owner,
         )
@@ -489,11 +490,8 @@ impl ServiceInner {
             .ok_or_else(|| DeleteObjectsError::unhandled(no_such_bucket(&bucket)))?;
 
         let mut output = DeleteObjectsOutput::builder();
-        let Some(delete) = delete.objects else {
-            return Ok(output.build());
-        };
 
-        for key in delete.into_iter().flat_map(|i| i.key) {
+        for key in delete.objects.into_iter().map(|i| i.key) {
             if let Occupied(mut o) = bucket.entry(key.clone()) {
                 if o.get().completed {
                     if o.get().parts.is_empty() {
@@ -507,6 +505,7 @@ impl ServiceInner {
             }
             output = output.deleted(DeletedObject::builder().key(key).build());
         }
+
         Ok(output.build())
     }
 
@@ -597,8 +596,7 @@ impl ServiceInner {
         _expected_bucket_owner: Option<String>,
     ) -> Result<PutBucketLifecycleConfigurationOutput, PutBucketLifecycleConfigurationError> {
         debug!(bucket, "put_bucket_lifecycle_configuration");
-        self.lifecycle
-            .insert(bucket, lifecycle_configuration.rules.unwrap_or_default());
+        self.lifecycle.insert(bucket, lifecycle_configuration.rules);
 
         Ok(PutBucketLifecycleConfigurationOutput::builder().build())
     }
