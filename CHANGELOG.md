@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## aws-sdk-s3 [0.3.0] - 2023-11-10
+
+### Changed
+
+- Update `aws-sdk-s3` to v0.35.0.
+
 ## madsim [0.2.23] - 2023-10-27
 
 ### Fixed
