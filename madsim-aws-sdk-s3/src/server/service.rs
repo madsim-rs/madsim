@@ -325,7 +325,7 @@ impl ServiceInner {
             multipart.sort_by_key(|part| part.part_number);
             for completed_part in multipart {
                 for part in parts.iter() {
-                    if part.part_number == completed_part.part_number {
+                    if part.part_number == completed_part.part_number.unwrap_or_default() {
                         if let Some(e_tag) = &completed_part.e_tag {
                             if e_tag == &part.e_tag {
                                 body.extend(&part.body);

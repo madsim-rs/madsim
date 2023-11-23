@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.cargo.features": [
+
+    ],
+    "rust-analyzer.cargo.extraEnv": {
+        "RUSTFLAGS": "--cfg tokio_unstable --cfg madsim"
+    }
+}
