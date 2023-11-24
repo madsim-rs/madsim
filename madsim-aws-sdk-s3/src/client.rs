@@ -39,7 +39,10 @@ impl Client {
         resp.map_err(|e| {
             SdkError::service_error(
                 e,
-                http::response::Response::new(aws_smithy_types::body::SdkBody::empty()),
+                aws_smithy_runtime_api::http::Response::new(
+                    aws_smithy_runtime_api::http::StatusCode::try_from(500).unwrap(),
+                    aws_smithy_types::body::SdkBody::empty(),
+                ),
             )
         })
     }
