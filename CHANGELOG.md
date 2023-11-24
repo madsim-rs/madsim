@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## aws-sdk-s3 [0.4.0] - 2023-11-24
+
+### Changed
+
+- Update `aws-sdk-s3` to v0.39.0.
+
 ## aws-sdk-s3 [0.3.0] - 2023-11-10
 
 ### Changed
