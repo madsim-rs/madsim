@@ -124,6 +124,20 @@ impl<L> Server<L> {
         self
     }
 
+    /// Sets whether to use an adaptive flow control. Defaults to false.
+    #[must_use]
+    pub fn http2_adaptive_window(self, _enabled: Option<bool>) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Configures the maximum number of pending reset streams allowed before a GOAWAY will be sent.
+    #[must_use]
+    pub fn http2_max_pending_accept_reset_streams(self, _max: Option<usize>) -> Self {
+        // ignore this setting
+        self
+    }
+
     /// Set whether TCP keepalive messages are enabled on accepted connections.
     #[must_use]
     pub fn tcp_keepalive(self, _tcp_keepalive: Option<Duration>) -> Self {
