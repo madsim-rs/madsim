@@ -37,7 +37,8 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
     }
 }
 
-/// Override the libc `clock_gettime` function. For Linux and ARM64 macOS.
+/// Override the libc `clock_gettime` function.
+/// For Linux, ARM64 macOS (since 1.67) and x86_64 macOS (since 1.75).
 #[no_mangle]
 #[inline(never)]
 unsafe extern "C" fn clock_gettime(
@@ -86,12 +87,14 @@ unsafe extern "C" fn clock_gettime(
     }
 }
 
-/// Override the `mach_absolute_time` function. For `Instant` on x86_64 macOS.
+/// Override the `mach_absolute_time` function. For `Instant` on macOS before Rust 1.75.
 #[no_mangle]
 #[inline(never)]
 #[cfg(target_os = "macos")]
 // not used on ARM64 macOS after https://github.com/rust-lang/rust/pull/103594
 #[rustversion::attr(since(1.67), cfg(not(target_arch = "aarch64")))]
+// not used on x86_64 macOS after https://github.com/rust-lang/rust/pull/116238
+#[rustversion::attr(since(1.75), cfg(not(target_arch = "x86_64")))]
 extern "C" fn mach_absolute_time() -> u64 {
     if let Some(time) = super::TimeHandle::try_current() {
         // inside a madsim context, use the simulated time.
