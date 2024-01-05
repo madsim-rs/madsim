@@ -1,12 +1,8 @@
 //! Simulation configuration.
 
-use std::{
-    hash::{Hash, Hasher},
-    str::FromStr,
-};
+use std::{hash::Hash, str::FromStr};
 
 use crate::net::{self, tcp};
-use ahash::AHasher;
 use serde::{Deserialize, Serialize};
 
 /// Simulation configuration.
@@ -25,9 +21,7 @@ pub struct Config {
 impl Config {
     /// Returns the hash value of this config.
     pub fn hash(&self) -> u64 {
-        let mut hasher = AHasher::new_with_keys(0, 0);
-        Hash::hash(self, &mut hasher);
-        hasher.finish()
+        ahash::RandomState::with_seed(0).hash_one(self)
     }
 }
 

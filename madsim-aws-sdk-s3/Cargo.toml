@@ -17,7 +17,7 @@ license = "Apache-2.0"
 aws-sdk-s3 = "1"
 
 [target.'cfg(madsim)'.dependencies]
-madsim = "0.2.15"
+madsim = { version = "0.2.15", path = "../madsim" }
 aws-smithy-http = "0.60"
 aws-smithy-runtime-api = "1"
 aws-smithy-types = "1"

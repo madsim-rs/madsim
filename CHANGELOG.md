@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.24] - 2024-01-05
+
+### Fixed
+
+- Fix intercepting time on x86_64 macOS, Rust 1.75.0.
+
 ## rdkafka [0.3.1] - 2024-01-05
 
 ### Fixed
