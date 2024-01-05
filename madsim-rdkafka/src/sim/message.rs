@@ -74,19 +74,68 @@ impl ToBytes for () {
 }
 
 /// A generic representation of Kafka message headers.
+///
+/// This trait represents readable message headers. Headers are key-value pairs
+/// that can be sent alongside every message. Only read-only methods are
+/// provided by this trait, as the underlying storage might not allow
+/// modification.
 pub trait Headers {
     /// Returns the number of contained headers.
     fn count(&self) -> usize;
 
-    /// Gets the specified header, where the first header corresponds to index
-    /// 0. If the index is out of bounds, returns `None`.
-    fn get(&self, idx: usize) -> Option<(&str, &[u8])>;
+    /// Gets the specified header, where the first header corresponds to
+    /// index 0.
+    ///
+    /// Panics if the index is out of bounds.
+    fn get(&self, idx: usize) -> Header<'_, &[u8]> {
+        self.try_get(idx).unwrap_or_else(|| {
+            panic!(
+                "headers index out of bounds: the count is {} but the index is {}",
+                self.count(),
+                idx,
+            )
+        })
+    }
 
-    /// Like [`Headers::get`], but the value of the header will be converted to
-    /// the specified type. If the conversion fails, returns an error.
-    fn get_as<V: FromBytes + ?Sized>(&self, idx: usize) -> Option<(&str, Result<&V, V::Error>)> {
-        self.get(idx)
-            .map(|(name, value)| (name, V::from_bytes(value)))
+    /// Like [`Headers::get`], but the value of the header will be converted
+    /// to the specified type.
+    ///
+    /// Panics if the index is out of bounds.
+    fn get_as<V>(&self, idx: usize) -> Result<Header<'_, &V>, V::Error>
+    where
+        V: FromBytes + ?Sized,
+    {
+        self.try_get_as(idx).unwrap_or_else(|| {
+            panic!(
+                "headers index out of bounds: the count is {} but the index is {}",
+                self.count(),
+                idx,
+            )
+        })
+    }
+
+    /// Like [`Headers::get`], but returns an option if the header is out of
+    /// bounds rather than panicking.
+    fn try_get(&self, idx: usize) -> Option<Header<'_, &[u8]>>;
+
+    /// Like [`Headers::get`], but returns an option if the header is out of
+    /// bounds rather than panicking.
+    fn try_get_as<V>(&self, idx: usize) -> Option<Result<Header<'_, &V>, V::Error>>
+    where
+        V: FromBytes + ?Sized,
+    {
+        self.try_get(idx).map(|header| header.parse())
+    }
+
+    /// Iterates over all headers in order.
+    fn iter(&self) -> HeadersIter<'_, Self>
+    where
+        Self: Sized,
+    {
+        HeadersIter {
+            headers: self,
+            index: 0,
+        }
     }
 }
 
@@ -279,13 +328,23 @@ impl BorrowedMessage<'_> {
 #[repr(transparent)]
 pub struct BorrowedHeaders(OwnedHeaders);
 
+impl BorrowedHeaders {
+    /// Clones the content of `BorrowedHeaders` and returns an [`OwnedHeaders`]
+    /// that can outlive the consumer.
+    ///
+    /// This operation requires memory allocation and can be expensive.
+    pub fn detach(&self) -> OwnedHeaders {
+        self.0.clone()
+    }
+}
+
 impl Headers for BorrowedHeaders {
     fn count(&self) -> usize {
         self.0.count()
     }
 
-    fn get(&self, idx: usize) -> Option<(&str, &[u8])> {
-        self.0.get(idx)
+    fn try_get(&self, idx: usize) -> Option<Header<'_, &[u8]>> {
+        self.0.try_get(idx)
     }
 }
 
@@ -300,9 +359,54 @@ impl Headers for OwnedHeaders {
         self.headers.len()
     }
 
-    fn get(&self, idx: usize) -> Option<(&str, &[u8])> {
-        self.headers
-            .get(idx)
-            .map(|(k, v)| (k.as_str(), v.as_slice()))
+    fn try_get(&self, idx: usize) -> Option<Header<'_, &[u8]>> {
+        self.headers.get(idx).map(|(k, v)| Header {
+            key: k.as_str(),
+            value: Some(v.as_slice()),
+        })
+    }
+}
+
+/// A Kafka message header.
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Header<'a, V> {
+    /// The header's key.
+    pub key: &'a str,
+    /// The header's value.
+    pub value: Option<V>,
+}
+
+impl<'a> Header<'a, &'a [u8]> {
+    fn parse<V>(&self) -> Result<Header<'a, &'a V>, V::Error>
+    where
+        V: FromBytes + ?Sized,
+    {
+        Ok(Header {
+            key: self.key,
+            value: self.value.map(V::from_bytes).transpose()?,
+        })
+    }
+}
+
+/// An iterator over [`Headers`].
+pub struct HeadersIter<'a, H> {
+    headers: &'a H,
+    index: usize,
+}
+
+impl<'a, H> Iterator for HeadersIter<'a, H>
+where
+    H: Headers,
+{
+    type Item = Header<'a, &'a [u8]>;
+
+    fn next(&mut self) -> Option<Header<'a, &'a [u8]>> {
+        if self.index < self.headers.count() {
+            let item = self.headers.get(self.index);
+            self.index += 1;
+            Some(item)
+        } else {
+            None
+        }
     }
 }

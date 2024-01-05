@@ -11,7 +11,7 @@ Replace all `rdkafka` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-rdkafka = { version = "0.3.0", package = "madsim-rdkafka" }
+rdkafka = { version = "0.3", package = "madsim-rdkafka" }
 ```
 
 ## API Modification

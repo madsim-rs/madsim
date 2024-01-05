@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## rdkafka [0.3.1] - 2024-01-05
+
+### Fixed
+
+- Add `rdkafka::message::{Header, HeaderIter}` and `BorrowedHeaders::detach`.
+- Fix `rdkafka::message::Headers` trait.
+
 ## aws-sdk-s3 [0.4.0] - 2023-11-24
 
 ### Changed

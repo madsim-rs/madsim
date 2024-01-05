@@ -14,6 +14,12 @@ test:
 stest:
 	$(SIM_FLAGS) cargo test --all-features
 
+check:
+	cargo check --all-targets
+
+scheck:
+	$(SIM_FLAGS) cargo check --all-features --all-targets
+
 clippy:
 	cargo clippy --all-targets
 
