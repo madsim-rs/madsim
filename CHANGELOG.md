@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.25] - 2024-02-26
+
+### Added
+
+- Add `task::AbortHandle::is_finished`.
+
 ## madsim [0.2.24] - 2024-01-05
 
 ### Fixed
