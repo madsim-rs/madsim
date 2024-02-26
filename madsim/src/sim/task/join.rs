@@ -145,4 +145,15 @@ impl AbortHandle {
             info.waker.wake_by_ref();
         }
     }
+
+    /// Checks if the task associated with this `AbortHandle` has finished.
+    pub fn is_finished(&self) -> bool {
+        if let Some(info) = self.info.upgrade() {
+            // In madsim, cancellation happens immediately.
+            // So if the task is cancelled, it is finished.
+            info.cancelled.load(Ordering::Relaxed)
+        } else {
+            true
+        }
+    }
 }
