@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic [0.4.2] tonic-build [0.4.3] - 2024-02-27
+
+### Changed
+
+- Allow `tonic` and `tonic-build` v0.11.
+
 ## madsim [0.2.25] - 2024-02-26
 
 ### Added
