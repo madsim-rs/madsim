@@ -526,7 +526,7 @@ where
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout> + Send + 'static,
         Self: Sized,
     {
         self.base.fetch_watermarks(topic, partition, timeout).await

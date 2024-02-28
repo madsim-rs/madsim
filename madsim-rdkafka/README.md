@@ -25,7 +25,7 @@ The following functions are modified to be `async`:
 - `ClientConfig::create`
 - `ClientConfig::create_with_context`
 - `Client::fetch_metadata`
-- `Client::fetch_watermarks`
+- `Client::fetch_watermarks`[^1]
 - `Client::fetch_group_list`
 - `Consumer::seek`
 - `Consumer::seek_partitions`
@@ -37,13 +37,15 @@ The following functions are modified to be `async`:
 - `Consumer::offsets_for_timestamp`
 - `Consumer::offsets_for_times`
 - `Consumer::fetch_metadata`
-- `Consumer::fetch_watermarks`
+- `Consumer::fetch_watermarks`[^1]
 - `Consumer::fetch_group_list`
 - `Producer::flush`
 - `Producer::init_transactions`
 - `Producer::send_offsets_to_transaction`
 - `Producer::commit_transaction`
 - `Producer::abort_transaction`
+
+[^1]: wrapped in `tokio::task::spawn_blocking`
 
 ## DNS Resolution
 

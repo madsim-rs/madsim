@@ -354,29 +354,32 @@ impl<C: ClientContext> Client<C> {
     }
 
     /// Returns high and low watermark for the specified topic and partition.
-    pub async fn fetch_watermarks<T: Into<Timeout>>(
+    pub async fn fetch_watermarks<T: Into<Timeout> + Send + 'static>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)> {
-        let mut low = -1;
-        let mut high = -1;
         let topic_c = CString::new(topic.to_string())?;
-        let ret = unsafe {
-            rdsys::rd_kafka_query_watermark_offsets(
-                self.native_ptr(),
+        let native_client = unsafe { NativeClient::from_ptr(self.native_ptr()) };
+        tokio::task::spawn_blocking(move || unsafe {
+            let mut low = -1;
+            let mut high = -1;
+            let ret = rdsys::rd_kafka_query_watermark_offsets(
+                native_client.ptr(),
                 topic_c.as_ptr(),
                 partition,
                 &mut low as *mut i64,
                 &mut high as *mut i64,
                 timeout.into().as_millis(),
-            )
-        };
-        if ret.is_error() {
-            return Err(KafkaError::MetadataFetch(ret.into()));
-        }
-        Ok((low, high))
+            );
+            if ret.is_error() {
+                return Err(KafkaError::MetadataFetch(ret.into()));
+            }
+            Ok((low, high))
+        })
+        .await
+        .unwrap()
     }
 
     /// Returns the cluster identifier option or None if the cluster identifier is null
