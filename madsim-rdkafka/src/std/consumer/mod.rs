@@ -391,7 +391,7 @@ where
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout> + Send + 'static,
         Self: Sized;
 
     /// Returns the group membership information for the given group. If no group is

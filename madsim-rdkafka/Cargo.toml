@@ -1,6 +1,6 @@
 [package]
 name = "madsim-rdkafka"
-version = "0.3.1+0.34.0"
+version = "0.3.3+0.34.0"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The rdkafka simulator on madsim."
@@ -27,7 +27,7 @@ tracing = "0.1"
 
 [target.'cfg(not(madsim))'.dependencies]
 async-trait = "0.1"
-rdkafka-sys = { version = "4.6.0", default-features = false }
+rdkafka-sys = { version = "4.7.0", default-features = false }
 futures-channel = "0.3.0"
 futures-executor = { version = "0.3.0", optional = true }
 futures-util = { version = "0.3.0", default-features = false }

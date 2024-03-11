@@ -578,7 +578,7 @@ where
         self.client.fetch_metadata(topic, timeout).await
     }
 
-    async fn fetch_watermarks<T: Into<Timeout> + Send>(
+    async fn fetch_watermarks<T: Into<Timeout> + Send + 'static>(
         &self,
         topic: &str,
         partition: i32,
