@@ -80,7 +80,7 @@ impl TcpStream {
             write_buf: Default::default(),
             read_buf: Default::default(),
             tx,
-            rx: rx.into(),
+            rx,
         };
         Ok(stream)
     }
