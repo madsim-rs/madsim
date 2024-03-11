@@ -1,17 +1,11 @@
-use crate::{
-    net::{IpProtocol::Tcp, *},
-    plugin,
-};
-use bytes::{Buf, Bytes, BytesMut};
-use futures_util::StreamExt;
+use crate::net::{IpProtocol::Tcp, *};
+use bytes::{Buf, BufMut, BytesMut};
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::{
     fmt,
     io::Result,
-    net::SocketAddr,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -26,7 +20,7 @@ pub struct TcpStream {
     pub(super) write_buf: BytesMut,
     pub(super) read_buf: Bytes,
     pub(super) tx: PayloadSender,
-    pub(super) rx: PayloadReceiver,
+    pub(super) rx: Mutex<PayloadReceiver>,
 }
 
 impl fmt::Debug for TcpStream {
@@ -86,7 +80,7 @@ impl TcpStream {
             write_buf: Default::default(),
             read_buf: Default::default(),
             tx,
-            rx,
+            rx: rx.into(),
         };
         Ok(stream)
     }
@@ -105,6 +99,27 @@ impl TcpStream {
     /// Returns the socket address of the remote peer of this TCP connection.
     pub fn peer_addr(&self) -> Result<SocketAddr> {
         Ok(self.peer)
+    }
+
+    /// Tries to read data from the stream into the provided buffer, advancing
+    /// the buffer's internal cursor, returning how many bytes were read.
+    ///
+    /// Receives any pending data from the socket but does not wait for new data
+    /// to arrive. On success, returns the number of bytes read. Because
+    /// `try_read_buf()` is non-blocking, the buffer does not have to be stored
+    /// by the async task and can exist entirely on the stack.
+    pub fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
+        // read the buffer if not empty
+        if !self.read_buf.is_empty() {
+            let len = self.read_buf.len().min(buf.remaining_mut());
+            buf.put_slice(&self.read_buf[..len]);
+            self.read_buf.advance(len);
+            return Ok(len);
+        }
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "read buffer is empty",
+        ))
     }
 }
 
@@ -129,7 +144,11 @@ impl AsyncRead for TcpStream {
             return Poll::Ready(Ok(()));
         }
         // otherwise wait on channel
-        match self.rx.poll_next_unpin(cx) {
+        let poll_res = {
+            let mut rx = self.rx.lock();
+            rx.poll_next_unpin(cx)
+        };
+        match poll_res {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(data)) => {
                 self.read_buf = *data.downcast::<Bytes>().unwrap();

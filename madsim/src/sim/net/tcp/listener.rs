@@ -1,4 +1,4 @@
-use std::{fmt, io::Result, net::SocketAddr, sync::Arc};
+use std::{fmt, io::Result};
 use tracing::instrument;
 
 use crate::net::{IpProtocol::Tcp, *};
@@ -89,7 +89,7 @@ impl Socket for TcpListenerSocket {
             write_buf: Default::default(),
             read_buf: Default::default(),
             tx,
-            rx,
+            rx: rx.into(),
         };
         let _ = self.tx.try_send(stream);
     }
