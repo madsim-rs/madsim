@@ -72,7 +72,7 @@ impl Runtime {
         handle
     }
 
-    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+    pub fn block_on<F: Future>(&self, _future: F) -> F::Output {
         unimplemented!();
     }
 

@@ -20,7 +20,7 @@ pub struct TcpStream {
     pub(super) write_buf: BytesMut,
     pub(super) read_buf: Bytes,
     pub(super) tx: PayloadSender,
-    pub(super) rx: Mutex<PayloadReceiver>,
+    pub(super) rx: PayloadReceiver,
 }
 
 impl fmt::Debug for TcpStream {
@@ -144,10 +144,7 @@ impl AsyncRead for TcpStream {
             return Poll::Ready(Ok(()));
         }
         // otherwise wait on channel
-        let poll_res = {
-            let mut rx = self.rx.lock();
-            rx.poll_next_unpin(cx)
-        };
+        let poll_res = { self.rx.poll_next_unpin(cx) };
         match poll_res {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(data)) => {
