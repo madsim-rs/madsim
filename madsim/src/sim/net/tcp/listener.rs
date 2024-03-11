@@ -89,7 +89,7 @@ impl Socket for TcpListenerSocket {
             write_buf: Default::default(),
             read_buf: Default::default(),
             tx,
-            rx: rx.into(),
+            rx,
         };
         let _ = self.tx.try_send(stream);
     }
