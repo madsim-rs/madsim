@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.26] - 2024-03-18
+
+### Fixed
+
+- `sleep` and `sleep_until` now sleep for at least 1ms to be consistent with tokio's behavior.
+
 ## rdkafka [0.3.3] - 2024-02-28
 
 ### Changed
