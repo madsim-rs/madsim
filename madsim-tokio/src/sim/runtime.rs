@@ -50,6 +50,7 @@ pub struct Runtime {
     abort_handles: Mutex<Vec<AbortHandle>>,
 }
 
+#[allow(dead_code)]
 pub struct EnterGuard<'a>(&'a Runtime);
 
 impl Runtime {

@@ -38,6 +38,7 @@ use crate::ClientContext;
 ///
 ///   In this case, we **must neither** destroy the mock cluster in `MockCluster`'s `drop()`,
 ///   **nor** outlive the `Client` from which the reference is obtained, hence the lifetime.
+#[allow(dead_code)]
 enum MockClusterClient<'c, C: ClientContext> {
     Owned(Client<C>),
     Borrowed(&'c Client<C>),

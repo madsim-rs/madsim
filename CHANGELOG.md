@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## rdkafka [0.3.4] - 2024-03-22
+
+### Fixed
+
+- Fix unintended drop of client in `fetch_watermarks`.
+
 ## madsim [0.2.26] - 2024-03-18
 
 ### Fixed
