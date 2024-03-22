@@ -360,17 +360,23 @@ impl<C: ClientContext> Client<C> {
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)> {
+        // XXX: to move the raw pointer into spawn_blocking
+        struct NativePtr(*mut RDKafka);
+        unsafe impl Send for NativePtr {}
+
         let topic_c = CString::new(topic.to_string())?;
-        let native_client = unsafe { NativeClient::from_ptr(self.native_ptr()) };
+        let native_ptr = NativePtr(self.native_ptr());
+
         tokio::task::spawn_blocking(move || unsafe {
             let mut low = -1;
             let mut high = -1;
+            let native_ptr = native_ptr;
             let ret = rdsys::rd_kafka_query_watermark_offsets(
-                native_client.ptr(),
+                native_ptr.0,
                 topic_c.as_ptr(),
                 partition,
-                &mut low as *mut i64,
-                &mut high as *mut i64,
+                &mut low,
+                &mut high,
                 timeout.into().as_millis(),
             );
             if ret.is_error() {
