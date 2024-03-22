@@ -180,7 +180,7 @@ fn init_std_random_state(seed: u64) -> bool {
 }
 
 thread_local! {
-    static SEED: Cell<Option<u64>> = Cell::new(None);
+    static SEED: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 /// Obtain a series of random bytes.
