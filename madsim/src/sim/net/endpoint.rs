@@ -1,5 +1,5 @@
 use super::{IpProtocol::Udp, *};
-use futures_util::{Stream, StreamExt};
+use futures_util::Stream;
 use std::{
     fmt,
     pin::Pin,
@@ -48,7 +48,8 @@ impl Endpoint {
         Ok(self.guard.addr)
     }
 
-    /// Returns the socket address of the remote peer this socket was connected to.
+    /// Returns the socket address of the remote peer this socket was connected
+    /// to.
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         (self.peer.lock())
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "not connected"))
@@ -98,8 +99,9 @@ impl Endpoint {
         self.send_to(peer, tag, buf).await
     }
 
-    /// Receives a single datagram message on the socket from the remote address to which it is connected.
-    /// On success, returns the number of bytes read.
+    /// Receives a single datagram message on the socket from the remote address
+    /// to which it is connected. On success, returns the number of bytes
+    /// read.
     pub async fn recv(&self, tag: u64, buf: &mut [u8]) -> io::Result<usize> {
         let peer = self.peer_addr()?;
         let (len, from) = self.recv_from(tag, buf).await?;

@@ -1,5 +1,6 @@
+use bytes::BufMut;
 use std::{
-    io::Result,
+    io::{self, Result},
     os::unix::{
         io::{AsRawFd, RawFd},
         net::SocketAddr,
@@ -42,6 +43,10 @@ impl UnixStream {
         P: AsRef<Path>,
     {
         todo!();
+    }
+
+    pub fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
+        unimplemented!();
     }
 }
 
