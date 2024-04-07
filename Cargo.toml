@@ -11,3 +11,6 @@ members = [
     "tonic-example",
 ]
 resolver = "2"
+
+[patch.crates-io]
+getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "6c9d9e9" }

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.27] - 2024-04-07
+
+### Fixed
+
+- Fix the problem that `getrandom` returns different values in multiple runs with the same seed.
+
 ## rdkafka [0.3.4] - 2024-03-22
 
 ### Fixed

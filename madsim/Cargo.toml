@@ -1,6 +1,6 @@
 [package]
 name = "madsim"
-version = "0.2.26"
+version = "0.2.27"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
@@ -63,6 +63,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 criterion = "0.5"
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
+getrandom = "=0.2.13"
 
 [[bench]]
 name = "rpc"
