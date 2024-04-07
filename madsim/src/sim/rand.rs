@@ -195,6 +195,11 @@ thread_local! {
 #[no_mangle]
 #[inline(never)]
 unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32) -> isize {
+    // on linux, `getrandom` will call `getrandom(0, 0)` to check the availability.
+    // we should return 0 immediately to avoid modifying the random state.
+    if buflen == 0 {
+        return 0;
+    }
     if let Some(seed) = SEED.with(|s| s.get()) {
         assert_eq!(buflen, 16);
         std::slice::from_raw_parts_mut(buf as *mut u64, 2).fill(seed);
@@ -265,7 +270,7 @@ unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
 #[cfg(test)]
 mod tests {
     use crate::runtime::Runtime;
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     #[test]
     #[cfg_attr(target_os = "linux", ignore)]
@@ -304,5 +309,31 @@ mod tests {
             seqs.insert(seq);
         }
         assert_eq!(seqs.len(), 3, "hashmap is not deterministic");
+    }
+
+    // https://github.com/madsim-rs/madsim/issues/201
+    #[test]
+    fn getrandom_should_be_deterministic() {
+        let rnd_fn = || async {
+            let mut dst = [0];
+            getrandom::getrandom(&mut dst).unwrap();
+            dst
+        };
+        let builder = crate::runtime::Builder::from_env();
+        let seed = builder.seed;
+        let set = (0..10)
+            .map(|_| {
+                crate::runtime::Builder {
+                    seed,
+                    count: 1,
+                    jobs: 1,
+                    config: crate::Config::default(),
+                    time_limit: None,
+                    check: false,
+                }
+                .run(rnd_fn)
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(set.len(), 1);
     }
 }
