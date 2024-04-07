@@ -195,11 +195,6 @@ thread_local! {
 #[no_mangle]
 #[inline(never)]
 unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32) -> isize {
-    // on linux, `getrandom` will call `getrandom(0, 0)` to check the availability.
-    // we should return 0 immediately to avoid modifying the random state.
-    if buflen == 0 {
-        return 0;
-    }
     if let Some(seed) = SEED.with(|s| s.get()) {
         assert_eq!(buflen, 16);
         std::slice::from_raw_parts_mut(buf as *mut u64, 2).fill(seed);
@@ -213,8 +208,11 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
             buf = buf.add(std::mem::size_of::<u64>());
             buflen -= std::mem::size_of::<u64>();
         }
-        let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
-        core::ptr::copy(val.as_ptr(), buf, buflen);
+        // note: do not modify state if buflen == 0
+        if buflen != 0 {
+            let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
+            core::ptr::copy(val.as_ptr(), buf, buflen);
+        }
         return len as _;
     }
     #[cfg(target_os = "linux")]
