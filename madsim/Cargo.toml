@@ -1,6 +1,6 @@
 [package]
 name = "madsim"
-version = "0.2.27"
+version = "0.2.28"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."
@@ -42,12 +42,15 @@ naive-timer = "0.2"
 panic-message = "0.3"
 rand_xoshiro = "0.6"
 rustversion = "1"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { package = "madsim-real-tokio", version = "1", features = [
+    "rt",
+    "sync",
+] }
 toml = "0.8"
 
 [target.'cfg(not(madsim))'.dependencies]
 async-ucx = { version = "0.1", features = ["event"], optional = true }
-tokio = { version = "1", features = [
+tokio = { package = "madsim-real-tokio", version = "1", features = [
     "rt",
     "fs",
     "net",
@@ -62,7 +65,11 @@ tokio-util = { version = "0.7", features = ["codec"] }
 [dev-dependencies]
 criterion = "0.5"
 structopt = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
+tokio = { package = "madsim-real-tokio", version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "io-util",
+] }
 getrandom = "=0.2.13"
 
 [[bench]]
