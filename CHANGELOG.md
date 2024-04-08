@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tokio [0.2.25] - 2024-04-08
+
+### Removed
+
+- Remove `stats` feature to allow tokio >=1.33.
+
 ## madsim [0.2.27] - 2024-04-07
 
 ### Fixed
