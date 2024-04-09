@@ -106,15 +106,20 @@ impl TimeHandle {
     }
 
     /// Waits until `duration` has elapsed.
+    ///
+    /// It will sleep for at least 1ms to be consistent with the behavior of `tokio::time::sleep`.
     pub fn sleep(&self, duration: Duration) -> Sleep {
         self.sleep_until(self.clock.now_instant() + duration)
     }
 
     /// Waits until `deadline` is reached.
+    ///
+    /// It will sleep for at least 1ms to be consistent with the behavior of `tokio::time::sleep_until`.
     pub fn sleep_until(&self, deadline: Instant) -> Sleep {
+        let min_deadline = self.clock.now_instant() + Duration::from_millis(1);
         Sleep {
             handle: self.clone(),
-            deadline,
+            deadline: deadline.max(min_deadline),
         }
     }
 
@@ -233,6 +238,15 @@ mod tests {
     fn time() {
         let runtime = Runtime::new();
         runtime.block_on(async {
+            // sleep for at least 1ms
+            let t0 = Instant::now();
+            sleep(Duration::default()).await;
+            assert!(t0.elapsed() >= Duration::from_millis(1));
+
+            let t0 = Instant::now();
+            sleep_until(t0).await;
+            assert!(t0.elapsed() >= Duration::from_millis(1));
+
             let t0 = Instant::now();
 
             sleep(Duration::from_secs(1)).await;

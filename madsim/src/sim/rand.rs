@@ -180,7 +180,7 @@ fn init_std_random_state(seed: u64) -> bool {
 }
 
 thread_local! {
-    static SEED: Cell<Option<u64>> = Cell::new(None);
+    static SEED: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 /// Obtain a series of random bytes.
@@ -208,8 +208,11 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
             buf = buf.add(std::mem::size_of::<u64>());
             buflen -= std::mem::size_of::<u64>();
         }
-        let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
-        core::ptr::copy(val.as_ptr(), buf, buflen);
+        // note: do not modify state if buflen == 0
+        if buflen != 0 {
+            let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
+            core::ptr::copy(val.as_ptr(), buf, buflen);
+        }
         return len as _;
     }
     #[cfg(target_os = "linux")]
@@ -265,7 +268,7 @@ unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
 #[cfg(test)]
 mod tests {
     use crate::runtime::Runtime;
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     #[test]
     #[cfg_attr(target_os = "linux", ignore)]
@@ -304,5 +307,31 @@ mod tests {
             seqs.insert(seq);
         }
         assert_eq!(seqs.len(), 3, "hashmap is not deterministic");
+    }
+
+    // https://github.com/madsim-rs/madsim/issues/201
+    #[test]
+    fn getrandom_should_be_deterministic() {
+        let rnd_fn = || async {
+            let mut dst = [0];
+            getrandom::getrandom(&mut dst).unwrap();
+            dst
+        };
+        let builder = crate::runtime::Builder::from_env();
+        let seed = builder.seed;
+        let set = (0..10)
+            .map(|_| {
+                crate::runtime::Builder {
+                    seed,
+                    count: 1,
+                    jobs: 1,
+                    config: crate::Config::default(),
+                    time_limit: None,
+                    check: false,
+                }
+                .run(rnd_fn)
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(set.len(), 1);
     }
 }

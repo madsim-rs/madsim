@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tokio [0.2.25] - 2024-04-08
+
+### Removed
+
+- Remove `stats` feature to allow tokio >=1.33.
+
+## madsim [0.2.27] - 2024-04-07
+
+### Fixed
+
+- Fix the problem that `getrandom` returns different values in multiple runs with the same seed.
+
+## rdkafka [0.3.4] - 2024-03-22
+
+### Fixed
+
+- Fix unintended drop of client in `fetch_watermarks`.
+
+## madsim [0.2.26] - 2024-03-18
+
+### Fixed
+
+- `sleep` and `sleep_until` now sleep for at least 1ms to be consistent with tokio's behavior.
+
 ## rdkafka [0.3.3] - 2024-02-28
 
 ### Changed
