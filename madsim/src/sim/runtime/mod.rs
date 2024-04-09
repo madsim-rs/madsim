@@ -262,7 +262,7 @@ impl Handle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        unimplemented!()
+        unimplemented!("blocking function is not allowed in simulation")
     }
 
     /// Returns the random seed of the current runtime.
