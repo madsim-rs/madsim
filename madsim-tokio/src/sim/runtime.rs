@@ -73,7 +73,7 @@ impl Runtime {
     }
 
     pub fn block_on<F: Future>(&self, _future: F) -> F::Output {
-        unimplemented!();
+        unimplemented!("blocking the current thread is not allowed in madsim");
     }
 
     pub fn enter(&self) -> EnterGuard<'_> {
