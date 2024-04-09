@@ -30,9 +30,9 @@ use crate::time::{sleep_until, Duration, Instant, Sleep};
 use futures_util::future::poll_fn;
 use futures_util::ready;
 
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::{convert::TryInto, future::Future};
 
 /// Creates new [`Interval`] that yields with interval of `period`.
 pub fn interval(period: Duration) -> Interval {
@@ -62,14 +62,17 @@ fn internal_interval_at(start: Instant, period: Duration) -> Interval {
 pub enum MissedTickBehavior {
     /// Ticks as fast as possible until caught up.
     Burst,
-    /// Tick at multiples of `period` from when `tick` was called, rather than from `start`.
+    /// Tick at multiples of `period` from when `tick` was called, rather than
+    /// from `start`.
     Delay,
-    /// Skips missed ticks and tick on the next multiple of `period` from `start`.
+    /// Skips missed ticks and tick on the next multiple of `period` from
+    /// `start`.
     Skip,
 }
 
 impl MissedTickBehavior {
-    /// If a tick is missed, this method is called to determine when the next tick should happen.
+    /// If a tick is missed, this method is called to determine when the next
+    /// tick should happen.
     fn next_timeout(&self, timeout: Instant, now: Instant, period: Duration) -> Instant {
         match self {
             Self::Burst => timeout + period,

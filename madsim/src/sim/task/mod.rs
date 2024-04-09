@@ -318,7 +318,7 @@ impl Deref for Executor {
 #[derive(Clone)]
 #[doc(hidden)]
 pub struct TaskHandle {
-    sender: mpsc::Sender<Runnable>,
+    pub(crate) sender: mpsc::Sender<Runnable>,
     nodes: Arc<Mutex<HashMap<NodeId, Node>>>,
     next_node_id: Arc<AtomicU64>,
     /// Info of the main node.
@@ -564,8 +564,8 @@ impl<T: ToNodeId> ToNodeId for &T {
 /// A handle to spawn tasks on a node.
 #[derive(Clone)]
 pub struct Spawner {
-    sender: mpsc::Sender<Runnable>,
-    info: Arc<NodeInfo>,
+    pub(crate) sender: mpsc::Sender<Runnable>,
+    pub(crate) info: Arc<NodeInfo>,
 }
 
 /// A handle to spawn tasks on a node.

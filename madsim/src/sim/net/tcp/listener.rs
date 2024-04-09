@@ -1,4 +1,4 @@
-use std::{fmt, io::Result, net::SocketAddr, sync::Arc};
+use std::{fmt, io::Result};
 use tracing::instrument;
 
 use crate::net::{IpProtocol::Tcp, *};

@@ -67,7 +67,7 @@ pub use bytes::Bytes;
 use futures_util::FutureExt;
 #[doc(no_inline)]
 pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{any::Any, future::Future};
+use std::future::Future;
 
 /// A RPC request.
 pub trait Request: Serialize + DeserializeOwned + Any + Send + Sync {

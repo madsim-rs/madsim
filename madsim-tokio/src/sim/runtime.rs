@@ -1,3 +1,4 @@
+pub use madsim::runtime::Handle;
 use madsim::task::{AbortHandle, JoinHandle};
 use spin::Mutex;
 use std::{future::Future, io};
@@ -70,6 +71,10 @@ impl Runtime {
         let handle = madsim::task::spawn(future);
         self.abort_handles.lock().push(handle.abort_handle());
         handle
+    }
+
+    pub fn block_on<F: Future>(&self, _future: F) -> F::Output {
+        unimplemented!("blocking the current thread is not allowed in madsim");
     }
 
     pub fn enter(&self) -> EnterGuard<'_> {

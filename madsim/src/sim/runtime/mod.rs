@@ -98,7 +98,8 @@ impl Runtime {
         self.handle.create_node()
     }
 
-    /// Run a future to completion on the runtime. This is the runtime’s entry point.
+    /// Run a future to completion on the runtime. This is the runtime’s entry
+    /// point.
     ///
     /// This runs the given future on the current thread until it is complete.
     ///
@@ -212,6 +213,10 @@ pub struct Handle {
 /// A collection of simulators.
 pub(crate) type Simulators = Mutex<HashMap<TypeId, Arc<dyn plugin::Simulator>>>;
 
+/// `TryCurrentError` indicates there is no runtime has been started
+#[derive(Debug)]
+pub struct TryCurrentError;
+
 impl Handle {
     /// Returns a [`Handle`] view over the currently running [`Runtime`].
     ///
@@ -224,6 +229,40 @@ impl Handle {
     /// ```
     pub fn current() -> Self {
         context::current(|h| h.clone())
+    }
+
+    /// Returns a [`Handle`] view over the currently running [`Runtime`]
+    ///
+    /// Returns an error if no Runtime has been started
+    ///
+    /// Contrary to `current`, this never panics
+    pub fn try_current() -> Result<Self, TryCurrentError> {
+        context::try_current(|h| h.clone()).ok_or(TryCurrentError)
+    }
+
+    /// spawn a task
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.create_node()
+            .name("spawn a task")
+            .build()
+            .spawn(future)
+    }
+
+    /// spawn a blocking task
+    #[deprecated(
+        since = "0.3.0",
+        note = "blocking function is not allowed in simulation"
+    )]
+    pub fn spawn_blocking<F, R>(&self, _f: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        unimplemented!("blocking function is not allowed in simulation")
     }
 
     /// Returns the random seed of the current runtime.
@@ -281,7 +320,8 @@ impl Handle {
         self.task.get_node(id).map(|task| NodeHandle { task })
     }
 
-    /// Returns a view that lets you get information about how the runtime is performing.
+    /// Returns a view that lets you get information about how the runtime is
+    /// performing.
     pub fn metrics(&self) -> RuntimeMetrics {
         RuntimeMetrics {
             task: self.task.clone(),
@@ -347,7 +387,8 @@ impl<'a> NodeBuilder<'a> {
         self
     }
 
-    /// Automatically restart the node when it panics with a message containing the given string.
+    /// Automatically restart the node when it panics with a message containing
+    /// the given string.
     pub fn restart_on_panic_matching(mut self, msg: impl Into<String>) -> Self {
         self.restart_on_panic_matching.push(msg.into());
         self
