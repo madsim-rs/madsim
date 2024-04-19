@@ -6,8 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## madsim [0.2.28] - 2024-04-19
-
 ### Fixed
 
 - Fix unaligned pointer access in getrandom.
