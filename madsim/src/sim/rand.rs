@@ -194,7 +194,7 @@ thread_local! {
 /// Ref: <https://man7.org/linux/man-pages/man2/getrandom.2.html>
 #[no_mangle]
 #[inline(never)]
-unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32) -> isize {
+unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, _flags: u32) -> isize {
     if let Some(seed) = SEED.with(|s| s.get()) {
         assert_eq!(buflen, 16);
         std::slice::from_raw_parts_mut(buf as *mut u64, 2).fill(seed);
@@ -202,18 +202,12 @@ unsafe extern "C" fn getrandom(mut buf: *mut u8, mut buflen: usize, _flags: u32)
         return 16;
     } else if let Some(rand) = crate::context::try_current(|h| h.rand.clone()) {
         // inside a madsim context, use the global RNG.
-        let len = buflen;
-        while buflen >= std::mem::size_of::<u64>() {
-            (buf as *mut u64).write(rand.with(|rng| rng.gen()));
-            buf = buf.add(std::mem::size_of::<u64>());
-            buflen -= std::mem::size_of::<u64>();
+        if buflen == 0 {
+            return 0;
         }
-        // note: do not modify state if buflen == 0
-        if buflen != 0 {
-            let val = rand.with(|rng| rng.gen::<u64>().to_ne_bytes());
-            core::ptr::copy(val.as_ptr(), buf, buflen);
-        }
-        return len as _;
+        let buf = std::slice::from_raw_parts_mut(buf, buflen);
+        rand.with(|rng| rng.fill_bytes(buf));
+        return buflen as _;
     }
     #[cfg(target_os = "linux")]
     {
