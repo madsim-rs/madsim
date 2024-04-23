@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix unaligned pointer access in getrandom.
+
 ## tokio [0.2.25] - 2024-04-08
 
 ### Removed
