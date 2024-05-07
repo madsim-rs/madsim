@@ -57,7 +57,9 @@ pub trait ClientContext: Send + Sync + 'static {
     ///
     /// This parameter is only relevant when using the `OAUTHBEARER` SASL
     /// mechanism.
-    const ENABLE_REFRESH_OAUTH_TOKEN: bool = false;
+    fn enable_refresh_oauth_token(&self) -> bool {
+        false
+    }
 
     /// Receives log lines from librdkafka.
     ///
@@ -134,7 +136,7 @@ pub trait ClientContext: Send + Sync + 'static {
     ///
     /// Override with an appropriate implementation when using the `OAUTHBEARER`
     /// SASL authentication mechanism. For this method to be called, you must
-    /// also set [`ClientContext::ENABLE_REFRESH_OAUTH_TOKEN`] to true.
+    /// also set [`ClientContext::enable_refresh_oauth_token`] to true.
     ///
     /// The `fmt::Display` implementation of the returned error must not
     /// generate a message with an embedded null character.
@@ -275,7 +277,7 @@ impl<C: ClientContext> Client<C> {
                 >,
             );
         }
-        if C::ENABLE_REFRESH_OAUTH_TOKEN {
+        if context.enable_refresh_oauth_token() {
             unsafe {
                 rdsys::rd_kafka_conf_set_oauthbearer_token_refresh_cb(
                     native_config.ptr(),
