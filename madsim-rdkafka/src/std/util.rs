@@ -235,6 +235,7 @@ impl fmt::Display for ErrBuf {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) trait WrappedCPointer {
     type Target;
 
@@ -324,6 +325,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct OnDrop<F>(pub F)
 where
     F: Fn();

@@ -154,7 +154,7 @@ impl ProclaimOptions {
 }
 
 /// Leader key of election
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LeaderKey {
     pub(crate) name: Bytes,
     pub(crate) key: Bytes,

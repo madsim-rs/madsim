@@ -35,9 +35,9 @@ impl FromStr for Config {
 }
 
 /// Print the config into TOML.
-impl ToString for Config {
-    fn to_string(&self) -> String {
-        toml::to_string_pretty(self).unwrap()
+impl std::fmt::Display for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", toml::to_string_pretty(self).unwrap())
     }
 }
 

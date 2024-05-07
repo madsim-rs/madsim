@@ -11,7 +11,7 @@ Replace all `rdkafka` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-rdkafka = { version = "0.3", package = "madsim-rdkafka" }
+rdkafka = { version = "0.4", package = "madsim-rdkafka" }
 ```
 
 ## API Modification
@@ -46,6 +46,8 @@ The following functions are modified to be `async`:
 - `Producer::abort_transaction`
 
 [^1]: wrapped in `tokio::task::spawn_blocking`
+
+The associated constant `ClientContext::ENABLE_REFRESH_OAUTH_TOKEN` is changed to a function in order to make the trait object-safe.
 
 ## DNS Resolution
 
