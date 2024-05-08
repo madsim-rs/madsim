@@ -134,7 +134,7 @@ async fn test() {
             consumer.assign(&assignment).expect("failed to assign");
 
             loop {
-                let msg = match consumer.poll().await {
+                let msg = match consumer.poll(None).await {
                     None => {
                         madsim::time::sleep(Duration::from_millis(100)).await;
                         continue;

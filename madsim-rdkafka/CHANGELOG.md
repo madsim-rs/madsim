@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Add missing methods in `ClientContext`.
+- Add missing `timeout` argument in `BaseConsumer::poll`.
 
 ## [0.4.0] - 2024-05-07
 
