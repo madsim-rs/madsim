@@ -22,29 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix the problem that `getrandom` returns different values in multiple runs with the same seed.
 
-## rdkafka [0.3.4] - 2024-03-22
-
-### Fixed
-
-- Fix unintended drop of client in `fetch_watermarks`.
-
 ## madsim [0.2.26] - 2024-03-18
 
 ### Fixed
 
 - `sleep` and `sleep_until` now sleep for at least 1ms to be consistent with tokio's behavior.
-
-## rdkafka [0.3.3] - 2024-02-28
-
-### Changed
-
-- Wrap `fetch_watermarks` in `tokio::task::spawn_blocking`.
-
-## rdkafka [0.3.2] - 2024-02-28
-
-### Changed
-
-- Update librdkafka to v2.3.0.
 
 ## tonic [0.4.2] tonic-build [0.4.3] - 2024-02-27
 
@@ -63,13 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix intercepting time on x86_64 macOS, Rust 1.75.0.
-
-## rdkafka [0.3.1] - 2024-01-05
-
-### Fixed
-
-- Add `rdkafka::message::{Header, HeaderIter}` and `BorrowedHeaders::detach`.
-- Fix `rdkafka::message::Headers` trait.
 
 ## aws-sdk-s3 [0.4.0] - 2023-11-24
 
@@ -94,21 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - tokio: Add `Runtime::enter` API.
-
-## rdkafka [0.3.0] - 2023-10-11
-
-### Added
-
-- Add statistics API.
-- Add future producer API.
-
-### Changed
-
-- Update `rdkafka` to v0.34.0 and `librdkafka` to v2.2.0.
-
-### Fixed
-
-- Fix the error type of `DeliveryFuture`.
 
 ## tonic-build [0.4.2] - 2023-10-08
 
@@ -188,7 +148,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - madsim: Add `restart_on_panic_matching` to support auto restarting on panic with certain messages.
-- rdkafka: Add `producer::DeliveryResult` and fix `ProducerContext`.
 
 
 ## [0.2.21] - 2023-04-14
@@ -291,12 +250,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - etcd: Add `KeyValue::{lease, create_revision, mod_revision}` API.
 - etcd: Add maintenance `status` API.
-- rdkafka: Add `Timestamp::to_millis`.
-
-### Changed
-
-- rdkafka: update to rdkafka v0.29.0.
-    - The return type of `Producer::flush` changed to `KafkaResult<()>`.
 
 ### Fixed
 
@@ -346,7 +299,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add simulation crate of `rdkafka`.
 - etcd: Add lease and election API.
 - madsim: Expose `JoinHandle::cancel_on_drop`.
 

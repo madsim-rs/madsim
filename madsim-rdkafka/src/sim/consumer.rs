@@ -170,7 +170,10 @@ where
     C: ConsumerContext,
 {
     /// Polls the consumer for new messages.
-    pub async fn poll(&self) -> Option<KafkaResult<BorrowedMessage<'_>>> {
+    pub async fn poll(
+        &self,
+        _timeout: impl Into<Timeout>, // TODO: timeout
+    ) -> Option<KafkaResult<BorrowedMessage<'_>>> {
         self.poll_internal()
             .await
             .map(|res| res.map(|msg| msg.borrow()))
