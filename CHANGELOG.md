@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix unaligned pointer access in getrandom.
 
+## rdkafka [0.4.1] - 2024-05-08
+
+### Fixed
+
+- Add missing methods in `ClientContext`.
+
+## rdkafka [0.4.0] - 2024-05-07
+
+### Changed
+
+- The associated constant `ClientContext::ENABLE_REFRESH_OAUTH_TOKEN` is changed to a function in order to make the trait object-safe.
+
 ## tokio [0.2.25] - 2024-04-08
 
 ### Removed

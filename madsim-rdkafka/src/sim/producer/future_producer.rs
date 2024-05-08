@@ -1,15 +1,16 @@
 use super::{BaseRecord, DeliveryResult, IntoOpaque, ProducerContext, ThreadedProducer};
 use crate::{
-    client::{BrokerAddr, DefaultClientContext},
-    config::{FromClientConfig, FromClientConfigAndContext},
+    client::{BrokerAddr, DefaultClientContext, OAuthToken},
+    config::{FromClientConfig, FromClientConfigAndContext, RDKafkaLogLevel},
     error::{KafkaError, KafkaResult},
     message::{Message, OwnedHeaders, OwnedMessage, ToBytes},
     util::Timeout,
-    ClientConfig, ClientContext,
+    ClientConfig, ClientContext, Statistics,
 };
 use futures_channel::oneshot;
 use futures_util::FutureExt;
 
+use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -125,8 +126,36 @@ pub type OwnedDeliveryResult = Result<(i32, i64), (KafkaError, OwnedMessage)>;
 
 // Delegates all the methods calls to the wrapped context.
 impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
+    fn enable_refresh_oauth_token(&self) -> bool {
+        self.wrapped_context.enable_refresh_oauth_token()
+    }
+
+    fn log(&self, level: RDKafkaLogLevel, fac: &str, log_message: &str) {
+        self.wrapped_context.log(level, fac, log_message);
+    }
+
+    fn stats(&self, statistics: Statistics) {
+        self.wrapped_context.stats(statistics);
+    }
+
+    fn stats_raw(&self, statistics: &[u8]) {
+        self.wrapped_context.stats_raw(statistics)
+    }
+
+    fn error(&self, error: KafkaError, reason: &str) {
+        self.wrapped_context.error(error, reason);
+    }
+
     fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
         self.wrapped_context.rewrite_broker_addr(addr)
+    }
+
+    fn generate_oauth_token(
+        &self,
+        oauthbearer_config: Option<&str>,
+    ) -> Result<OAuthToken, Box<dyn Error>> {
+        self.wrapped_context
+            .generate_oauth_token(oauthbearer_config)
     }
 }
 
