@@ -226,7 +226,7 @@ impl NativeClient {
 /// [`consumer`]: crate::consumer
 /// [`producer`]: crate::producer
 pub struct Client<C: ClientContext = DefaultClientContext> {
-    native: NativeClient,
+    native: Arc<NativeClient>,
     context: Arc<C>,
 }
 
@@ -304,7 +304,7 @@ impl<C: ClientContext> Client<C> {
         unsafe { rdsys::rd_kafka_set_log_level(client_ptr, config.log_level as i32) };
 
         Ok(Client {
-            native: unsafe { NativeClient::from_ptr(client_ptr) },
+            native: Arc::new(unsafe { NativeClient::from_ptr(client_ptr) }),
             context,
         })
     }
@@ -356,38 +356,45 @@ impl<C: ClientContext> Client<C> {
     }
 
     /// Returns high and low watermark for the specified topic and partition.
-    pub async fn fetch_watermarks<T: Into<Timeout> + Send + 'static>(
+    pub async fn fetch_watermarks<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)> {
-        // XXX: to move the raw pointer into spawn_blocking
-        struct NativePtr(*mut RDKafka);
-        unsafe impl Send for NativePtr {}
-
-        let topic_c = CString::new(topic.to_string())?;
-        let native_ptr = NativePtr(self.native_ptr());
-
-        tokio::task::spawn_blocking(move || unsafe {
-            let mut low = -1;
-            let mut high = -1;
-            let native_ptr = native_ptr;
-            let ret = rdsys::rd_kafka_query_watermark_offsets(
-                native_ptr.0,
-                topic_c.as_ptr(),
-                partition,
-                &mut low,
-                &mut high,
-                timeout.into().as_millis(),
-            );
-            if ret.is_error() {
-                return Err(KafkaError::MetadataFetch(ret.into()));
-            }
-            Ok((low, high))
+        let client = self.clone();
+        let topic = topic.to_string();
+        let timeout = timeout.into();
+        tokio::task::spawn_blocking(move || {
+            client.fetch_watermarks_sync(&topic, partition, timeout)
         })
         .await
         .unwrap()
+    }
+
+    fn fetch_watermarks_sync<T: Into<Timeout>>(
+        &self,
+        topic: &str,
+        partition: i32,
+        timeout: T,
+    ) -> KafkaResult<(i64, i64)> {
+        let mut low = -1;
+        let mut high = -1;
+        let topic_c = CString::new(topic.to_string())?;
+        let ret = unsafe {
+            rdsys::rd_kafka_query_watermark_offsets(
+                self.native_ptr(),
+                topic_c.as_ptr(),
+                partition,
+                &mut low as *mut i64,
+                &mut high as *mut i64,
+                timeout.into().as_millis(),
+            )
+        };
+        if ret.is_error() {
+            return Err(KafkaError::MetadataFetch(ret.into()));
+        }
+        Ok((low, high))
     }
 
     /// Returns the cluster identifier option or None if the cluster identifier is null
@@ -481,6 +488,13 @@ impl<C: ClientContext> Client<C> {
 
     pub(crate) fn consumer_queue(&self) -> Option<NativeQueue> {
         unsafe { NativeQueue::from_ptr(rdsys::rd_kafka_queue_get_consumer(self.native_ptr())) }
+    }
+
+    fn clone(&self) -> Self {
+        Self {
+            native: self.native.clone(),
+            context: self.context.clone(),
+        }
     }
 }
 
