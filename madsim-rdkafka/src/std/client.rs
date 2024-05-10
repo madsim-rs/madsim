@@ -331,6 +331,19 @@ impl<C: ClientContext> Client<C> {
         topic: Option<&str>,
         timeout: T,
     ) -> KafkaResult<Metadata> {
+        let client = self.clone();
+        let topic = topic.map(|t| t.to_string());
+        let timeout = timeout.into();
+        tokio::task::spawn_blocking(move || client.fetch_metadata_sync(topic.as_deref(), timeout))
+            .await
+            .unwrap()
+    }
+
+    fn fetch_metadata_sync<T: Into<Timeout>>(
+        &self,
+        topic: Option<&str>,
+        timeout: T,
+    ) -> KafkaResult<Metadata> {
         let mut metadata_ptr: *const RDKafkaMetadata = ptr::null_mut();
         let (flag, native_topic) = if let Some(topic_name) = topic {
             (0, Some(self.native_topic(topic_name)?))
@@ -415,6 +428,19 @@ impl<C: ClientContext> Client<C> {
         group: Option<&str>,
         timeout: T,
     ) -> KafkaResult<GroupList> {
+        let client = self.clone();
+        let group = group.map(|g| g.to_string());
+        let timeout = timeout.into();
+        tokio::task::spawn_blocking(move || client.fetch_group_list_sync(group.as_deref(), timeout))
+            .await
+            .unwrap()
+    }
+
+    fn fetch_group_list_sync<T: Into<Timeout>>(
+        &self,
+        group: Option<&str>,
+        timeout: T,
+    ) -> KafkaResult<GroupList> {
         // Careful with group_c getting freed before time
         let group_c = CString::new(group.map_or("".to_string(), ToString::to_string))?;
         let group_c_ptr = if group.is_some() {
@@ -490,7 +516,7 @@ impl<C: ClientContext> Client<C> {
         unsafe { NativeQueue::from_ptr(rdsys::rd_kafka_queue_get_consumer(self.native_ptr())) }
     }
 
-    fn clone(&self) -> Self {
+    pub(crate) fn clone(&self) -> Self {
         Self {
             native: self.native.clone(),
             context: self.context.clone(),
