@@ -132,6 +132,8 @@ impl fmt::Debug for GroupInfo {
 /// all the native resources when dropped.
 pub struct GroupList(NativePtr<RDKafkaGroupList>);
 
+unsafe impl Send for GroupList {}
+
 unsafe impl KafkaDrop for RDKafkaGroupList {
     const TYPE: &'static str = "group";
     const DROP: unsafe extern "C" fn(*mut Self) = drop_group_list;

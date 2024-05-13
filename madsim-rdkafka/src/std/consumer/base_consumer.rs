@@ -253,6 +253,36 @@ where
             PartitionQueue::new(self.clone(), queue)
         })
     }
+
+    fn offsets_for_times_sync<T: Into<Timeout>>(
+        &self,
+        timestamps: TopicPartitionList,
+        timeout: T,
+    ) -> KafkaResult<TopicPartitionList> {
+        // This call will then put the offset in the offset field of this topic
+        // partition list.
+        let offsets_for_times_error = unsafe {
+            rdsys::rd_kafka_offsets_for_times(
+                self.client.native_ptr(),
+                timestamps.ptr(),
+                timeout.into().as_millis(),
+            )
+        };
+
+        if offsets_for_times_error.is_error() {
+            Err(KafkaError::MetadataFetch(offsets_for_times_error.into()))
+        } else {
+            Ok(timestamps)
+        }
+    }
+
+    /// A private clone so that we can move it to another thread.
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            main_queue_min_poll_interval: self.main_queue_min_poll_interval,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -543,21 +573,11 @@ where
         timestamps: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList> {
-        // This call will then put the offset in the offset field of this topic
-        // partition list.
-        let offsets_for_times_error = unsafe {
-            rdsys::rd_kafka_offsets_for_times(
-                self.client.native_ptr(),
-                timestamps.ptr(),
-                timeout.into().as_millis(),
-            )
-        };
-
-        if offsets_for_times_error.is_error() {
-            Err(KafkaError::MetadataFetch(offsets_for_times_error.into()))
-        } else {
-            Ok(timestamps)
-        }
+        let client = self.clone();
+        let timeout = timeout.into();
+        tokio::task::spawn_blocking(move || client.offsets_for_times_sync(timestamps, timeout))
+            .await
+            .unwrap()
     }
 
     fn position(&self) -> KafkaResult<TopicPartitionList> {

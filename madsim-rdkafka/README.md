@@ -24,9 +24,9 @@ The following functions are modified to be `async`:
 - `FromClientConfigAndContext::from_config_and_context`
 - `ClientConfig::create`
 - `ClientConfig::create_with_context`
-- `Client::fetch_metadata`
+- `Client::fetch_metadata`[^1]
 - `Client::fetch_watermarks`[^1]
-- `Client::fetch_group_list`
+- `Client::fetch_group_list`[^1]
 - `Consumer::seek`
 - `Consumer::seek_partitions`
 - `Consumer::commit`
@@ -35,10 +35,10 @@ The following functions are modified to be `async`:
 - `Consumer::committed`
 - `Consumer::committed_offsets`
 - `Consumer::offsets_for_timestamp`
-- `Consumer::offsets_for_times`
-- `Consumer::fetch_metadata`
+- `Consumer::offsets_for_times`[^1]
+- `Consumer::fetch_metadata`[^1]
 - `Consumer::fetch_watermarks`[^1]
-- `Consumer::fetch_group_list`
+- `Consumer::fetch_group_list`[^1]
 - `Producer::flush`
 - `Producer::init_transactions`
 - `Producer::send_offsets_to_transaction`
