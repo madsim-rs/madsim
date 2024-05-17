@@ -234,13 +234,19 @@ impl Executor {
         };
         runnable.schedule();
 
+        let allow_system_thread =
+            crate::context::try_current(|h| h.allow_system_thread).unwrap_or_default();
         loop {
             self.run_all_ready();
             if task.is_finished() {
                 return task.now_or_never().unwrap();
             }
             let going = self.time.advance_to_next_event();
-            assert!(going, "no events, all tasks will block forever");
+            if allow_system_thread && !going {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            } else if !allow_system_thread {
+                assert!(going, "no events, all tasks will block forever");
+            }
             if let Some(limit) = self.time_limit {
                 assert!(
                     self.time.handle().elapsed() < limit,
@@ -1010,7 +1016,12 @@ mod tests {
         let mut runtime = Runtime::new();
         runtime.set_allow_system_thread(true);
         runtime.block_on(async move {
-            std::thread::spawn(|| {});
+            let (send, recv) = tokio::sync::oneshot::channel();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                send.send(()).unwrap();
+            });
+            recv.await.unwrap();
         });
     }
 
