@@ -17,6 +17,8 @@ pub struct Builder {
     pub time_limit: Option<Duration>,
     /// Enable determinism check.
     pub check: bool,
+    /// Allow spawning system thread.
+    pub allow_system_thread: bool,
 }
 
 impl Builder {
@@ -52,6 +54,12 @@ impl Builder {
     ///     If any non-determinism detected, it will panic as soon as possible.
     ///
     ///     By default, it is disabled.
+    ///
+    /// - `MADSIM_ALLOW_SYSTEM_THREAD`: Allow spawning system thread.
+    ///
+    ///     Spawning system thread may cause the test to be non-deterministic.
+    ///
+    ///     By default, it is disallowed.
     pub fn from_env() -> Self {
         let seed: u64 = if let Ok(seed_str) = std::env::var("MADSIM_TEST_SEED") {
             seed_str
@@ -96,6 +104,7 @@ impl Builder {
         if check {
             count = count.max(2);
         }
+        let allow_system_thread = std::env::var("MADSIM_ALLOW_SYSTEM_THREAD").is_ok();
         Builder {
             seed,
             count,
@@ -103,6 +112,7 @@ impl Builder {
             config,
             time_limit,
             check,
+            allow_system_thread,
         }
     }
 
@@ -124,6 +134,9 @@ impl Builder {
                         let mut rt = Runtime::with_seed_and_config(seed, config);
                         if let Some(limit) = self.time_limit {
                             rt.set_time_limit(limit);
+                        }
+                        if self.allow_system_thread {
+                            rt.set_allow_system_thread(true);
                         }
                         let ret = rt.block_on(f());
                         tx.send(()).unwrap();

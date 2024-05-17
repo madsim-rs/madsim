@@ -753,10 +753,17 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
 #[no_mangle]
 #[inline(never)]
 unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc::c_int {
-    if crate::context::try_current_task().is_some() {
-        eprintln!("attempt to spawn a system thread in simulation.");
-        eprintln!("note: try to use tokio tasks instead.");
-        return -1;
+    if let Some(allowed) = crate::context::try_current(|h| h.allow_system_thread) {
+        if allowed {
+            tracing::warn!(
+                "spawning a system thread in simulation. this may cause non-determinism."
+            );
+        } else {
+            eprintln!("attempt to spawn a system thread in simulation.");
+            eprintln!("note: try to use tokio tasks instead.");
+            eprintln!("note: if you really need to spawn a system thread, set the environment variable `MADSIM_ALLOW_SYSTEM_THREAD` to `1`.");
+            return -1;
+        }
     }
     lazy_static::lazy_static! {
         static ref PTHREAD_ATTR_INIT: unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int = unsafe {
@@ -993,6 +1000,15 @@ mod tests {
     #[should_panic]
     fn forbid_creating_system_thread() {
         let runtime = Runtime::new();
+        runtime.block_on(async move {
+            std::thread::spawn(|| {});
+        });
+    }
+
+    #[test]
+    fn allow_creating_system_thread() {
+        let mut runtime = Runtime::new();
+        runtime.set_allow_system_thread(true);
         runtime.block_on(async move {
             std::thread::spawn(|| {});
         });

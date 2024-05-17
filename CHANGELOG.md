@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.28] - 2024-05-17
+
+### Added
+
+- Add `MADSIM_ALLOW_SYSTEM_THREAD` environment variable to allow creating system threads in simulation.
+
 ### Fixed
 
 - Fix unaligned pointer access in getrandom.

@@ -322,6 +322,7 @@ mod tests {
                     config: crate::Config::default(),
                     time_limit: None,
                     check: false,
+                    allow_system_thread: false,
                 }
                 .run(rnd_fn)
             })
