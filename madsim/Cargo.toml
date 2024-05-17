@@ -1,6 +1,6 @@
 [package]
 name = "madsim"
-version = "0.2.27"
+version = "0.2.28"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "Deterministic Simulator for distributed systems."

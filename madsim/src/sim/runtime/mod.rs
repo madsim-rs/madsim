@@ -59,6 +59,7 @@ impl Runtime {
             task: task.handle().clone(),
             sims,
             config,
+            allow_system_thread: false,
         };
         let rt = Runtime { rand, task, handle };
         rt.add_simulator::<fs::FsSim>();
@@ -147,6 +148,14 @@ impl Runtime {
         self.task.set_time_limit(limit);
     }
 
+    /// Set whether to allow spawning system thread.
+    ///
+    /// Spawning system thread is not allowed by default because it may cause non-determinism.
+    /// If you are sure that the system thread won't break determinism, you can enable it at your own risk.
+    pub fn set_allow_system_thread(&mut self, allowed: bool) {
+        self.handle.allow_system_thread = allowed;
+    }
+
     /// Check determinism of the future.
     ///
     /// # Example
@@ -208,6 +217,7 @@ pub struct Handle {
     pub(crate) sims: Arc<Simulators>,
 
     pub(crate) config: Config,
+    pub(crate) allow_system_thread: bool,
 }
 
 /// A collection of simulators.
