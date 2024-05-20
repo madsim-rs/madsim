@@ -242,10 +242,13 @@ impl Executor {
                 return task.now_or_never().unwrap();
             }
             let going = self.time.advance_to_next_event();
-            if allow_system_thread && !going {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            } else if !allow_system_thread {
-                assert!(going, "no events, all tasks will block forever");
+            if !going {
+                if allow_system_thread {
+                    // other system threads may wake up the tasks, wait for a while
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                } else {
+                    panic!("no events, all tasks will block forever");
+                }
             }
             if let Some(limit) = self.time_limit {
                 assert!(
