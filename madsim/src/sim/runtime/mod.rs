@@ -6,6 +6,7 @@ use spin::Mutex;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
+    fmt,
     future::Future,
     net::IpAddr,
     sync::Arc,
@@ -218,6 +219,12 @@ pub struct Handle {
 
     pub(crate) config: Config,
     pub(crate) allow_system_thread: bool,
+}
+
+impl fmt::Debug for Handle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Handle").finish()
+    }
 }
 
 /// A collection of simulators.
