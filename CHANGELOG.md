@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tokio [0.2.27] - 2024-06-05
+
+### Added
+
+- Add `Runtime::handle()`.
+
 ## tokio [0.2.26] - 2024-05-27
 
 ### Added
