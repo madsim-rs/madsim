@@ -1,3 +1,5 @@
+// FIXME: create a dedicated handle for tokio runtime instead of reusing madsim handle.
+//        tasks spawned with this handle are not correctly associated with the tokio runtime.
 pub use madsim::runtime::Handle;
 use madsim::task::{AbortHandle, JoinHandle};
 use spin::Mutex;
@@ -42,6 +44,7 @@ impl Builder {
     pub fn build(&mut self) -> io::Result<Runtime> {
         Ok(Runtime {
             abort_handles: Default::default(),
+            handle: Handle::current(),
         })
     }
 }
@@ -49,6 +52,7 @@ impl Builder {
 /// A fake Tokio runtime.
 pub struct Runtime {
     abort_handles: Mutex<Vec<AbortHandle>>,
+    handle: Handle,
 }
 
 #[allow(dead_code)]
@@ -80,6 +84,11 @@ impl Runtime {
     pub fn enter(&self) -> EnterGuard<'_> {
         // Madsim runtime is entered by default. No-op here.
         EnterGuard(self)
+    }
+
+    /// Returns a handle to the runtime’s spawner.
+    pub fn handle(&self) -> &Handle {
+        &self.handle
     }
 }
 
