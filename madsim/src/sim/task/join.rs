@@ -157,3 +157,11 @@ impl AbortHandle {
         }
     }
 }
+
+impl fmt::Debug for AbortHandle {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("AbortHandle")
+            .field("id", &self.id)
+            .finish()
+    }
+}
