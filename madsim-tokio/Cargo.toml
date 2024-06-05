@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tokio"
-version = "0.2.26"
+version = "0.2.27"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tokio` simulator on madsim."
