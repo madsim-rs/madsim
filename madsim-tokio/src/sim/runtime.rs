@@ -1,6 +1,3 @@
-// FIXME: create a dedicated handle for tokio runtime instead of reusing madsim handle.
-//        tasks spawned with this handle are not correctly associated with the tokio runtime.
-pub use madsim::runtime::Handle;
 use madsim::task::{AbortHandle, JoinHandle};
 use spin::Mutex;
 use std::{future::Future, io};
@@ -56,7 +53,7 @@ pub struct Runtime {
 }
 
 #[allow(dead_code)]
-pub struct EnterGuard<'a>(&'a Runtime);
+pub struct EnterGuard<'a>(&'a Handle);
 
 impl Runtime {
     #[cfg(feature = "rt-multi-thread")]
@@ -77,13 +74,26 @@ impl Runtime {
         handle
     }
 
+    /// Runs the provided function on an executor dedicated to blocking operations.
+    #[track_caller]
+    pub fn spawn_blocking<F, R>(&self, func: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        #[allow(deprecated)]
+        let handle = madsim::task::spawn_blocking(func);
+        self.abort_handles.lock().push(handle.abort_handle());
+        handle
+    }
+
     pub fn block_on<F: Future>(&self, _future: F) -> F::Output {
         unimplemented!("blocking the current thread is not allowed in madsim");
     }
 
     pub fn enter(&self) -> EnterGuard<'_> {
         // Madsim runtime is entered by default. No-op here.
-        EnterGuard(self)
+        EnterGuard(&self.handle)
     }
 
     /// Returns a handle to the runtime’s spawner.
@@ -100,6 +110,51 @@ impl Drop for Runtime {
     }
 }
 
+/// Handle to the tokio runtime.
+///
+/// FIXME: tasks spawned with this handle are not correctly associated with the tokio runtime.
+#[derive(Debug, Clone)]
+pub struct Handle;
+
+impl Handle {
+    /// Returns a handle to the current runtime.
+    pub fn current() -> Handle {
+        Handle
+    }
+
+    /// Enters the runtime context.
+    ///
+    /// FIXME: This is currently a no-op.
+    pub fn enter(&self) -> EnterGuard<'_> {
+        EnterGuard(self)
+    }
+
+    /// Spawns a future onto the Tokio runtime.
+    ///
+    /// FIXME: tasks spawned with this handle are not correctly associated with the tokio runtime.
+    #[track_caller]
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        madsim::task::spawn(future)
+    }
+
+    /// Runs the provided function on an executor dedicated to blocking operations.
+    ///
+    /// FIXME: tasks spawned with this handle are not correctly associated with the tokio runtime.
+    #[track_caller]
+    pub fn spawn_blocking<F, R>(&self, func: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        #[allow(deprecated)]
+        madsim::task::spawn_blocking(func)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,11 +165,16 @@ mod tests {
 
         runtime.block_on(async move {
             let rt = Runtime::new().unwrap();
-            let handle = rt.spawn(std::future::pending::<()>());
+            let handle = rt.handle().clone();
+            let join_handle = rt.spawn(std::future::pending::<()>());
+            let _join_handle2 = handle.spawn(std::future::pending::<()>());
             drop(rt);
 
-            let err = handle.await.unwrap_err();
+            let err = join_handle.await.unwrap_err();
             assert!(err.is_cancelled());
+            // FIXME: task spawned by the handle should also be cancelled.
+            // let err = join_handle2.await.unwrap_err();
+            // assert!(err.is_cancelled());
         });
     }
 }
