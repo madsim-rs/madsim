@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tokio [0.2.28] - 2024-06-06
+
+### Fixed
+
+- Fix the problem that `Handle::spawn` spawns the task in a new node.
+
+## madsim [0.2.30] - 2024-06-06
+
+### Removed
+
+- Remove `Handle::spawn` and `Handle::spawn_blocking` as the implementation is incorrect.
+
 ## tokio [0.2.27] - 2024-06-05
 
 ### Added

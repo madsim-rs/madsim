@@ -257,31 +257,6 @@ impl Handle {
         context::try_current(|h| h.clone()).ok_or(TryCurrentError)
     }
 
-    /// spawn a task
-    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.create_node()
-            .name("spawn a task")
-            .build()
-            .spawn(future)
-    }
-
-    /// spawn a blocking task
-    #[deprecated(
-        since = "0.3.0",
-        note = "blocking function is not allowed in simulation"
-    )]
-    pub fn spawn_blocking<F, R>(&self, _f: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        unimplemented!("blocking function is not allowed in simulation")
-    }
-
     /// Returns the random seed of the current runtime.
     ///
     /// ```
