@@ -218,7 +218,7 @@ impl Endpoint {
         trace!("send: {} -> {}, tag={}", self.addr, dst, tag);
         let sender = self.get_or_connect(dst).await;
         // Safety: sender task will refer the data until the `done` await return.
-        let bufs = unsafe { std::mem::transmute(bufs) };
+        let bufs = unsafe { std::mem::transmute::<&mut [IoSlice<'_>], &mut [IoSlice<'_>]>(bufs) };
         let (done, done_recver) = oneshot::channel();
         sender.send(SendMsg { tag, bufs, done }).await.ok().unwrap();
         done_recver.await.unwrap();
@@ -320,6 +320,8 @@ fn advance_slices(bufs: &mut &mut [IoSlice<'_>], n: usize) {
     *bufs = &mut std::mem::take(bufs)[remove..];
     if !bufs.is_empty() {
         // bufs[0].advance(n - accumulated_len)
-        bufs[0] = IoSlice::new(unsafe { std::mem::transmute(&bufs[0][n - accumulated_len..]) });
+        bufs[0] = IoSlice::new(unsafe {
+            std::mem::transmute::<&[u8], &[u8]>(&bufs[0][n - accumulated_len..])
+        });
     }
 }
