@@ -183,7 +183,7 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         // send requests
         pin_mut!(stream);
         while let Some(item) = stream.next().await {
-            /// allows the server to prematurely close the stream
+            // allows the server to prematurely close the stream
             if tx.send(Box::new(item)).await.is_err() {
                 debug!("send stream unexpectedly closed");
                 break;
