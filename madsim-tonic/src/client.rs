@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use futures_util::{pin_mut, Stream, StreamExt};
 use tonic::codegen::http::uri::PathAndQuery;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{
     codegen::{BoxMessage, IdentityInterceptor, RequestExt},
@@ -183,7 +183,11 @@ impl<F: Interceptor> Grpc<crate::transport::Channel, F> {
         // send requests
         pin_mut!(stream);
         while let Some(item) = stream.next().await {
-            tx.send(Box::new(item)).await?;
+            // allows the server to prematurely close the stream
+            if tx.send(Box::new(item)).await.is_err() {
+                debug!("send stream unexpectedly closed");
+                break;
+            }
         }
         Ok(())
     }
