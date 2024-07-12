@@ -116,12 +116,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add missing APIs for `Builder` in v0.10.0.
 
-## etcd [0.4.0] - 2023-10-07
-
-### Changed
-
-- etcd: Update `etcd-client` to v0.12.1.
-
 ## tonic-build [0.4.1] - 2023-10-07
 
 ### Fixed
@@ -144,12 +138,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - tonic-build: Update methods `send_gzip` -> `send_compressed`, `accept_gzip` -> `accept_compressed` in generated clients and servers.
 
-## tonic, etcd [0.3.0] - 2023-07-20
+## tonic [0.3.0] - 2023-07-20
 
 ### Changed
 
 - tonic: Update `tonic` and `tonic-build` to v0.9.2.
-- etcd: Update `etcd-client` to v0.11.1.
 
 ## [0.2.25] - 2023-07-03
 
@@ -171,16 +164,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- etcd: Add `CampaignResponse::{take_header, take_leader}`.
 - tokio: Add `tokio::task::futures::TaskLocalFuture`.
 
 ### Changed
 
 - s3: Update `aws-sdk-s3` to v0.28.
-
-### Fixed
-
-- etcd: Fix the behavior when campaign is called multiple times.
 
 
 ## [0.2.22] - 2023-04-19
@@ -213,7 +201,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - madsim: Fix leak of task introduced in 0.2.19.
-- etcd,tonic: Fix leak of RPC task in server.
+- tonic: Fix leak of RPC task in server.
 
 ## [0.2.19] - 2023-04-07
 
@@ -237,7 +225,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - madsim: Replace `SmallRng` with `Xoshiro256PlusPlus` for reproducibility across platforms.
-- etcd: Fix election implementation. Put a key for each candidate.
 - tonic: Return an error when the server stream is broken.
 
 ## [0.2.17] - 2023-02-17
@@ -245,7 +232,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - madsim: Prevent deadlock when killing a node.
-- etcd: Support "etcdserver: request is too large".
 - s3: Make fields public for `*Output` structs.
 
 ## [0.2.16] - 2023-02-14
@@ -269,10 +255,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - madsim: After the initial task completes, the other tasks of the node are dropped.
 
-### Fixed
-
-- etcd: Return error on "lease not found".
-
 ## [0.2.14] - 2023-01-30
 
 ### Added
@@ -282,21 +264,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- tonic/etcd/rdkafka: Resolve DNS on connection.
+- tonic/rdkafka: Resolve DNS on connection.
 
 ## [0.2.13] - 2023-01-11
-
-### Added
-
-- etcd: Add `KeyValue::{lease, create_revision, mod_revision}` API.
-- etcd: Add maintenance `status` API.
 
 ### Fixed
 
 - madsim: Fix join cancelled tasks.
-- etcd: Fix response stream of `keep_alive`.
-- etcd: Fix waking up other candidates on leadership resign or lease revoke.
-- etcd: Fix unimplemented election `observe`.
 
 ## [0.2.12] - 2022-12-13
 
@@ -315,13 +289,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tokio: Add `task::Builder::new_current_thread` but panic inside.
 - tonic: Add `service` module and `Extensions`.
 - tonic: Support interceptor.
-- etcd: Support load and dump in toml format.
 
 ### Fixed
 
 - tonic: Fix passing metadata in request and response. Add `content-type` and `date` field.
 - tonic: Fix panic on unimplemented error.
-- etcd: Fix lease grant.
 
 ## [0.2.10] - 2022-11-09
 
@@ -339,7 +311,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- etcd: Add lease and election API.
 - madsim: Expose `JoinHandle::cancel_on_drop`.
 
 ## [0.2.7] - 2022-09-13
@@ -362,21 +333,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - madsim: Add hook function for RPC.
-- etcd: Add logging in etcd service.
 
 ### Removed
 
 - madsim: Deprecate `Network::(dis)connect(2)` functions. Rename them to `(un)clog_*`.
 
-### Fixed
-
-- etcd: Complete `Error` type and fix the error kind of `request timed out`.
-
 ## [0.2.5] - 2022-09-02
-
-### Added
-
-- Add simulation crate of `etcd-client`.
 
 ### Changed
 
