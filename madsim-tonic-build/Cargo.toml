@@ -21,7 +21,7 @@ proc-macro2 = "1"
 prost-build = { version = "0.12", optional = true }
 quote = "1"
 syn = "2"
-tonic-build = ">=0.10"
+tonic-build = ">=0.10,<0.12"
 
 [features]
 compression = []
