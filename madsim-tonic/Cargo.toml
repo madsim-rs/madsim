@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.4.2+0.10.0"
+version = "0.5.0+0.12.0"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."
@@ -16,7 +16,7 @@ license = "Apache-2.0"
 tls = ["tonic/tls"]
 
 [target.'cfg(not(madsim))'.dependencies]
-tonic = ">=0.10,<0.12"
+tonic = "0.12"
 
 [target.'cfg(madsim)'.dependencies]
 async-stream = "0.3"
@@ -24,7 +24,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = "0.3"
 madsim = { version = "0.2.20", path = "../madsim" }
 tracing = "0.1"
-tonic = { version = ">=0.10", default-features = false, features = [
+tonic = { version = "0.12", default-features = false, features = [
     "codegen",
     "transport",
 ] }
