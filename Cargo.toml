@@ -14,3 +14,6 @@ resolver = "2"
 
 [patch.crates-io]
 getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "6c9d9e9" }
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(madsim)'] }

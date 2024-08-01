@@ -30,3 +30,6 @@ tonic = { version = "0.12", default-features = false, features = [
 ] }
 tokio = "1"
 tower = { version = "0.4.7" }
+
+[lints]
+workspace = true

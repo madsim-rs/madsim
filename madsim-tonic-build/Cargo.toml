@@ -28,3 +28,6 @@ compression = []
 default = ["transport", "prost"]
 prost = ["prost-build"]
 transport = []
+
+[lints]
+workspace = true

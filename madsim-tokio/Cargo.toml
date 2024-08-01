@@ -63,3 +63,6 @@ spin = "0.9"
 
 [dependencies]
 tokio = "1"
+
+[lints]
+workspace = true
