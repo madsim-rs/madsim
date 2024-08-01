@@ -77,3 +77,6 @@ required-features = ["erpc"]
 # all-features = true
 rustc-args = ["--cfg", "madsim"]
 rustdoc-args = ["--cfg", "madsim", "--cfg", "docsrs"]
+
+[lints]
+workspace = true

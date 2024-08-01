@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic [0.5.0] - 2024-07-31
+
+### Changed
+
+- tonic: Update `tonic` and `tonic-build` to v0.12.0.
+
 ## tokio [0.2.28] - 2024-06-06
 
 ### Fixed

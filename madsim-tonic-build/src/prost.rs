@@ -1,6 +1,7 @@
 use super::{client, server, Attributes};
 use proc_macro2::TokenStream;
-use prost_build::Config;
+use prost_build::{Config, Method, Service};
+use quote::ToTokens;
 use std::{
     collections::HashSet,
     ffi::OsString,
@@ -59,6 +60,134 @@ pub fn compile_protos(proto: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
 }
 
+/// Non-path Rust types allowed for request/response types.
+const NON_PATH_TYPE_ALLOWLIST: &[&str] = &["()"];
+
+/// Newtype wrapper for prost to add tonic-specific extensions
+struct TonicBuildService {
+    prost_service: Service,
+    methods: Vec<TonicBuildMethod>,
+}
+
+impl TonicBuildService {
+    fn new(prost_service: Service) -> Self {
+        Self {
+            methods: prost_service
+                .methods
+                .iter()
+                .map(|prost_method| TonicBuildMethod {
+                    prost_method: prost_method.clone(),
+                })
+                .collect(),
+            prost_service,
+        }
+    }
+}
+
+/// Newtype wrapper for prost to add tonic-specific extensions
+struct TonicBuildMethod {
+    prost_method: Method,
+}
+
+impl crate::Service for TonicBuildService {
+    type Method = TonicBuildMethod;
+    type Comment = String;
+
+    fn name(&self) -> &str {
+        &self.prost_service.name
+    }
+
+    fn package(&self) -> &str {
+        &self.prost_service.package
+    }
+
+    fn identifier(&self) -> &str {
+        &self.prost_service.proto_name
+    }
+
+    fn comment(&self) -> &[Self::Comment] {
+        &self.prost_service.comments.leading[..]
+    }
+
+    fn methods(&self) -> &[Self::Method] {
+        &self.methods
+    }
+}
+
+impl crate::Method for TonicBuildMethod {
+    type Comment = String;
+
+    fn name(&self) -> &str {
+        &self.prost_method.name
+    }
+
+    fn identifier(&self) -> &str {
+        &self.prost_method.proto_name
+    }
+
+    /// For code generation, you can override the codec.
+    ///
+    /// You should set the codec path to an import path that has a free
+    /// function like `fn default()`. The default value is tonic::codec::ProstCodec,
+    /// which returns a default-configured ProstCodec. You may wish to configure
+    /// the codec, e.g., with a buffer configuration.
+    ///
+    /// Though ProstCodec implements Default, it is currently only required that
+    /// the function match the Default trait's function spec.
+    fn codec_path(&self) -> &str {
+        unreachable!("codec_path is not used in madsim-tonic-build")
+    }
+
+    fn client_streaming(&self) -> bool {
+        self.prost_method.client_streaming
+    }
+
+    fn server_streaming(&self) -> bool {
+        self.prost_method.server_streaming
+    }
+
+    fn comment(&self) -> &[Self::Comment] {
+        &self.prost_method.comments.leading[..]
+    }
+
+    fn request_response_name(
+        &self,
+        proto_path: &str,
+        compile_well_known_types: bool,
+    ) -> (TokenStream, TokenStream) {
+        let convert_type = |proto_type: &str, rust_type: &str| -> TokenStream {
+            if (is_google_type(proto_type) && !compile_well_known_types)
+                || rust_type.starts_with("::")
+                || NON_PATH_TYPE_ALLOWLIST.iter().any(|ty| *ty == rust_type)
+            {
+                rust_type.parse::<TokenStream>().unwrap()
+            } else if rust_type.starts_with("crate::") {
+                syn::parse_str::<syn::Path>(rust_type)
+                    .unwrap()
+                    .to_token_stream()
+            } else {
+                syn::parse_str::<syn::Path>(&format!("{}::{}", proto_path, rust_type))
+                    .unwrap()
+                    .to_token_stream()
+            }
+        };
+
+        let request = convert_type(
+            &self.prost_method.input_proto_type,
+            &self.prost_method.input_type,
+        );
+        let response = convert_type(
+            &self.prost_method.output_proto_type,
+            &self.prost_method.output_type,
+        );
+        (request, response)
+    }
+}
+
+fn is_google_type(ty: &str) -> bool {
+    ty.starts_with(".google.protobuf")
+}
+
 struct ServiceGenerator {
     builder: Builder,
     clients: TokenStream,
@@ -77,6 +206,8 @@ impl ServiceGenerator {
 
 impl prost_build::ServiceGenerator for ServiceGenerator {
     fn generate(&mut self, service: prost_build::Service, _buf: &mut String) {
+        let service = TonicBuildService::new(service);
+
         if self.builder.build_server {
             let server = server::generate(
                 &service,

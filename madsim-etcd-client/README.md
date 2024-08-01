@@ -13,5 +13,5 @@ Replace all `etcd-client` entries in your Cargo.toml:
 
 ```toml
 [dependencies]
-etcd-client = { version = "0.5", package = "madsim-etcd-client" }
+etcd-client = { version = "0.6", package = "madsim-etcd-client" }
 ```

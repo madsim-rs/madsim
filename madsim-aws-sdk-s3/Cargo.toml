@@ -31,3 +31,6 @@ tracing = "0.1"
 rustls = ["aws-sdk-s3/rustls"]
 rt-tokio = ["aws-sdk-s3/rt-tokio"]
 default = ["rustls", "rt-tokio"]
+
+[lints]
+workspace = true
