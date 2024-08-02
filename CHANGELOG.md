@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic [0.5.1] - 2024-08-02
+
+### Added
+
+- Add missing APIs for `tonic::transport::Server::builder`.
+- Add missing re-exports for `tonic::body`.
+
 ## tonic [0.5.0] - 2024-07-31
 
 ### Changed
