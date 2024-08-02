@@ -110,6 +110,13 @@ impl<L> Server<L> {
         self
     }
 
+    /// Configures the maximum number of pending reset streams allowed before a GOAWAY will be sent.
+    #[must_use]
+    pub fn http2_max_pending_accept_reset_streams(self, _max: Option<usize>) -> Self {
+        // ignore this setting
+        self
+    }
+
     /// Set whether HTTP2 Ping frames are enabled on accepted connections.
     #[must_use]
     pub fn http2_keepalive_interval(self, _http2_keepalive_interval: Option<Duration>) -> Self {
