@@ -1,6 +1,7 @@
 use madsim::task::{AbortHandle, JoinHandle};
 use spin::Mutex;
 use std::{future::Future, io};
+use tokio::runtime::TryCurrentError;
 
 /// Builds Tokio Runtime with custom configuration values.
 pub struct Builder {}
@@ -118,8 +119,13 @@ pub struct Handle;
 
 impl Handle {
     /// Returns a handle to the current runtime.
-    pub fn current() -> Handle {
+    pub fn current() -> Self {
         Handle
+    }
+
+    /// Returns a handle to the current runtime.
+    pub fn try_current() -> Result<Self, TryCurrentError> {
+        Ok(Handle)
     }
 
     /// Enters the runtime context.
