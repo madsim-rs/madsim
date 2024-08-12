@@ -31,6 +31,8 @@ pub use self::metrics::RuntimeMetrics;
 /// [task scheduler]: crate::task
 /// [network]: crate::net
 /// [file system]: crate::fs
+///
+/// To get direct access to it, use a crate like `madsim-tokio` which exposes the Runtime
 pub struct Runtime {
     rand: rand::GlobalRng,
     task: task::Executor,
