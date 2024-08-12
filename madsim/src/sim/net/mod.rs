@@ -3,6 +3,8 @@
 //! # Examples
 //!
 //! ```
+//! // Note: the runtime is not exposed by this crate, but the example needs to be this way to compile.
+//! //       You can access the runtime from the `madsim-tokio` crate instead.
 //! use madsim::{runtime::Runtime, net::Endpoint};
 //! use std::sync::Arc;
 //! use std::net::SocketAddr;
