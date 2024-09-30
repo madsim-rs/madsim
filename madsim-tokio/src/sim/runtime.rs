@@ -1,7 +1,7 @@
+use madsim::runtime::Handle as MadsimHandle;
 use madsim::task::{AbortHandle, JoinHandle};
 use spin::Mutex;
 use std::{future::Future, io};
-use tokio::runtime::TryCurrentError;
 
 /// Builds Tokio Runtime with custom configuration values.
 pub struct Builder {}
@@ -111,6 +111,8 @@ impl Drop for Runtime {
     }
 }
 
+pub struct TryCurrentError;
+
 /// Handle to the tokio runtime.
 ///
 /// FIXME: tasks spawned with this handle are not correctly associated with the tokio runtime.
@@ -125,7 +127,10 @@ impl Handle {
 
     /// Returns a handle to the current runtime.
     pub fn try_current() -> Result<Self, TryCurrentError> {
-        Ok(Handle)
+        match MadsimHandle::try_current() {
+            Ok(_) => Ok(Handle),
+            Err(_e) => Err(TryCurrentError),
+        }
     }
 
     /// Enters the runtime context.
