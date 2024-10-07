@@ -188,4 +188,68 @@ mod tests {
             // assert!(err.is_cancelled());
         });
     }
+
+    // FIXME(kwannoel): See https://github.com/madsim-rs/madsim/issues/228
+    #[allow(dead_code)]
+    fn runtime_drop_and_spawn_struct_fail() {
+        #[derive(Debug)]
+        struct A{}
+        impl Drop for A {
+            fn drop(&mut self) {
+                Handle::current().spawn(std::future::pending::<()>());
+            }
+        }
+
+        let a = A{};
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = rt.spawn(async move {
+                drop(a)
+            });
+            drop(rt);
+
+            let err = join_handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+        })
+    }
+
+    #[test]
+    fn runtime_drop_and_spawn_struct_succeed() {
+        #[derive(Debug)]
+        struct A{}
+        impl Drop for A {
+            fn drop(&mut self) {
+                Handle::current().spawn(std::future::pending::<()>());
+            }
+        }
+
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = rt.spawn(async move {
+                let a = A{};
+                drop(a)
+            });
+            drop(rt);
+
+            let err = join_handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+        })
+    }
+
+    #[test]
+    fn runtime_drop_and_spawn_direct() {
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = rt.spawn(async move {
+                Handle::current().spawn(std::future::pending::<()>());
+            });
+            drop(rt);
+
+            let err = join_handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+        })
+    }
 }
