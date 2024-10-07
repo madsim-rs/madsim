@@ -193,20 +193,18 @@ mod tests {
     #[allow(dead_code)]
     fn runtime_drop_and_spawn_struct_fail() {
         #[derive(Debug)]
-        struct A{}
+        struct A {}
         impl Drop for A {
             fn drop(&mut self) {
                 Handle::current().spawn(std::future::pending::<()>());
             }
         }
 
-        let a = A{};
+        let a = A {};
         let runtime = madsim::runtime::Runtime::new();
         runtime.block_on(async move {
             let rt = Runtime::new().unwrap();
-            let join_handle = rt.spawn(async move {
-                drop(a)
-            });
+            let join_handle = rt.spawn(async move { drop(a) });
             drop(rt);
 
             let err = join_handle.await.unwrap_err();
@@ -217,7 +215,7 @@ mod tests {
     #[test]
     fn runtime_drop_and_spawn_struct_succeed() {
         #[derive(Debug)]
-        struct A{}
+        struct A {}
         impl Drop for A {
             fn drop(&mut self) {
                 Handle::current().spawn(std::future::pending::<()>());
@@ -228,7 +226,7 @@ mod tests {
         runtime.block_on(async move {
             let rt = Runtime::new().unwrap();
             let join_handle = rt.spawn(async move {
-                let a = A{};
+                let a = A {};
                 drop(a)
             });
             drop(rt);
