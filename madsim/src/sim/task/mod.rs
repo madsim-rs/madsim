@@ -266,18 +266,25 @@ impl Executor {
                 // future has been dropped
                 continue;
             };
-            if info.cancelled.load(Ordering::Relaxed) || info.node.killed.load(Ordering::Relaxed) {
+            let work = if info.cancelled.load(Ordering::Relaxed)
+                || info.node.killed.load(Ordering::Relaxed)
+            {
                 // cancelled task or killed node: drop the future
-                continue;
+                drop
             } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
                 (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push(runnable);
                 continue;
-            }
+            } else {
+                fn run(runnable: Runnable) {
+                    runnable.run();
+                }
+                run
+            };
             // run the task
             let res = {
                 let _guard = crate::context::enter_task(info.clone());
-                std::panic::catch_unwind(move || runnable.run())
+                std::panic::catch_unwind(move || work(runnable))
             };
             if let Err(e) = res {
                 eprintln!(
@@ -788,6 +795,7 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
 mod tests {
     use super::*;
     use crate::{
+        context::current_node,
         runtime::{Handle, Runtime},
         time,
     };
@@ -1098,5 +1106,38 @@ mod tests {
             assert!(Handle::current().is_exit(node.id()));
             assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
+    }
+
+    #[test]
+    #[allow(dead_code)]
+    fn spawn_in_task_drop() {
+        static DROPPING_NODE: Mutex<Option<NodeId>> = Mutex::new(None);
+
+        struct A;
+
+        impl Drop for A {
+            fn drop(&mut self) {
+                spawn(async move {
+                    let _ = DROPPING_NODE.try_lock().unwrap().insert(current_node());
+                });
+            }
+        }
+
+        let runtime = Runtime::new();
+        let node_handle = runtime.create_node().build();
+        let node_id = node_handle.id();
+        let a = A;
+
+        runtime.block_on(async move {
+            let join_handle = node_handle.spawn(async move { drop(a) });
+            join_handle.abort();
+
+            let err = join_handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+
+            time::sleep(Duration::from_secs(1)).await;
+
+            assert_eq!(DROPPING_NODE.try_lock().unwrap().unwrap(), node_id);
+        })
     }
 }
