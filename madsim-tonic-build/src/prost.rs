@@ -674,7 +674,7 @@ impl Builder {
 
         // generate origin
         config.out_dir(out_dir);
-        builder.compile_protos_with_config(config, protos, includes)?;
+        builder.compile_with_config(config, protos, includes)?;
 
         Ok(())
     }
