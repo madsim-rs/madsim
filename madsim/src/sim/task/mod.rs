@@ -1124,19 +1124,22 @@ mod tests {
         }
 
         let runtime = Runtime::new();
-        let node_handle = runtime.create_node().build();
-        let node_id = node_handle.id();
+        let node = runtime.create_node().build();
+        let node_id = node.id();
         let a = A;
 
         runtime.block_on(async move {
-            let join_handle = node_handle.spawn(async move { drop(a) });
+            // Since we're a single-threaded runtime, task spawning here won't run proactively.
+            // So `drop` will only be called after we call `abort` and while `await`ing the handle.
+            let join_handle = node.spawn(async move { drop(a) });
             join_handle.abort();
 
             let err = join_handle.await.unwrap_err();
             assert!(err.is_cancelled());
 
-            time::sleep(Duration::from_secs(1)).await;
-
+            // Let the task spawned in `A::drop` run and set the node id.
+            time::sleep(Duration::from_secs(114514)).await;
+            // Check that the task spawned in `A::drop` is also under the `node` we created.
             assert_eq!(DROPPING_NODE.try_lock().unwrap().unwrap(), node_id);
         })
     }
