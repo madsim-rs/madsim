@@ -168,7 +168,10 @@ impl Handle {
 
 #[cfg(test)]
 mod tests {
+    use tokio::runtime::Handle;
     use super::*;
+    use tracing;
+    use madsim::runtime::init_logger;
 
     #[test]
     fn runtime_drop() {
@@ -190,15 +193,20 @@ mod tests {
     }
 
     // FIXME(kwannoel): See https://github.com/madsim-rs/madsim/issues/228
-    // #[test]
-    #[allow(dead_code)]
+    #[test]
+    // #[allow(dead_code)]
     fn runtime_drop_and_spawn_struct_fail_with_try_current_task() {
+        init_logger();
+
         #[derive(Debug)]
         struct A {}
         impl Drop for A {
             fn drop(&mut self) {
+                tracing::info!("system thread of t3 drop: {:?}", std::thread::current().id());
                 if let Some(handle) = Handle::try_current().ok() {
-                    handle.spawn(std::future::pending::<()>());
+                    handle.spawn(async {
+                        std::future::pending::<()>().await
+                    });
                 }
             }
         }
@@ -206,8 +214,12 @@ mod tests {
         let a = A {};
         let runtime = madsim::runtime::Runtime::new();
         runtime.block_on(async move {
+            tracing::info!("system thread of t1: {:?}", std::thread::current().id());
             let rt = Runtime::new().unwrap();
-            let join_handle = rt.spawn(async move { drop(a) });
+            let join_handle = rt.spawn(async move {
+                tracing::info!("system thread of t2: {:?}", std::thread::current().id());
+                loop { &a; }
+            });
             drop(rt);
 
             let err = join_handle.await.unwrap_err();
@@ -216,8 +228,8 @@ mod tests {
     }
 
     // FIXME(kwannoel): See https://github.com/madsim-rs/madsim/issues/228
-    // #[test]
-    #[allow(dead_code)]
+    #[test]
+    // #[allow(dead_code)]
     fn runtime_drop_and_spawn_struct_fail() {
         #[derive(Debug)]
         struct A {}
@@ -254,7 +266,9 @@ mod tests {
             let rt = Runtime::new().unwrap();
             let join_handle = rt.spawn(async move {
                 let a = A {};
-                drop(a)
+                loop {
+                    println!("{:?}", &a);
+                }
             });
             drop(rt);
 
@@ -276,5 +290,101 @@ mod tests {
             let err = join_handle.await.unwrap_err();
             assert!(err.is_cancelled());
         })
+    }
+
+    #[test]
+    fn runtime_spawn_deeply_nested() {
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = rt.spawn(async move {
+                Handle::current().spawn(async {
+                    Handle::current().spawn(async {
+                        Handle::current().spawn(async {
+                            Handle::current().spawn(async {
+                                Handle::current().spawn(async {
+                                    Handle::current().spawn(async {
+                                        Handle::current().spawn(async {
+                                            Handle::current().spawn(async {
+                                            });
+                                        });
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+            join_handle.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn runtime_spawn_shallow_nested() {
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = rt.spawn(async move {
+                Handle::current().spawn(async {});
+            });
+            join_handle.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn runtime_spawn_no_nesting() {
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            Handle::current().spawn(async {});
+        });
+    }
+
+    #[test]
+    fn runtime_spawn_empty() {
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = rt.spawn(async move {
+            });
+            join_handle.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn runtime_spawn_no_tokio_rt() {
+        init_logger();
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = Handle::current().spawn(async move {
+            });
+            join_handle.await.unwrap();
+            tracing::info!("finished");
+        });
+    }
+
+
+    #[test]
+    fn runtime_spawn_indirect() {
+        init_logger();
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let rt = Runtime::new().unwrap();
+            let join_handle = (&Handle).spawn(async move {
+            });
+            join_handle.await.unwrap();
+            tracing::info!("finished");
+        });
+    }
+
+    #[test]
+    fn runtime_spawn_direct() {
+        init_logger();
+        let runtime = madsim::runtime::Runtime::new();
+        runtime.block_on(async move {
+            let join_handle = madsim::task::spawn(async {});
+            join_handle.await.unwrap();
+        });
     }
 }

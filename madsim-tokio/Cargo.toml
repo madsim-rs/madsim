@@ -64,5 +64,8 @@ spin = "0.9"
 [dependencies]
 tokio = "1"
 
+[dev-dependencies]
+tracing = "0.1"
+
 [lints]
 workspace = true
