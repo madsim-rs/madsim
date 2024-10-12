@@ -266,18 +266,25 @@ impl Executor {
                 // future has been dropped
                 continue;
             };
-            if info.cancelled.load(Ordering::Relaxed) || info.node.killed.load(Ordering::Relaxed) {
+            let work = if info.cancelled.load(Ordering::Relaxed)
+                || info.node.killed.load(Ordering::Relaxed)
+            {
                 // cancelled task or killed node: drop the future
-                continue;
+                drop
             } else if info.node.paused.load(Ordering::Relaxed) {
                 // paused task: push to waiting list
                 (self.nodes.lock().get_mut(&info.node.id).unwrap().paused).push(runnable);
                 continue;
-            }
+            } else {
+                fn run(runnable: Runnable) {
+                    runnable.run();
+                }
+                run
+            };
             // run the task
             let res = {
                 let _guard = crate::context::enter_task(info.clone());
-                std::panic::catch_unwind(move || runnable.run())
+                std::panic::catch_unwind(move || work(runnable))
             };
             if let Err(e) = res {
                 eprintln!(
@@ -623,7 +630,7 @@ impl Spawner {
         F::Output: 'static,
     {
         if self.info.killed.load(Ordering::Relaxed) {
-            panic!("spawning task on a killed node");
+            tracing::warn!("spawning task on a killed node, the task will never run");
         }
         let sender = self.sender.clone();
         let info = self.info.new_task(name);
@@ -788,7 +795,8 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
 mod tests {
     use super::*;
     use crate::{
-        runtime::{Handle, Runtime},
+        context::{current, current_node},
+        runtime::{init_logger, Handle, Runtime},
         time,
     };
     use std::{collections::HashSet, sync::atomic::AtomicUsize, time::Duration};
@@ -1098,5 +1106,76 @@ mod tests {
             assert!(Handle::current().is_exit(node.id()));
             assert_eq!(flag.load(Ordering::Relaxed), 4);
         });
+    }
+
+    #[test]
+    fn spawn_in_future_drop_by_aborting_task() {
+        static DROPPING_NODE: Mutex<Option<NodeId>> = Mutex::new(None);
+
+        struct A;
+
+        impl Drop for A {
+            fn drop(&mut self) {
+                spawn(async move {
+                    let _ = DROPPING_NODE.try_lock().unwrap().insert(current_node());
+                });
+            }
+        }
+
+        let runtime = Runtime::new();
+        let node = runtime.create_node().build();
+        let node_id = node.id();
+        let a = A;
+
+        runtime.block_on(async move {
+            // Since we're a single-threaded runtime, task spawning here won't run proactively.
+            // So `drop` will only be called after we call `abort` and while `await`ing the handle.
+            let join_handle = node.spawn(async move { drop(a) });
+            join_handle.abort();
+
+            let err = join_handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+
+            // Let the task spawned in `A::drop` run and set the node id.
+            time::sleep(Duration::from_secs(114514)).await;
+            // Check that the task spawned in `A::drop` is also under the `node` we created.
+            assert_eq!(DROPPING_NODE.try_lock().unwrap().unwrap(), node_id);
+        })
+    }
+
+    #[test]
+    fn spawn_in_future_drop_by_killing_node() {
+        init_logger();
+
+        static DROPPED: Mutex<bool> = Mutex::new(false);
+
+        struct A;
+
+        impl Drop for A {
+            fn drop(&mut self) {
+                // Spawning a task on a killed node will still succeed, but the task will never run.
+                spawn(async move { unreachable!() });
+                *DROPPED.try_lock().unwrap() = true;
+            }
+        }
+
+        let runtime = Runtime::new();
+        let node = runtime.create_node().build();
+        let node_id = node.id();
+        let a = A;
+
+        runtime.block_on(async move {
+            // Since we're a single-threaded runtime, task spawning here won't run proactively.
+            // So `drop` will only be called after we call `kill` and while `await`ing the handle.
+            let join_handle = node.spawn(async move { drop(a) });
+            current(|handle| handle.kill(node_id));
+
+            let err = join_handle.await.unwrap_err();
+            assert!(err.is_cancelled());
+            assert_eq!(*DROPPED.try_lock().unwrap(), true);
+
+            // Give some time, showing that the task spawned in `A::drop` is never run.
+            time::sleep(Duration::from_secs(114514)).await;
+        })
     }
 }
