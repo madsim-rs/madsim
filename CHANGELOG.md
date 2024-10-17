@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.31] - 2024-10-17
+
+### Fixed
+
+- Fix the problem where spawn in drop panics (#228).
+
+
 ## tonic [0.5.1] - 2024-08-02
 
 ### Added
