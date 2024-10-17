@@ -12,7 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix the problem where spawn in drop panics (#228).
 
-
 ## tonic [0.5.1] - 2024-08-02
 
 ### Added
