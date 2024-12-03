@@ -11,9 +11,9 @@ Magical Deterministic Simulator for distributed systems.
 MadSim is a Rust async runtime similar to tokio, but with a key feature called **deterministic simulation**.
 
 The main idea is borrowed from [FoundationDB](https://www.youtube.com/watch?v=4fFDFbi3toc) and [sled simulation guide](https://sled.rs/simulation.html).
-Your code should be able to deterministically executed on top of a simulator.
+Your code should be able to deterministically execute on top of a simulator.
 The simulator will amplify randomness, create chaos and inject failures into your system.
-A lot of hidden bugs may be revealed, which you can then deterministically reproduce them until they are fixed.
+A lot of hidden bugs may be revealed, which you can then deterministically reproduce until they are fixed.
 If your system can survive such chaos, you will have more confidence in deploying your system in the real world.
 
 However, implementing deterministic simulation is difficult.
