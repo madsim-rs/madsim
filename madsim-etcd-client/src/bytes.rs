@@ -89,7 +89,7 @@ impl<'de> Deserialize<'de> for Bytes {
         D: Deserializer<'de>,
     {
         struct EscapeStrVisitor;
-        impl<'de> de::Visitor<'de> for EscapeStrVisitor {
+        impl de::Visitor<'_> for EscapeStrVisitor {
             type Value = Bytes;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::future::Future;
 use std::net::SocketAddr;
 
 use madsim::net::Endpoint;
@@ -98,6 +99,16 @@ where
             results.push(res);
         }
         Ok(results)
+    }
+
+    /// Deletes the named groups.
+    pub fn delete_groups(
+        &self,
+        _group_names: &[&str],
+        _opts: &AdminOptions,
+    ) -> impl Future<Output = KafkaResult<Vec<GroupResult>>> {
+        // no-op
+        std::future::ready(Ok(vec![]))
     }
 }
 
@@ -202,7 +213,7 @@ impl<'a> NewPartitions<'a> {
 
     /// Sets the partition replica assignment for the new partitions. Only
     /// assignments for newly created replicas should be included.
-    pub fn assign(mut self, assignment: PartitionAssignment<'a>) -> NewPartitions<'_> {
+    pub fn assign(mut self, assignment: PartitionAssignment<'a>) -> NewPartitions<'a> {
         self.assignment = Some(assignment);
         self
     }
@@ -228,6 +239,9 @@ pub enum TopicReplication<'a> {
 /// The result of an individual CreateTopic, DeleteTopic, or
 /// CreatePartition operation.
 pub type TopicResult = Result<String, (String, RDKafkaErrorCode)>;
+
+/// The result of a DeleteGroup operation.
+pub type GroupResult = Result<String, (String, RDKafkaErrorCode)>;
 
 /// AdminClient configs.
 ///

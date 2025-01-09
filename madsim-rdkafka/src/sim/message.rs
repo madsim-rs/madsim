@@ -61,7 +61,7 @@ impl ToBytes for String {
     }
 }
 
-impl<'a, T: ToBytes> ToBytes for &'a T {
+impl<T: ToBytes> ToBytes for &T {
     fn to_bytes(&self) -> &[u8] {
         (*self).to_bytes()
     }

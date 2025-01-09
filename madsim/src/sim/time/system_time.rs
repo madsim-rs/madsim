@@ -28,7 +28,7 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
                 tp: *mut libc::timeval,
                 tz: *mut libc::c_void,
             ) -> libc::c_int = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, b"gettimeofday\0".as_ptr() as _);
+                let ptr = libc::dlsym(libc::RTLD_NEXT, c"gettimeofday".as_ptr() as _);
                 assert!(!ptr.is_null());
                 std::mem::transmute(ptr)
             };
@@ -78,7 +78,7 @@ unsafe extern "C" fn clock_gettime(
                 clockid: libc::clockid_t,
                 tp: *mut libc::timespec,
             ) -> libc::c_int = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, b"clock_gettime\0".as_ptr() as _);
+                let ptr = libc::dlsym(libc::RTLD_NEXT, c"clock_gettime".as_ptr() as _);
                 assert!(!ptr.is_null());
                 std::mem::transmute(ptr)
             };
@@ -103,7 +103,7 @@ extern "C" fn mach_absolute_time() -> u64 {
     } else {
         lazy_static::lazy_static! {
             static ref MACH_ABSOLUTE_TIME: extern "C" fn() -> u64 = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, b"mach_absolute_time\0".as_ptr() as _);
+                let ptr = libc::dlsym(libc::RTLD_NEXT, c"mach_absolute_time".as_ptr() as _);
                 assert!(!ptr.is_null());
                 std::mem::transmute(ptr)
             };
