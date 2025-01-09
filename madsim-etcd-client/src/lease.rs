@@ -71,7 +71,7 @@ impl LeaseClient {
     ) -> Result<LeaseTimeToLiveResponse> {
         let req = Request::LeaseTimeToLive {
             id,
-            keys: options.map_or(false, |opt| opt.keys),
+            keys: options.is_some_and(|opt| opt.keys),
         };
         let (tx, mut rx) = self.ep.connect1(self.server_addr).await?;
         tx.send(Box::new(req)).await?;

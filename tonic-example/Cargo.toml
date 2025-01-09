@@ -15,3 +15,6 @@ tracing-subscriber = "0.3"
 
 [build-dependencies]
 tonic-build = { path = "../madsim-tonic-build", package = "madsim-tonic-build" }
+
+[lints]
+workspace = true

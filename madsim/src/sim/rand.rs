@@ -225,7 +225,7 @@ unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, _flags: u32) -> isiz
     {
         lazy_static::lazy_static! {
             static ref GETENTROPY: unsafe extern "C" fn(buf: *mut u8, buflen: usize) -> libc::c_int = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, b"getentropy\0".as_ptr() as _);
+                let ptr = libc::dlsym(libc::RTLD_NEXT, c"getentropy".as_ptr() as _);
                 assert!(!ptr.is_null());
                 std::mem::transmute(ptr)
             };

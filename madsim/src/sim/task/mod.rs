@@ -757,7 +757,7 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
     }
     lazy_static::lazy_static! {
         static ref SYSCONF: unsafe extern "C" fn(name: libc::c_int) -> libc::c_long = unsafe {
-            let ptr = libc::dlsym(libc::RTLD_NEXT, b"sysconf\0".as_ptr() as _);
+            let ptr = libc::dlsym(libc::RTLD_NEXT, c"sysconf".as_ptr() as _);
             assert!(!ptr.is_null());
             std::mem::transmute(ptr)
         };
@@ -783,7 +783,7 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
     }
     lazy_static::lazy_static! {
         static ref PTHREAD_ATTR_INIT: unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int = unsafe {
-            let ptr = libc::dlsym(libc::RTLD_NEXT, b"pthread_attr_init\0".as_ptr() as _);
+            let ptr = libc::dlsym(libc::RTLD_NEXT, c"pthread_attr_init".as_ptr() as _);
             assert!(!ptr.is_null());
             std::mem::transmute(ptr)
         };
@@ -1172,7 +1172,7 @@ mod tests {
 
             let err = join_handle.await.unwrap_err();
             assert!(err.is_cancelled());
-            assert_eq!(*DROPPED.try_lock().unwrap(), true);
+            assert!(*DROPPED.try_lock().unwrap());
 
             // Give some time, showing that the task spawned in `A::drop` is never run.
             time::sleep(Duration::from_secs(114514)).await;
