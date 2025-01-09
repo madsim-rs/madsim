@@ -736,7 +736,7 @@ unsafe extern "C" fn sched_getaffinity(
             cpusetsize: libc::size_t,
             cpuset: *mut libc::cpu_set_t,
         ) -> libc::c_int = unsafe {
-            let ptr = libc::dlsym(libc::RTLD_NEXT, b"sched_getaffinity\0".as_ptr() as _);
+            let ptr = libc::dlsym(libc::RTLD_NEXT, c"sched_getaffinity".as_ptr() as _);
             assert!(!ptr.is_null());
             std::mem::transmute(ptr)
         };

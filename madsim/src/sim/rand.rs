@@ -214,7 +214,7 @@ unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, _flags: u32) -> isiz
         // not in madsim, call the original function.
         lazy_static::lazy_static! {
             static ref GETRANDOM: unsafe extern "C" fn(buf: *mut u8, buflen: usize, flags: u32) -> isize = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, b"getrandom\0".as_ptr() as _);
+                let ptr = libc::dlsym(libc::RTLD_NEXT, c"getrandom".as_ptr() as _);
                 assert!(!ptr.is_null());
                 std::mem::transmute(ptr)
             };
