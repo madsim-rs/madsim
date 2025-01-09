@@ -867,7 +867,7 @@ impl<'a> NewPartitions<'a> {
 
     /// Sets the partition replica assignment for the new partitions. Only
     /// assignments for newly created replicas should be included.
-    pub fn assign(mut self, assignment: PartitionAssignment<'a>) -> NewPartitions<'_> {
+    pub fn assign(mut self, assignment: PartitionAssignment<'a>) -> NewPartitions<'a> {
         self.assignment = Some(assignment);
         self
     }
