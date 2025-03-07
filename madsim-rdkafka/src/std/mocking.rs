@@ -38,9 +38,10 @@ use crate::ClientContext;
 ///
 ///   In this case, we **must neither** destroy the mock cluster in `MockCluster`'s `drop()`,
 ///   **nor** outlive the `Client` from which the reference is obtained, hence the lifetime.
-#[allow(dead_code)]
 enum MockClusterClient<'c, C: ClientContext> {
+    #[allow(dead_code)]
     Owned(Client<C>),
+    #[allow(dead_code)]
     Borrowed(&'c Client<C>),
 }
 
@@ -138,7 +139,7 @@ where
     pub fn bootstrap_servers(&self) -> String {
         let bootstrap =
             unsafe { CStr::from_ptr(rdsys::rd_kafka_mock_cluster_bootstraps(self.mock_cluster)) };
-        bootstrap.to_string_lossy().to_string()
+        bootstrap.to_string_lossy().into_owned()
     }
 
     /// Clear the cluster's error state for the given ApiKey.
@@ -415,7 +416,6 @@ mod tests {
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", &bootstrap_servers)
             .create()
-            .await
             .expect("Producer creation error");
 
         let consumer: StreamConsumer = ClientConfig::new()
@@ -423,7 +423,6 @@ mod tests {
             .set("group.id", "rust-rdkafka-mockcluster-test")
             .set("auto.offset.reset", "earliest")
             .create()
-            .await
             .expect("Client creation error");
 
         let rec = FutureRecord::to(TOPIC).key("msg1").payload("test");

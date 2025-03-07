@@ -23,7 +23,7 @@
 //! [librdkafka-config]: https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
 
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::iter::FromIterator;
 use std::os::raw::c_char;
 use std::ptr;
@@ -150,10 +150,33 @@ impl NativeClientConfig {
         }
 
         // Convert the C string to a Rust string.
-        Ok(CStr::from_bytes_with_nul(&buf)
-            .unwrap()
-            .to_string_lossy()
-            .into())
+        Ok(String::from_utf8_lossy(&buf)
+            .trim_matches(char::from(0))
+            .to_string())
+    }
+
+    pub(crate) fn set(&self, key: &str, value: &str) -> KafkaResult<()> {
+        let mut err_buf = ErrBuf::new();
+        let key_c = CString::new(key)?;
+        let value_c = CString::new(value)?;
+        let ret = unsafe {
+            rdsys::rd_kafka_conf_set(
+                self.ptr(),
+                key_c.as_ptr(),
+                value_c.as_ptr(),
+                err_buf.as_mut_ptr(),
+                err_buf.capacity(),
+            )
+        };
+        if ret.is_error() {
+            return Err(KafkaError::ClientConfig(
+                ret,
+                err_buf.to_string(),
+                key.to_string(),
+                value.to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -228,43 +251,24 @@ impl ClientConfig {
     /// Builds a native librdkafka configuration.
     pub fn create_native_config(&self) -> KafkaResult<NativeClientConfig> {
         let conf = unsafe { NativeClientConfig::from_ptr(rdsys::rd_kafka_conf_new()) };
-        let mut err_buf = ErrBuf::new();
         for (key, value) in &self.conf_map {
-            let key_c = CString::new(key.to_string())?;
-            let value_c = CString::new(value.to_string())?;
-            let ret = unsafe {
-                rdsys::rd_kafka_conf_set(
-                    conf.ptr(),
-                    key_c.as_ptr(),
-                    value_c.as_ptr(),
-                    err_buf.as_mut_ptr(),
-                    err_buf.capacity(),
-                )
-            };
-            if ret.is_error() {
-                return Err(KafkaError::ClientConfig(
-                    ret,
-                    err_buf.to_string(),
-                    key.to_string(),
-                    value.to_string(),
-                ));
-            }
+            conf.set(key, value)?;
         }
         Ok(conf)
     }
 
     /// Uses the current configuration to create a new Consumer or Producer.
-    pub async fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
-        T::from_config(self).await
+    pub fn create<T: FromClientConfig>(&self) -> KafkaResult<T> {
+        T::from_config(self)
     }
 
     /// Uses the current configuration and the provided context to create a new Consumer or Producer.
-    pub async fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
+    pub fn create_with_context<C, T>(&self, context: C) -> KafkaResult<T>
     where
         C: ClientContext,
         T: FromClientConfigAndContext<C>,
     {
-        T::from_config_and_context(self, context).await
+        T::from_config_and_context(self, context)
     }
 }
 
@@ -302,18 +306,16 @@ fn log_level_from_global_config() -> RDKafkaLogLevel {
 }
 
 /// Create a new client based on the provided configuration.
-#[async_trait::async_trait]
 pub trait FromClientConfig: Sized {
     /// Creates a client from a client configuration. The default client context
     /// will be used.
-    async fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
+    fn from_config(_: &ClientConfig) -> KafkaResult<Self>;
 }
 
 /// Create a new client based on the provided configuration and context.
-#[async_trait::async_trait]
 pub trait FromClientConfigAndContext<C: ClientContext>: Sized {
     /// Creates a client from a client configuration and a client context.
-    async fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
+    fn from_config_and_context(_: &ClientConfig, _: C) -> KafkaResult<Self>;
 }
 
 #[cfg(test)]

@@ -57,7 +57,7 @@ use rdkafka_sys as rdsys;
 use rdkafka_sys::rd_kafka_vtype_t::*;
 use rdkafka_sys::types::*;
 
-use crate::client::Client;
+use crate::client::{Client, EventPollResult, NativeQueue};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext};
 use crate::consumer::ConsumerGroupMetadata;
 use crate::error::{IsError, KafkaError, KafkaResult, RDKafkaError};
@@ -67,32 +67,11 @@ use crate::producer::{
     DefaultProducerContext, Partitioner, Producer, ProducerContext, PurgeConfig,
 };
 use crate::topic_partition_list::TopicPartitionList;
-use crate::util::{IntoOpaque, Timeout};
+use crate::util::{IntoOpaque, NativePtr, Timeout};
 
 pub use crate::message::DeliveryResult;
 
 use super::NoCustomPartitioner;
-
-/// Callback that gets called from librdkafka every time a message succeeds or fails to be
-/// delivered.
-unsafe extern "C" fn delivery_cb<Part: Partitioner, C: ProducerContext<Part>>(
-    _client: *mut RDKafka,
-    msg: *const RDKafkaMessage,
-    opaque: *mut c_void,
-) {
-    let producer_context = &mut *(opaque as *mut C);
-    let delivery_opaque = C::DeliveryOpaque::from_ptr((*msg)._private);
-    let owner = 42u8;
-    // Wrap the message pointer into a BorrowedMessage that will only live for the body of this
-    // function.
-    let delivery_result = BorrowedMessage::from_dr_callback(msg as *mut RDKafkaMessage, &owner);
-    trace!("Delivery event received: {:?}", delivery_result);
-    producer_context.delivery(&delivery_result, delivery_opaque);
-    match delivery_result {
-        // Do not free the message, librdkafka will do it for us
-        Ok(message) | Err((_, message)) => mem::forget(message),
-    }
-}
 
 //
 // ********** BASE PRODUCER **********
@@ -110,8 +89,8 @@ unsafe extern "C" fn delivery_cb<Part: Partitioner, C: ProducerContext<Part>>(
 /// [`DeliveryOpaque`](ProducerContext::DeliveryOpaque):
 ///
 /// ```rust,no_run
-/// # use madsim_rdkafka::producer::BaseRecord;
-/// # use madsim_rdkafka::message::ToBytes;
+/// # use rdkafka::producer::BaseRecord;
+/// # use rdkafka::message::ToBytes;
 /// let record = BaseRecord::to("topic_name")  // destination topic
 ///     .key(&[1, 2, 3, 4])                    // message key
 ///     .payload("content")                    // message payload
@@ -122,8 +101,8 @@ unsafe extern "C" fn delivery_cb<Part: Partitioner, C: ProducerContext<Part>>(
 /// as the `DeliveryOpaque` for the message:
 ///
 /// ```rust,no_run
-/// # use madsim_rdkafka::producer::BaseRecord;
-/// # use madsim_rdkafka::message::ToBytes;
+/// # use rdkafka::producer::BaseRecord;
+/// # use rdkafka::message::ToBytes;
 /// let record = BaseRecord::with_opaque_to("topic_name", 123) // destination topic and message id
 ///     .key(&[1, 2, 3, 4])                                    // message key
 ///     .payload("content")                                    // message payload
@@ -252,17 +231,13 @@ unsafe extern "C" fn partitioner_cb<Part: Partitioner, C: ProducerContext<Part>>
         .partition(topic_name, key, partition_cnt, is_partition_available)
 }
 
-#[async_trait::async_trait]
 impl FromClientConfig for BaseProducer<DefaultProducerContext> {
     /// Creates a new `BaseProducer` starting from a configuration.
-    async fn from_config(
-        config: &ClientConfig,
-    ) -> KafkaResult<BaseProducer<DefaultProducerContext>> {
-        BaseProducer::from_config_and_context(config, DefaultProducerContext).await
+    fn from_config(config: &ClientConfig) -> KafkaResult<BaseProducer<DefaultProducerContext>> {
+        BaseProducer::from_config_and_context(config, DefaultProducerContext)
     }
 }
 
-#[async_trait::async_trait]
 impl<C, Part> FromClientConfigAndContext<C> for BaseProducer<C, Part>
 where
     Part: Partitioner,
@@ -273,7 +248,7 @@ where
     ///
     /// SAFETY: Raw pointer to custom partitioner is used as opaque.
     /// It's comes from reference to field in producer context so it's valid as the context is valid.
-    async fn from_config_and_context(
+    fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<BaseProducer<C, Part>> {
@@ -298,7 +273,13 @@ where
         }
 
         unsafe {
-            rdsys::rd_kafka_conf_set_dr_msg_cb(native_config.ptr(), Some(delivery_cb::<Part, C>))
+            rdsys::rd_kafka_conf_set_events(
+                native_config.ptr(),
+                rdsys::RD_KAFKA_EVENT_DR
+                    | rdsys::RD_KAFKA_EVENT_STATS
+                    | rdsys::RD_KAFKA_EVENT_ERROR
+                    | rdsys::RD_KAFKA_EVENT_OAUTHBEARER_TOKEN_REFRESH,
+            )
         };
         let client = Client::new_context_arc(
             config,
@@ -322,15 +303,14 @@ where
 /// specified, so the [`DefaultProducerContext`] will be used. To see how to use
 /// a producer context, refer to the examples in the [`examples`] folder.
 ///
-/// ```rust,ignore
-/// use madsim_rdkafka::config::ClientConfig;
-/// use madsim_rdkafka::producer::{BaseProducer, BaseRecord, Producer};
+/// ```rust
+/// use rdkafka::config::ClientConfig;
+/// use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
 /// use std::time::Duration;
 ///
 /// let producer: BaseProducer = ClientConfig::new()
 ///     .set("bootstrap.servers", "kafka:9092")
 ///     .create()
-///     .await
 ///     .expect("Producer creation error");
 ///
 /// producer.send(
@@ -356,7 +336,9 @@ where
     C: ProducerContext<Part>,
 {
     client: Client<C>,
+    queue: NativeQueue,
     _partitioner: PhantomData<Part>,
+    min_poll_interval: Timeout,
 }
 
 impl<C, Part> BaseProducer<C, Part>
@@ -366,18 +348,57 @@ where
 {
     /// Creates a base producer starting from a Client.
     fn from_client(client: Client<C>) -> BaseProducer<C, Part> {
+        let queue = client.main_queue();
         BaseProducer {
             client,
+            queue,
             _partitioner: PhantomData,
+            min_poll_interval: Timeout::After(Duration::from_millis(100)),
         }
     }
 
-    /// Polls the producer, returning the number of events served.
+    /// Polls the producer
     ///
     /// Regular calls to `poll` are required to process the events and execute
     /// the message delivery callbacks.
-    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) -> i32 {
-        unsafe { rdsys::rd_kafka_poll(self.native_ptr(), timeout.into().as_millis()) }
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
+        let event = self.client().poll_event(&self.queue, timeout.into());
+        if let EventPollResult::Event(ev) = event {
+            let evtype = unsafe { rdsys::rd_kafka_event_type(ev.ptr()) };
+            match evtype {
+                rdsys::RD_KAFKA_EVENT_DR => self.handle_delivery_report_event(ev),
+                _ => {
+                    let evname = unsafe {
+                        let evname = rdsys::rd_kafka_event_name(ev.ptr());
+                        CStr::from_ptr(evname).to_string_lossy()
+                    };
+                    warn!("Ignored event '{}' on base producer poll", evname);
+                }
+            }
+        }
+    }
+
+    fn handle_delivery_report_event(&self, event: NativePtr<RDKafkaEvent>) {
+        let max_messages = unsafe { rdsys::rd_kafka_event_message_count(event.ptr()) };
+        let messages: Vec<*const RDKafkaMessage> = Vec::with_capacity(max_messages);
+
+        let mut messages = mem::ManuallyDrop::new(messages);
+        let messages = unsafe {
+            let msgs_cnt = rdsys::rd_kafka_event_message_array(
+                event.ptr(),
+                messages.as_mut_ptr(),
+                max_messages,
+            );
+            Vec::from_raw_parts(messages.as_mut_ptr(), msgs_cnt, max_messages)
+        };
+
+        let ev = Arc::new(event);
+        for msg in messages {
+            let delivery_result =
+                unsafe { BorrowedMessage::from_dr_event(msg as *mut _, ev.clone(), self.client()) };
+            let delivery_opaque = unsafe { C::DeliveryOpaque::from_ptr((*msg)._private) };
+            self.context().delivery(&delivery_result, delivery_opaque);
+        }
     }
 
     /// Returns a pointer to the native Kafka client.
@@ -404,6 +425,7 @@ where
     /// Note that this method will never block.
     // Simplifying the return type requires generic associated types, which are
     // unstable.
+    #[allow(clippy::result_large_err)]
     pub fn send<'a, K, P>(
         &self,
         mut record: BaseRecord<'a, K, P, C::DeliveryOpaque>,
@@ -420,7 +442,7 @@ where
         }
         let (payload_ptr, payload_len) = as_bytes(record.payload);
         let (key_ptr, key_len) = as_bytes(record.key);
-        let topic_cstring = CString::new(record.topic.to_owned()).unwrap();
+        let topic_cstring = CString::new(record.topic).unwrap();
         let opaque_ptr = record.delivery_opaque.into_ptr();
         let produce_error = unsafe {
             rdsys::rd_kafka_producev(
@@ -460,7 +482,6 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<C, Part> Producer<C, Part> for BaseProducer<C, Part>
 where
     Part: Partitioner,
@@ -470,12 +491,28 @@ where
         &self.client
     }
 
-    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        let ret = unsafe { rdsys::rd_kafka_flush(self.native_ptr(), timeout.into().as_millis()) };
-        if ret.is_error() {
-            Err(KafkaError::Flush(ret.into()))
-        } else {
-            Ok(())
+    // As this library uses the rdkafka Event API, flush will not call rd_kafka_poll() but instead wait for
+    // the librdkafka-handled message count to reach zero. Runs until value reaches zero or timeout.
+    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        let mut timeout = timeout.into();
+        loop {
+            let op_timeout = std::cmp::min(timeout, self.min_poll_interval);
+            if self.in_flight_count() > 0 {
+                unsafe { rdsys::rd_kafka_flush(self.native_ptr(), 0) };
+                self.poll(op_timeout);
+            } else {
+                return Ok(());
+            }
+
+            if op_timeout >= timeout {
+                let ret = unsafe { rdsys::rd_kafka_flush(self.native_ptr(), 0) };
+                if ret.is_error() {
+                    return Err(KafkaError::Flush(ret.into()));
+                } else {
+                    return Ok(());
+                }
+            }
+            timeout -= op_timeout;
         }
     }
 
@@ -494,7 +531,7 @@ where
         unsafe { rdsys::rd_kafka_outq_len(self.native_ptr()) }
     }
 
-    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_init_transactions(
                 self.native_ptr(),
@@ -518,7 +555,7 @@ where
         }
     }
 
-    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
+    fn send_offsets_to_transaction<T: Into<Timeout>>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -539,11 +576,18 @@ where
         }
     }
 
-    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        // rd_kafka_commit_transaction will call flush but the user must call poll in order to
+        // server the event queue. In order to avoid blocking here forever on the base producer,
+        // we call Flush that will flush the outstanding messages and serve the event queue.
+        // https://github.com/confluentinc/librdkafka/blob/95a542c87c61d2c45b445f91c73dd5442eb04f3c/src/rdkafka.h#L10231
+        // The recommended timeout here is -1 (never, i.e, infinite).
+        let timeout = timeout.into();
+        self.flush(timeout)?;
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_commit_transaction(
                 self.native_ptr(),
-                timeout.into().as_millis(),
+                timeout.as_millis(),
             ))
         };
         if ret.is_error() {
@@ -553,7 +597,7 @@ where
         }
     }
 
-    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_abort_transaction(
                 self.native_ptr(),
@@ -574,8 +618,13 @@ where
 {
     fn drop(&mut self) {
         self.purge(PurgeConfig::default().queue().inflight());
-        // Still have to poll after purging to get the results that have been made ready by the purge
-        self.poll(Timeout::After(Duration::ZERO));
+        // Still have to flush after purging to get the results that have been made ready by the purge
+        if let Err(err) = self.flush(Timeout::After(Duration::from_millis(500))) {
+            warn!(
+                "Failed to flush outstanding messages while dropping the producer: {:?}",
+                err
+            );
+        }
     }
 }
 
@@ -596,29 +645,25 @@ where
 {
     producer: Arc<BaseProducer<C, Part>>,
     should_stop: Arc<AtomicBool>,
-    handle: Option<JoinHandle<()>>,
+    handle: Option<Arc<JoinHandle<()>>>,
 }
 
-#[async_trait::async_trait]
 impl FromClientConfig for ThreadedProducer<DefaultProducerContext, NoCustomPartitioner> {
-    async fn from_config(
-        config: &ClientConfig,
-    ) -> KafkaResult<ThreadedProducer<DefaultProducerContext>> {
-        ThreadedProducer::from_config_and_context(config, DefaultProducerContext).await
+    fn from_config(config: &ClientConfig) -> KafkaResult<ThreadedProducer<DefaultProducerContext>> {
+        ThreadedProducer::from_config_and_context(config, DefaultProducerContext)
     }
 }
 
-#[async_trait::async_trait]
 impl<C, Part> FromClientConfigAndContext<C> for ThreadedProducer<C, Part>
 where
     Part: Partitioner + Send + Sync + 'static,
     C: ProducerContext<Part> + 'static,
 {
-    async fn from_config_and_context(
+    fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<ThreadedProducer<C, Part>> {
-        let producer = Arc::new(BaseProducer::from_config_and_context(config, context).await?);
+        let producer = Arc::new(BaseProducer::from_config_and_context(config, context)?);
         let should_stop = Arc::new(AtomicBool::new(false));
         let thread = {
             let producer = Arc::clone(&producer);
@@ -628,15 +673,11 @@ where
                 .spawn(move || {
                     trace!("Polling thread loop started");
                     loop {
-                        let n = producer.poll(Duration::from_millis(100));
-                        if n == 0 {
-                            if should_stop.load(Ordering::Relaxed) {
-                                // We received nothing and the thread should
-                                // stop, so break the loop.
-                                break;
-                            }
-                        } else {
-                            trace!("Received {} events", n);
+                        producer.poll(Duration::from_millis(100));
+                        if should_stop.load(Ordering::Relaxed) {
+                            // We received nothing and the thread should
+                            // stop, so break the loop.
+                            break;
                         }
                     }
                     trace!("Polling thread loop terminated");
@@ -646,7 +687,7 @@ where
         Ok(ThreadedProducer {
             producer,
             should_stop,
-            handle: Some(thread),
+            handle: Some(Arc::new(thread)),
         })
     }
 }
@@ -661,6 +702,7 @@ where
     /// See the documentation for [`BaseProducer::send`] for details.
     // Simplifying the return type requires generic associated types, which are
     // unstable.
+    #[allow(clippy::result_large_err)]
     pub fn send<'a, K, P>(
         &self,
         record: BaseRecord<'a, K, P, C::DeliveryOpaque>,
@@ -676,12 +718,11 @@ where
     ///
     /// This is not normally required since the `ThreadedProducer` has a thread
     /// dedicated to calling `poll` regularly.
-    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) {
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
         self.producer.poll(timeout);
     }
 }
 
-#[async_trait::async_trait]
 impl<C, Part> Producer<C, Part> for ThreadedProducer<C, Part>
 where
     Part: Partitioner,
@@ -691,8 +732,8 @@ where
         self.producer.client()
     }
 
-    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.flush(timeout).await
+    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.flush(timeout)
     }
 
     fn purge(&self, flags: PurgeConfig) {
@@ -703,15 +744,15 @@ where
         self.producer.in_flight_count()
     }
 
-    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.init_transactions(timeout).await
+    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.init_transactions(timeout)
     }
 
     fn begin_transaction(&self) -> KafkaResult<()> {
         self.producer.begin_transaction()
     }
 
-    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
+    fn send_offsets_to_transaction<T: Into<Timeout>>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -719,15 +760,24 @@ where
     ) -> KafkaResult<()> {
         self.producer
             .send_offsets_to_transaction(offsets, cgm, timeout)
-            .await
     }
 
-    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.commit_transaction(timeout).await
+    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.commit_transaction(timeout)
     }
 
-    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.abort_transaction(timeout).await
+    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.abort_transaction(timeout)
+    }
+}
+
+impl<C: ProducerContext + 'static> Clone for ThreadedProducer<C> {
+    fn clone(&self) -> Self {
+        Self {
+            producer: Arc::clone(&self.producer),
+            should_stop: Arc::clone(&self.should_stop),
+            handle: self.handle.clone(),
+        }
     }
 }
 
@@ -738,7 +788,7 @@ where
 {
     fn drop(&mut self) {
         trace!("Destroy ThreadedProducer");
-        if let Some(handle) = self.handle.take() {
+        if let Some(handle) = self.handle.take().and_then(Arc::into_inner) {
             trace!("Stopping polling");
             self.should_stop.store(true, Ordering::Relaxed);
             trace!("Waiting for polling thread termination");

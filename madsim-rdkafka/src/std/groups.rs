@@ -84,6 +84,9 @@ impl GroupInfo {
 
     /// Returns the members of the group.
     pub fn members(&self) -> &[GroupMemberInfo] {
+        if self.0.members.is_null() {
+            return &[];
+        }
         unsafe {
             slice::from_raw_parts(
                 self.0.members as *const GroupMemberInfo,
@@ -131,8 +134,6 @@ impl fmt::Debug for GroupInfo {
 /// This structure wraps the pointer returned by rdkafka-sys, and deallocates
 /// all the native resources when dropped.
 pub struct GroupList(NativePtr<RDKafkaGroupList>);
-
-unsafe impl Send for GroupList {}
 
 unsafe impl KafkaDrop for RDKafkaGroupList {
     const TYPE: &'static str = "group";
