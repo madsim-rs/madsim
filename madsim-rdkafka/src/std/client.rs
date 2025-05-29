@@ -303,14 +303,15 @@ impl<C: ClientContext> Client<C> {
         }
 
         if context.enable_refresh_oauth_token() {
-            match unsafe {
+            if let Err(e) = unsafe {
                 match rdsys::rd_kafka_sasl_background_callbacks_enable(client_ptr).as_mut() {
                     None => Ok(()),
                     Some(e) => Err(RDKafkaError::from_ptr(e)),
                 }
             } {
-                Ok(_) => {}
-                Err(e) => return Err(KafkaError::ClientCreation(e.to_string())),
+                error!("Failed to enable SASL background callbacks: {}", e);
+                unsafe { rdsys::rd_kafka_destroy(client_ptr) };
+                return Err(KafkaError::ClientCreation(e.to_string()));
             }
         }
 
