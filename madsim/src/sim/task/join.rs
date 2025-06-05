@@ -115,13 +115,10 @@ impl std::error::Error for JoinError {}
 
 impl From<JoinError> for io::Error {
     fn from(src: JoinError) -> io::Error {
-        io::Error::new(
-            io::ErrorKind::Other,
-            match src.is_panic {
-                false => "task was cancelled",
-                true => "task panicked",
-            },
-        )
+        io::Error::other(match src.is_panic {
+            false => "task was cancelled",
+            true => "task panicked",
+        })
     }
 }
 
