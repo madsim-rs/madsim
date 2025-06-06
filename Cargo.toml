@@ -20,3 +20,6 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(madsim)',
     'cfg(tokio_unstable)',
 ] }
+
+[workspace.lints.clippy]
+result_large_err = "allow"

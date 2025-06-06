@@ -30,14 +30,14 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings -A clippy::result_large_err
+          args: -- -D warnings
       - name: Clippy sim
         uses: actions-rs/cargo@v1
         env:
           RUSTFLAGS: "--cfg madsim"
         with:
           command: clippy
-          args: -- -D warnings -A clippy::result_large_err
+          args: -- -D warnings
 
   build:
     runs-on: ubuntu-latest
