@@ -269,15 +269,14 @@ unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
 ///
 /// `getentropy` is no longer used to generate random bytes in macOS, `CCRandomGenerateBytes` is used instead.
 ///
-/// Ref: <https://github.com/apple-oss-distributions/CommonCrypto/blob/main/include/CommonRandom.h>
+/// Reference:
+/// - <https://github.com/apple-oss-distributions/CommonCrypto/blob/a0ac082c490b65585ade764511acfdbf1d97bc5e/include/CommonRandom.h#L56>
+/// - <https://github.com/apple-oss-distributions/CommonCrypto/blob/0c0a068edd73f84671f1fba8c0e171caa114ee0a/lib/CommonRandom.c#L65-L85>
 #[cfg(target_os = "macos")]
 #[no_mangle]
 #[inline(never)]
-unsafe extern "C" fn CCRandomGenerateBytes(buf: *mut u8, buflen: usize) -> i32 {
-    if buflen > 256 {
-        return -1;
-    }
-    match getrandom(buf, buflen, 0) {
+unsafe extern "C" fn CCRandomGenerateBytes(bytes: *mut u8, count: usize) -> i32 {
+    match getrandom(bytes, count, 0) {
         -1 => -1,
         _ => 0,
     }
