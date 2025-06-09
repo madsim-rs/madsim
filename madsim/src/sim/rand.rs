@@ -259,6 +259,29 @@ unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
     }
 }
 
+/// Fill a buffer with random bytes.
+///
+/// # Safety
+///
+/// Input must be a valid buffer.
+///
+/// After Rust [1.83](https://github.com/rust-lang/rust/commit/b9d47cfa9b8f0805bfab2c254a02e598a906f102#diff-52bbc1fe799cc445f2244dcc180148b89102c1d9b5d34b14bc9425ec688b27a8),
+///
+/// `getentropy` is no longer used to generate random bytes in macOS, `CCRandomGenerateBytes` is used instead.
+///
+/// Reference:
+/// - <https://github.com/apple-oss-distributions/CommonCrypto/blob/a0ac082c490b65585ade764511acfdbf1d97bc5e/include/CommonRandom.h#L56>
+/// - <https://github.com/apple-oss-distributions/CommonCrypto/blob/0c0a068edd73f84671f1fba8c0e171caa114ee0a/lib/CommonRandom.c#L65-L85>
+#[cfg(target_os = "macos")]
+#[no_mangle]
+#[inline(never)]
+unsafe extern "C" fn CCRandomGenerateBytes(bytes: *mut u8, count: usize) -> i32 {
+    match getrandom(bytes, count, 0) {
+        -1 => -1,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::runtime::Runtime;
@@ -285,9 +308,7 @@ mod tests {
         assert_eq!(seqs.len(), 3);
     }
 
-    // FIXME: check what's wrong
     #[test]
-    #[ignore]
     fn deterministic_std_hashmap() {
         let mut seqs = BTreeSet::new();
         for i in 0..9 {
