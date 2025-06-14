@@ -1,6 +1,5 @@
 //! High-level consumers with a [`Stream`](futures_util::Stream) interface.
 
-use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::pin::Pin;
@@ -19,9 +18,9 @@ use slab::Slab;
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
-use crate::client::{Client, NativeQueue};
+use crate::client::{Client, EventPollResult, NativeQueue};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext};
-use crate::consumer::base_consumer::BaseConsumer;
+use crate::consumer::base_consumer::{BaseConsumer, PartitionQueue};
 use crate::consumer::{
     CommitMode, Consumer, ConsumerContext, ConsumerGroupMetadata, DefaultConsumerContext,
     RebalanceProtocol,
@@ -31,7 +30,7 @@ use crate::groups::GroupList;
 use crate::message::BorrowedMessage;
 use crate::metadata::Metadata;
 use crate::topic_partition_list::{Offset, TopicPartitionList};
-use crate::util::{AsyncRuntime, DefaultRuntime, NativePtr, Timeout};
+use crate::util::{AsyncRuntime, DefaultRuntime, Timeout};
 
 unsafe extern "C" fn native_message_queue_nonempty_cb(_: *mut RDKafka, opaque_ptr: *mut c_void) {
     let wakers = &*(opaque_ptr as *const WakerSlab);
@@ -89,58 +88,91 @@ impl WakerSlab {
 /// A stream of messages from a [`StreamConsumer`].
 ///
 /// See the documentation of [`StreamConsumer::stream`] for details.
-pub struct MessageStream<'a> {
+pub struct MessageStream<'a, C: ConsumerContext> {
     wakers: &'a WakerSlab,
-    queue: &'a NativeQueue,
+    consumer: &'a BaseConsumer<C>,
+    partition_queue: Option<&'a NativeQueue>,
     slot: usize,
 }
 
-impl<'a> MessageStream<'a> {
-    fn new(wakers: &'a WakerSlab, queue: &'a NativeQueue) -> MessageStream<'a> {
+impl<'a, C: ConsumerContext> MessageStream<'a, C> {
+    fn new(wakers: &'a WakerSlab, consumer: &'a BaseConsumer<C>) -> MessageStream<'a, C> {
+        Self::new_with_optional_partition_queue(wakers, consumer, None)
+    }
+
+    fn new_with_partition_queue(
+        wakers: &'a WakerSlab,
+        consumer: &'a BaseConsumer<C>,
+        partition_queue: &'a NativeQueue,
+    ) -> MessageStream<'a, C> {
+        Self::new_with_optional_partition_queue(wakers, consumer, Some(partition_queue))
+    }
+
+    fn new_with_optional_partition_queue(
+        wakers: &'a WakerSlab,
+        consumer: &'a BaseConsumer<C>,
+        partition_queue: Option<&'a NativeQueue>,
+    ) -> MessageStream<'a, C> {
         let slot = wakers.register();
         MessageStream {
             wakers,
-            queue,
+            consumer,
+            partition_queue,
             slot,
         }
     }
 
-    fn poll(&self) -> Option<KafkaResult<BorrowedMessage<'a>>> {
-        unsafe {
-            NativePtr::from_ptr(rdsys::rd_kafka_consume_queue(self.queue.ptr(), 0))
-                .map(|p| BorrowedMessage::from_consumer(p, self.queue))
+    fn poll(&self) -> EventPollResult<KafkaResult<BorrowedMessage<'a>>> {
+        if let Some(queue) = self.partition_queue {
+            self.consumer.poll_queue(queue, Duration::ZERO)
+        } else {
+            self.consumer
+                .poll_queue(self.consumer.get_queue(), Duration::ZERO)
         }
     }
 }
 
-impl<'a> Stream for MessageStream<'a> {
+impl<'a, C: ConsumerContext> Stream for MessageStream<'a, C> {
     type Item = KafkaResult<BorrowedMessage<'a>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // If there is a message ready, yield it immediately to avoid the
-        // taking the lock in `self.set_waker`.
-        if let Some(message) = self.poll() {
-            return Poll::Ready(Some(message));
-        }
-
-        // Otherwise, we need to wait for a message to become available. Store
-        // the waker so that we are woken up if the queue flips from non-empty
-        // to empty. We have to store the waker repatedly in case this future
-        // migrates between tasks.
-        self.wakers.set_waker(self.slot, cx.waker().clone());
-
-        // Check whether a new message became available after we installed the
-        // waker. This avoids a race where `poll` returns None to indicate that
-        // the queue is empty, but the queue becomes non-empty before we've
-        // installed the waker.
         match self.poll() {
-            None => Poll::Pending,
-            Some(message) => Poll::Ready(Some(message)),
+            EventPollResult::Event(message) => {
+                // If there is a message ready, yield it immediately to avoid the
+                // taking the lock in `self.set_waker`.
+                Poll::Ready(Some(message))
+            }
+            EventPollResult::EventConsumed => {
+                // Event was consumed, yield to runtime
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            EventPollResult::None => {
+                // Otherwise, we need to wait for a message to become available. Store
+                // the waker so that we are woken up if the queue flips from non-empty
+                // to empty. We have to store the waker repatedly in case this future
+                // migrates between tasks.
+                self.wakers.set_waker(self.slot, cx.waker().clone());
+
+                // Check whether a new message became available after we installed the
+                // waker. This avoids a race where `poll` returns None to indicate that
+                // the queue is empty, but the queue becomes non-empty before we've
+                // installed the waker.
+                match self.poll() {
+                    EventPollResult::Event(message) => Poll::Ready(Some(message)),
+                    EventPollResult::EventConsumed => {
+                        // Event was consumed, yield to runtime
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                    EventPollResult::None => Poll::Pending,
+                }
+            }
         }
     }
 }
 
-impl<'a> Drop for MessageStream<'a> {
+impl<'a, C: ConsumerContext> Drop for MessageStream<'a, C> {
     fn drop(&mut self) {
         self.wakers.unregister(self.slot);
     }
@@ -165,31 +197,28 @@ pub struct StreamConsumer<C = DefaultConsumerContext, R = DefaultRuntime>
 where
     C: ConsumerContext,
 {
-    queue: NativeQueue, // queue must be dropped before the base to avoid deadlock
-    base: BaseConsumer<C>,
+    base: Arc<BaseConsumer<C>>,
     wakers: Arc<WakerSlab>,
     _shutdown_trigger: oneshot::Sender<()>,
     _runtime: PhantomData<R>,
 }
 
-#[async_trait::async_trait]
 impl<R> FromClientConfig for StreamConsumer<DefaultConsumerContext, R>
 where
     R: AsyncRuntime,
 {
-    async fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
-        StreamConsumer::from_config_and_context(config, DefaultConsumerContext).await
+    fn from_config(config: &ClientConfig) -> KafkaResult<Self> {
+        StreamConsumer::from_config_and_context(config, DefaultConsumerContext)
     }
 }
 
 /// Creates a new `StreamConsumer` starting from a [`ClientConfig`].
-#[async_trait::async_trait]
 impl<C, R> FromClientConfigAndContext<C> for StreamConsumer<C, R>
 where
     C: ConsumerContext + 'static,
     R: AsyncRuntime,
 {
-    async fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
+    fn from_config_and_context(config: &ClientConfig, context: C) -> KafkaResult<Self> {
         let native_config = config.create_native_config()?;
         let poll_interval = {
             let millis: u64 = native_config
@@ -199,19 +228,11 @@ where
             Duration::from_millis(millis)
         };
 
-        let base = BaseConsumer::new(config, native_config, context)?;
+        let base = Arc::new(BaseConsumer::new(config, native_config, context)?);
         let native_ptr = base.client().native_ptr() as usize;
 
-        // Redirect rdkafka's main queue to the consumer queue so that we only
-        // need to listen to the consumer queue to observe events like
-        // rebalancings and stats.
-        unsafe { rdsys::rd_kafka_poll_set_consumer(base.client().native_ptr()) };
-
-        let queue = base.client().consumer_queue().ok_or_else(|| {
-            KafkaError::ClientCreation("librdkafka failed to create consumer queue".into())
-        })?;
         let wakers = Arc::new(WakerSlab::new());
-        unsafe { enable_nonempty_callback(&queue, &wakers) }
+        unsafe { enable_nonempty_callback(base.get_queue(), &wakers) }
 
         // We need to make sure we poll the consumer at least once every max
         // poll interval, *unless* the processing task has wedged. To accomplish
@@ -243,7 +264,6 @@ where
         Ok(StreamConsumer {
             base,
             wakers,
-            queue,
             _shutdown_trigger: shutdown_trigger,
             _runtime: PhantomData,
         })
@@ -266,8 +286,8 @@ where
     ///
     /// If you want multiple independent views of a Kafka topic, create multiple
     /// consumers, not multiple message streams.
-    pub fn stream(&self) -> MessageStream<'_> {
-        MessageStream::new(&self.wakers, &self.queue)
+    pub fn stream(&self) -> MessageStream<'_, C> {
+        MessageStream::new(&self.wakers, &self.base)
     }
 
     /// Receives the next message from the stream.
@@ -282,7 +302,7 @@ where
     ///
     /// ```
     /// use futures::stream::StreamExt;
-    /// # use madsim_rdkafka::consumer::StreamConsumer;
+    /// # use rdkafka::consumer::StreamConsumer;
     ///
     /// # async fn example(consumer: StreamConsumer) {
     /// consumer.stream().next().await.expect("MessageStream never returns None");
@@ -310,10 +330,10 @@ where
     /// `StreamConsumer::recv`.
     ///
     /// You must periodically await `StreamConsumer::recv`, even if no messages
-    /// are expected, to serve callbacks. Consider using a background task like:
+    /// are expected, to serve events. Consider using a background task like:
     ///
     /// ```
-    /// # use madsim_rdkafka::consumer::StreamConsumer;
+    /// # use rdkafka::consumer::StreamConsumer;
     /// # use tokio::task::JoinHandle;
     /// # async fn example(stream_consumer: StreamConsumer) -> JoinHandle<()> {
     /// tokio::spawn(async move {
@@ -336,37 +356,23 @@ where
         topic: &str,
         partition: i32,
     ) -> Option<StreamPartitionQueue<C, R>> {
-        let topic = match CString::new(topic) {
-            Ok(topic) => topic,
-            Err(_) => return None,
-        };
-        let queue = unsafe {
-            NativeQueue::from_ptr(rdsys::rd_kafka_queue_get_partition(
-                self.base.client().native_ptr(),
-                topic.as_ptr(),
-                partition,
-            ))
-        };
-        queue.map(|queue| {
-            let wakers = Arc::new(WakerSlab::new());
-            unsafe {
-                rdsys::rd_kafka_queue_forward(queue.ptr(), ptr::null_mut());
-                enable_nonempty_callback(&queue, &wakers);
-            }
-            StreamPartitionQueue {
-                queue,
-                wakers,
-                _consumer: self.clone(),
-            }
-        })
+        self.base
+            .split_partition_queue(topic, partition)
+            .map(|queue| {
+                let wakers = Arc::new(WakerSlab::new());
+                unsafe { enable_nonempty_callback(&queue.queue, &wakers) };
+                StreamPartitionQueue {
+                    queue,
+                    wakers,
+                    _consumer: self.clone(),
+                }
+            })
     }
 }
 
-#[async_trait::async_trait]
 impl<C, R> Consumer<C> for StreamConsumer<C, R>
 where
     C: ConsumerContext,
-    R: AsyncRuntime,
 {
     fn client(&self) -> &Client<C> {
         self.base.client()
@@ -404,44 +410,38 @@ where
         self.base.assignment_lost()
     }
 
-    async fn seek<T: Into<Timeout> + Send>(
+    fn seek<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
         offset: Offset,
         timeout: T,
     ) -> KafkaResult<()> {
-        self.base.seek(topic, partition, offset, timeout).await
+        self.base.seek(topic, partition, offset, timeout)
     }
 
-    async fn seek_partitions<T: Into<Timeout> + Send>(
+    fn seek_partitions<T: Into<Timeout>>(
         &self,
         topic_partition_list: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList> {
-        self.base
-            .seek_partitions(topic_partition_list, timeout)
-            .await
+        self.base.seek_partitions(topic_partition_list, timeout)
     }
 
-    async fn commit(
+    fn commit(
         &self,
         topic_partition_list: &TopicPartitionList,
         mode: CommitMode,
     ) -> KafkaResult<()> {
-        self.base.commit(topic_partition_list, mode).await
+        self.base.commit(topic_partition_list, mode)
     }
 
-    async fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()> {
-        self.base.commit_consumer_state(mode).await
+    fn commit_consumer_state(&self, mode: CommitMode) -> KafkaResult<()> {
+        self.base.commit_consumer_state(mode)
     }
 
-    async fn commit_message(
-        &self,
-        message: &BorrowedMessage<'_>,
-        mode: CommitMode,
-    ) -> KafkaResult<()> {
-        self.base.commit_message(message, mode).await
+    fn commit_message(&self, message: &BorrowedMessage<'_>, mode: CommitMode) -> KafkaResult<()> {
+        self.base.commit_message(message, mode)
     }
 
     fn store_offset(&self, topic: &str, partition: i32, offset: i64) -> KafkaResult<()> {
@@ -464,80 +464,80 @@ where
         self.base.assignment()
     }
 
-    async fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
+    fn committed<T>(&self, timeout: T) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.committed(timeout).await
+        self.base.committed(timeout)
     }
 
-    async fn committed_offsets<T>(
+    fn committed_offsets<T>(
         &self,
         tpl: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
     {
-        self.base.committed_offsets(tpl, timeout).await
+        self.base.committed_offsets(tpl, timeout)
     }
 
-    async fn offsets_for_timestamp<T>(
+    fn offsets_for_timestamp<T>(
         &self,
         timestamp: i64,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.offsets_for_timestamp(timestamp, timeout).await
+        self.base.offsets_for_timestamp(timestamp, timeout)
     }
 
-    async fn offsets_for_times<T>(
+    fn offsets_for_times<T>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
     ) -> KafkaResult<TopicPartitionList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.offsets_for_times(timestamps, timeout).await
+        self.base.offsets_for_times(timestamps, timeout)
     }
 
     fn position(&self) -> KafkaResult<TopicPartitionList> {
         self.base.position()
     }
 
-    async fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
+    fn fetch_metadata<T>(&self, topic: Option<&str>, timeout: T) -> KafkaResult<Metadata>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.fetch_metadata(topic, timeout).await
+        self.base.fetch_metadata(topic, timeout)
     }
 
-    async fn fetch_watermarks<T>(
+    fn fetch_watermarks<T>(
         &self,
         topic: &str,
         partition: i32,
         timeout: T,
     ) -> KafkaResult<(i64, i64)>
     where
-        T: Into<Timeout> + Send + 'static,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.fetch_watermarks(topic, partition, timeout).await
+        self.base.fetch_watermarks(topic, partition, timeout)
     }
 
-    async fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
+    fn fetch_group_list<T>(&self, group: Option<&str>, timeout: T) -> KafkaResult<GroupList>
     where
-        T: Into<Timeout> + Send,
+        T: Into<Timeout>,
         Self: Sized,
     {
-        self.base.fetch_group_list(group, timeout).await
+        self.base.fetch_group_list(group, timeout)
     }
 
     fn pause(&self, partitions: &TopicPartitionList) -> KafkaResult<()> {
@@ -561,7 +561,7 @@ pub struct StreamPartitionQueue<C, R = DefaultRuntime>
 where
     C: ConsumerContext,
 {
-    queue: NativeQueue,
+    queue: PartitionQueue<C>,
     wakers: Arc<WakerSlab>,
     _consumer: Arc<StreamConsumer<C, R>>,
 }
@@ -582,8 +582,12 @@ where
     ///
     /// If you want multiple independent views of a Kafka partition, create
     /// multiple consumers, not multiple partition streams.
-    pub fn stream(&self) -> MessageStream<'_> {
-        MessageStream::new(&self.wakers, &self.queue)
+    pub fn stream(&self) -> MessageStream<'_, C> {
+        MessageStream::new_with_partition_queue(
+            &self.wakers,
+            &self._consumer.base,
+            &self.queue.queue,
+        )
     }
 
     /// Receives the next message from the stream.
@@ -598,8 +602,8 @@ where
     ///
     /// ```
     /// use futures::stream::StreamExt;
-    /// # use madsim_rdkafka::consumer::ConsumerContext;
-    /// # use madsim_rdkafka::consumer::stream_consumer::StreamPartitionQueue;
+    /// # use rdkafka::consumer::ConsumerContext;
+    /// # use rdkafka::consumer::stream_consumer::StreamPartitionQueue;
     //
     /// # async fn example<C>(partition_queue: StreamPartitionQueue<C>)
     /// # where
@@ -622,6 +626,6 @@ where
     C: ConsumerContext,
 {
     fn drop(&mut self) {
-        unsafe { disable_nonempty_callback(&self.queue) }
+        unsafe { disable_nonempty_callback(&self.queue.queue) }
     }
 }

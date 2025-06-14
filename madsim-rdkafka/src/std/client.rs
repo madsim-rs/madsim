@@ -11,20 +11,19 @@
 //! [`consumer`]: crate::consumer
 //! [`producer`]: crate::producer
 
-use std::convert::TryFrom;
 use std::error::Error;
 use std::ffi::{CStr, CString};
 use std::mem::ManuallyDrop;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_char;
 use std::ptr;
-use std::slice;
 use std::string::ToString;
 use std::sync::Arc;
 
-use libc::addrinfo;
+use libc::c_void;
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
+use crate::admin::NativeEvent;
 use crate::config::{ClientConfig, NativeClientConfig, RDKafkaLogLevel};
 use crate::consumer::RebalanceProtocol;
 use crate::error::{IsError, KafkaError, KafkaResult};
@@ -48,7 +47,7 @@ use crate::util::{self, ErrBuf, KafkaDrop, NativePtr, Timeout};
 ///
 /// [`ConsumerContext`]: crate::consumer::ConsumerContext
 /// [`ProducerContext`]: crate::producer::ProducerContext
-pub trait ClientContext: Send + Sync + 'static {
+pub trait ClientContext: Send + Sync {
     /// Whether to periodically refresh the SASL `OAUTHBEARER` token
     /// by calling [`ClientContext::generate_oauth_token`].
     ///
@@ -57,9 +56,7 @@ pub trait ClientContext: Send + Sync + 'static {
     ///
     /// This parameter is only relevant when using the `OAUTHBEARER` SASL
     /// mechanism.
-    fn enable_refresh_oauth_token(&self) -> bool {
-        false
-    }
+    const ENABLE_REFRESH_OAUTH_TOKEN: bool = false;
 
     /// Receives log lines from librdkafka.
     ///
@@ -119,24 +116,11 @@ pub trait ClientContext: Send + Sync + 'static {
         error!("librdkafka: {}: {}", error, reason);
     }
 
-    /// Rewrites a broker address for DNS resolution.
-    ///
-    /// This method is invoked before performing DNS resolution on a broker
-    /// address. The returned address is used in place of the original address.
-    /// It is useful to allow connecting to a Kafka cluster over a tunnel (e.g.,
-    /// SSH or AWS PrivateLink), where the broker addresses returned by the
-    /// bootstrap server need to be rewritten to be routed through the tunnel.
-    ///
-    /// The default implementation returns the address unchanged.
-    fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
-        addr
-    }
-
     /// Generates an OAuth token from the provided configuration.
     ///
     /// Override with an appropriate implementation when using the `OAUTHBEARER`
     /// SASL authentication mechanism. For this method to be called, you must
-    /// also set [`ClientContext::enable_refresh_oauth_token`] to true.
+    /// also set [`ClientContext::ENABLE_REFRESH_OAUTH_TOKEN`] to true.
     ///
     /// The `fmt::Display` implementation of the returned error must not
     /// generate a message with an embedded null character.
@@ -214,6 +198,21 @@ impl NativeClient {
     }
 }
 
+pub(crate) enum EventPollResult<T> {
+    None,
+    EventConsumed,
+    Event(T),
+}
+
+impl<T> From<EventPollResult<T>> for Option<T> {
+    fn from(val: EventPollResult<T>) -> Self {
+        match val {
+            EventPollResult::None | EventPollResult::EventConsumed => None,
+            EventPollResult::Event(evt) => Some(evt),
+        }
+    }
+}
+
 /// A low-level rdkafka client.
 ///
 /// This type is the basis of the consumers and producers in the [`consumer`]
@@ -226,7 +225,7 @@ impl NativeClient {
 /// [`consumer`]: crate::consumer
 /// [`producer`]: crate::producer
 pub struct Client<C: ClientContext = DefaultClientContext> {
-    native: Arc<NativeClient>,
+    native: NativeClient,
     context: Arc<C>,
 }
 
@@ -255,36 +254,7 @@ impl<C: ClientContext> Client<C> {
                 Arc::as_ptr(&context) as *mut c_void,
             )
         };
-        unsafe {
-            rdsys::rd_kafka_conf_set_log_cb(native_config.ptr(), Some(native_log_cb::<C>));
-            rdsys::rd_kafka_conf_set_stats_cb(native_config.ptr(), Some(native_stats_cb::<C>));
-            rdsys::rd_kafka_conf_set_error_cb(native_config.ptr(), Some(native_error_cb::<C>));
-            rd_kafka_conf_set_resolve_cb(native_config.ptr(), Some(native_resolve_cb::<C>));
-        }
-        // XXX(runji): This function exists in librdkafka, but is blocked by rdkafka-sys.
-        //             We import it here manually.
-        extern "C" {
-            fn rd_kafka_conf_set_resolve_cb(
-                conf: *mut rdsys::rd_kafka_conf_t,
-                resolve_cb: Option<
-                    unsafe extern "C" fn(
-                        node: *const c_char,
-                        service: *const c_char,
-                        hints: *const addrinfo,
-                        res: *mut *mut addrinfo,
-                        opaque: *mut c_void,
-                    ) -> std::ffi::c_int,
-                >,
-            );
-        }
-        if context.enable_refresh_oauth_token() {
-            unsafe {
-                rdsys::rd_kafka_conf_set_oauthbearer_token_refresh_cb(
-                    native_config.ptr(),
-                    Some(native_oauth_refresh_cb::<C>),
-                )
-            };
-        }
+        native_config.set("log.queue", "true")?;
 
         let client_ptr = unsafe {
             let native_config = ManuallyDrop::new(native_config);
@@ -301,10 +271,16 @@ impl<C: ClientContext> Client<C> {
             return Err(KafkaError::ClientCreation(err_buf.to_string()));
         }
 
+        let ret = unsafe {
+            rdsys::rd_kafka_set_log_queue(client_ptr, rdsys::rd_kafka_queue_get_main(client_ptr))
+        };
+        if ret.is_error() {
+            return Err(KafkaError::Global(ret.into()));
+        }
         unsafe { rdsys::rd_kafka_set_log_level(client_ptr, config.log_level as i32) };
 
         Ok(Client {
-            native: Arc::new(unsafe { NativeClient::from_ptr(client_ptr) }),
+            native: unsafe { NativeClient::from_ptr(client_ptr) },
             context,
         })
     }
@@ -324,22 +300,142 @@ impl<C: ClientContext> Client<C> {
         &self.context
     }
 
-    /// Returns the metadata information for the specified topic, or for all topics in the cluster
-    /// if no topic is specified.
-    pub async fn fetch_metadata<T: Into<Timeout>>(
+    pub(crate) fn poll_event(
         &self,
-        topic: Option<&str>,
-        timeout: T,
-    ) -> KafkaResult<Metadata> {
-        let client = self.clone();
-        let topic = topic.map(|t| t.to_string());
-        let timeout = timeout.into();
-        tokio::task::spawn_blocking(move || client.fetch_metadata_sync(topic.as_deref(), timeout))
-            .await
-            .unwrap()
+        queue: &NativeQueue,
+        timeout: Timeout,
+    ) -> EventPollResult<NativeEvent> {
+        let event = unsafe { NativeEvent::from_ptr(queue.poll(timeout)) };
+        if let Some(ev) = event {
+            let evtype = unsafe { rdsys::rd_kafka_event_type(ev.ptr()) };
+            match evtype {
+                rdsys::RD_KAFKA_EVENT_LOG => {
+                    self.handle_log_event(ev.ptr());
+                    return EventPollResult::EventConsumed;
+                }
+                rdsys::RD_KAFKA_EVENT_STATS => {
+                    self.handle_stats_event(ev.ptr());
+                    return EventPollResult::EventConsumed;
+                }
+                rdsys::RD_KAFKA_EVENT_ERROR => {
+                    // rdkafka reports consumer errors via RD_KAFKA_EVENT_ERROR but producer errors gets
+                    // embedded on the ack returned via RD_KAFKA_EVENT_DR. Hence we need to return this event
+                    // for the consumer case in order to return the error to the user.
+                    self.handle_error_event(ev.ptr());
+                    return EventPollResult::Event(ev);
+                }
+                rdsys::RD_KAFKA_EVENT_OAUTHBEARER_TOKEN_REFRESH => {
+                    if C::ENABLE_REFRESH_OAUTH_TOKEN {
+                        self.handle_oauth_refresh_event(ev.ptr());
+                    }
+                    return EventPollResult::EventConsumed;
+                }
+                _ => {
+                    return EventPollResult::Event(ev);
+                }
+            }
+        }
+        EventPollResult::None
     }
 
-    fn fetch_metadata_sync<T: Into<Timeout>>(
+    fn handle_log_event(&self, event: *mut RDKafkaEvent) {
+        let mut fac: *const c_char = std::ptr::null();
+        let mut str_: *const c_char = std::ptr::null();
+        let mut level: i32 = 0;
+        let result = unsafe { rdsys::rd_kafka_event_log(event, &mut fac, &mut str_, &mut level) };
+        if result == 0 {
+            let fac = unsafe { CStr::from_ptr(fac).to_string_lossy() };
+            let log_message = unsafe { CStr::from_ptr(str_).to_string_lossy() };
+            self.context().log(
+                RDKafkaLogLevel::from_int(level),
+                fac.trim(),
+                log_message.trim(),
+            );
+        }
+    }
+
+    fn handle_stats_event(&self, event: *mut RDKafkaEvent) {
+        let json = unsafe { CStr::from_ptr(rdsys::rd_kafka_event_stats(event)) };
+        self.context().stats_raw(json.to_bytes());
+    }
+
+    fn handle_error_event(&self, event: *mut RDKafkaEvent) {
+        let rdkafka_err = unsafe { rdsys::rd_kafka_event_error(event) };
+        let error = KafkaError::Global(rdkafka_err.into());
+        let reason =
+            unsafe { CStr::from_ptr(rdsys::rd_kafka_event_error_string(event)).to_string_lossy() };
+        self.context().error(error, reason.trim());
+    }
+
+    fn handle_oauth_refresh_event(&self, event: *mut RDKafkaEvent) {
+        let oauthbearer_config = unsafe { rdsys::rd_kafka_event_config_string(event) };
+        let res: Result<_, Box<dyn Error>> = (|| {
+            let oauthbearer_config = match oauthbearer_config.is_null() {
+                true => None,
+                false => unsafe { Some(util::cstr_to_owned(oauthbearer_config)) },
+            };
+            let token_info = self
+                .context()
+                .generate_oauth_token(oauthbearer_config.as_deref())?;
+            let token = CString::new(token_info.token)?;
+            let principal_name = CString::new(token_info.principal_name)?;
+            Ok((token, principal_name, token_info.lifetime_ms))
+        })();
+        match res {
+            Ok((token, principal_name, lifetime_ms)) => {
+                let mut err_buf = ErrBuf::new();
+                let code = unsafe {
+                    rdkafka_sys::rd_kafka_oauthbearer_set_token(
+                        self.native_ptr(),
+                        token.as_ptr(),
+                        lifetime_ms,
+                        principal_name.as_ptr(),
+                        ptr::null_mut(),
+                        0,
+                        err_buf.as_mut_ptr(),
+                        err_buf.capacity(),
+                    )
+                };
+                if code == RDKafkaRespErr::RD_KAFKA_RESP_ERR_NO_ERROR {
+                    debug!("successfully set refreshed OAuth token");
+                } else {
+                    debug!(
+                        "failed to set refreshed OAuth token (code {:?}): {}",
+                        code, err_buf
+                    );
+                    unsafe {
+                        rdkafka_sys::rd_kafka_oauthbearer_set_token_failure(
+                            self.native_ptr(),
+                            err_buf.as_mut_ptr(),
+                        )
+                    };
+                }
+            }
+            Err(e) => {
+                debug!("failed to refresh OAuth token: {}", e);
+                let message = match CString::new(e.to_string()) {
+                    Ok(message) => message,
+                    Err(e) => {
+                        error!("error message generated while refreshing OAuth token has embedded null character: {}", e);
+                        CString::new(
+                            "error while refreshing OAuth token has embedded null character",
+                        )
+                        .expect("known to be a valid CString")
+                    }
+                };
+                unsafe {
+                    rdkafka_sys::rd_kafka_oauthbearer_set_token_failure(
+                        self.native_ptr(),
+                        message.as_ptr(),
+                    )
+                };
+            }
+        }
+    }
+
+    /// Returns the metadata information for the specified topic, or for all topics in the cluster
+    /// if no topic is specified.
+    pub fn fetch_metadata<T: Into<Timeout>>(
         &self,
         topic: Option<&str>,
         timeout: T,
@@ -369,23 +465,7 @@ impl<C: ClientContext> Client<C> {
     }
 
     /// Returns high and low watermark for the specified topic and partition.
-    pub async fn fetch_watermarks<T: Into<Timeout>>(
-        &self,
-        topic: &str,
-        partition: i32,
-        timeout: T,
-    ) -> KafkaResult<(i64, i64)> {
-        let client = self.clone();
-        let topic = topic.to_string();
-        let timeout = timeout.into();
-        tokio::task::spawn_blocking(move || {
-            client.fetch_watermarks_sync(&topic, partition, timeout)
-        })
-        .await
-        .unwrap()
-    }
-
-    fn fetch_watermarks_sync<T: Into<Timeout>>(
+    pub fn fetch_watermarks<T: Into<Timeout>>(
         &self,
         topic: &str,
         partition: i32,
@@ -423,20 +503,7 @@ impl<C: ClientContext> Client<C> {
 
     /// Returns the group membership information for the given group. If no group is
     /// specified, all groups will be returned.
-    pub async fn fetch_group_list<T: Into<Timeout>>(
-        &self,
-        group: Option<&str>,
-        timeout: T,
-    ) -> KafkaResult<GroupList> {
-        let client = self.clone();
-        let group = group.map(|g| g.to_string());
-        let timeout = timeout.into();
-        tokio::task::spawn_blocking(move || client.fetch_group_list_sync(group.as_deref(), timeout))
-            .await
-            .unwrap()
-    }
-
-    fn fetch_group_list_sync<T: Into<Timeout>>(
+    pub fn fetch_group_list<T: Into<Timeout>>(
         &self,
         group: Option<&str>,
         timeout: T,
@@ -516,11 +583,9 @@ impl<C: ClientContext> Client<C> {
         unsafe { NativeQueue::from_ptr(rdsys::rd_kafka_queue_get_consumer(self.native_ptr())) }
     }
 
-    pub(crate) fn clone(&self) -> Self {
-        Self {
-            native: self.native.clone(),
-            context: self.context.clone(),
-        }
+    /// Returns a NativeQueue for the main librdkafka event queue from the current client.
+    pub(crate) fn main_queue(&self) -> NativeQueue {
+        unsafe { NativeQueue::from_ptr(rdsys::rd_kafka_queue_get_main(self.native_ptr())).unwrap() }
     }
 }
 
@@ -551,100 +616,6 @@ impl NativeQueue {
     }
 }
 
-pub(crate) unsafe extern "C" fn native_log_cb<C: ClientContext>(
-    client: *const RDKafka,
-    level: i32,
-    fac: *const c_char,
-    buf: *const c_char,
-) {
-    let fac = CStr::from_ptr(fac).to_string_lossy();
-    let log_message = CStr::from_ptr(buf).to_string_lossy();
-
-    let context = &mut *(rdsys::rd_kafka_opaque(client) as *mut C);
-    context.log(
-        RDKafkaLogLevel::from_int(level),
-        fac.trim(),
-        log_message.trim(),
-    );
-}
-
-pub(crate) unsafe extern "C" fn native_stats_cb<C: ClientContext>(
-    _conf: *mut RDKafka,
-    json: *mut c_char,
-    json_len: usize,
-    opaque: *mut c_void,
-) -> i32 {
-    let context = &mut *(opaque as *mut C);
-    context.stats_raw(slice::from_raw_parts(json as *mut u8, json_len));
-    0 // librdkafka will free the json buffer
-}
-
-pub(crate) unsafe extern "C" fn native_error_cb<C: ClientContext>(
-    _client: *mut RDKafka,
-    err: i32,
-    reason: *const c_char,
-    opaque: *mut c_void,
-) {
-    let err = RDKafkaRespErr::try_from(err).expect("global error not an rd_kafka_resp_err_t");
-    let error = KafkaError::Global(err.into());
-    let reason = CStr::from_ptr(reason).to_string_lossy();
-
-    let context = &mut *(opaque as *mut C);
-    context.error(error, reason.trim());
-}
-
-// Cherry-picked from Materialize.
-// https://github.com/MaterializeInc/rust-rdkafka/commit/8ea07c4d2b96636ff093e670bc921892aee0d56a
-pub(crate) unsafe extern "C" fn native_resolve_cb<C: ClientContext>(
-    node: *const c_char,
-    service: *const c_char,
-    hints: *const addrinfo,
-    res: *mut *mut addrinfo,
-    opaque: *mut c_void,
-) -> i32 {
-    // XXX(runji): if either node or service is null, call `getaddrinfo` directly
-    if node.is_null() || service.is_null() {
-        return unsafe { libc::getaddrinfo(node, service, hints, res) };
-    }
-
-    // Convert host and port to Rust strings.
-    let host = match CStr::from_ptr(node).to_str() {
-        Ok(host) => host.into(),
-        Err(_) => return libc::EAI_FAIL,
-    };
-    let port = match CStr::from_ptr(service).to_str() {
-        Ok(port) => port.into(),
-        Err(_) => return libc::EAI_FAIL,
-    };
-
-    // Apply the rewrite in the context.
-    let context = &mut *(opaque as *mut C);
-    let addr = context.rewrite_broker_addr(BrokerAddr { host, port });
-
-    // Convert host and port back to C strings.
-    let node = match CString::new(addr.host) {
-        Ok(node) => node,
-        Err(_) => return libc::EAI_FAIL,
-    };
-    let service = match CString::new(addr.port) {
-        Ok(service) => service,
-        Err(_) => return libc::EAI_FAIL,
-    };
-
-    // Perform DNS resolution.
-    unsafe { libc::getaddrinfo(node.as_ptr(), service.as_ptr(), hints, res) }
-}
-
-/// Describes the address of a broker in a Kafka cluster.
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct BrokerAddr {
-    /// The host name.
-    pub host: String,
-    /// The port, either as a decimal number or the name of a service in
-    /// the services database.
-    pub port: String,
-}
-
 /// A generated OAuth token and its associated metadata.
 ///
 /// When using the `OAUTHBEARER` SASL authentication method, this type is
@@ -659,60 +630,6 @@ pub struct OAuthToken {
     pub principal_name: String,
     /// When the token expires, in number of milliseconds since the Unix epoch.
     pub lifetime_ms: i64,
-}
-
-pub(crate) unsafe extern "C" fn native_oauth_refresh_cb<C: ClientContext>(
-    client: *mut RDKafka,
-    oauthbearer_config: *const c_char,
-    opaque: *mut c_void,
-) {
-    let res: Result<_, Box<dyn Error>> = (|| {
-        let context = &mut *(opaque as *mut C);
-        let oauthbearer_config = match oauthbearer_config.is_null() {
-            true => None,
-            false => Some(util::cstr_to_owned(oauthbearer_config)),
-        };
-        let token_info = context.generate_oauth_token(oauthbearer_config.as_deref())?;
-        let token = CString::new(token_info.token)?;
-        let principal_name = CString::new(token_info.principal_name)?;
-        Ok((token, principal_name, token_info.lifetime_ms))
-    })();
-    match res {
-        Ok((token, principal_name, lifetime_ms)) => {
-            let mut err_buf = ErrBuf::new();
-            let code = rdkafka_sys::rd_kafka_oauthbearer_set_token(
-                client,
-                token.as_ptr(),
-                lifetime_ms,
-                principal_name.as_ptr(),
-                ptr::null_mut(),
-                0,
-                err_buf.as_mut_ptr(),
-                err_buf.capacity(),
-            );
-            if code == RDKafkaRespErr::RD_KAFKA_RESP_ERR_NO_ERROR {
-                debug!("successfully set refreshed OAuth token");
-            } else {
-                debug!(
-                    "failed to set refreshed OAuth token (code {:?}): {}",
-                    code, err_buf
-                );
-                rdkafka_sys::rd_kafka_oauthbearer_set_token_failure(client, err_buf.as_mut_ptr());
-            }
-        }
-        Err(e) => {
-            debug!("failed to refresh OAuth token: {}", e);
-            let message = match CString::new(e.to_string()) {
-                Ok(message) => message,
-                Err(e) => {
-                    error!("error message generated while refreshing OAuth token has embedded null character: {}", e);
-                    CString::new("error while refreshing OAuth token has embedded null character")
-                        .expect("known to be a valid CString")
-                }
-            };
-            rdkafka_sys::rd_kafka_oauthbearer_set_token_failure(client, message.as_ptr());
-        }
-    }
 }
 
 #[cfg(test)]

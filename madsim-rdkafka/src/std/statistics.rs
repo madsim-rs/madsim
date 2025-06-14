@@ -12,10 +12,10 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Overall statistics.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Statistics {
     /// The name of the librdkafka handle.
     pub name: String,
@@ -73,7 +73,7 @@ pub struct Statistics {
 }
 
 /// Per-broker statistics.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Broker {
     /// The broker hostname, port, and ID, in the form `HOSTNAME:PORT/ID`.
     pub name: String,
@@ -168,7 +168,7 @@ pub struct Broker {
 ///
 /// These values are not exact; they are sampled estimates maintained by an
 /// HDR histogram in librdkafka.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Window {
     /// The smallest value.
     pub min: i64,
@@ -202,7 +202,7 @@ pub struct Window {
 }
 
 /// A topic and partition specifier.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct TopicPartition {
     /// The name of the topic.
     pub topic: String,
@@ -211,7 +211,7 @@ pub struct TopicPartition {
 }
 
 /// Per-topic statistics.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Topic {
     /// The name of the topic.
     pub topic: String,
@@ -226,7 +226,7 @@ pub struct Topic {
 }
 
 /// Per-partition statistics.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Partition {
     /// The partition ID.
     pub partition: i32,
@@ -299,13 +299,13 @@ pub struct Partition {
 }
 
 /// Consumer group manager statistics.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ConsumerGroup {
     /// The local consumer group handler's state.
     pub state: String,
     /// The time elapsed since the last state change, in milliseconds.
     pub stateage: i64,
-    /// The local consumer group handler's join state.
+    /// The local consumer group hander's join state.
     pub join_state: String,
     /// The time elapsed since the last rebalance (assign or revoke), in
     /// milliseconds.
@@ -321,7 +321,7 @@ pub struct ConsumerGroup {
 }
 
 /// Exactly-once semantics statistics.
-#[derive(Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ExactlyOnceSemantics {
     /// The current idempotent producer state.
     pub idemp_state: String,
@@ -333,7 +333,7 @@ pub struct ExactlyOnceSemantics {
     /// The time elapsed since the last transactional producer state change, in
     /// milliseconds.
     pub txn_stateage: i64,
-    /// Whether the transactional state allows enqueuing (producing) new
+    /// Whether the transactional state allows enqueing (producing) new
     /// messages.
     pub txn_may_enq: bool,
     /// The currently assigned producer ID, or -1.

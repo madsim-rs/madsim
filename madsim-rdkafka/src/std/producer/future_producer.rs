@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use futures_channel::oneshot;
 use futures_util::FutureExt;
 
-use crate::client::{BrokerAddr, Client, ClientContext, DefaultClientContext, OAuthToken};
+use crate::client::{Client, ClientContext, DefaultClientContext, OAuthToken};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext, RDKafkaLogLevel};
 use crate::consumer::ConsumerGroupMetadata;
 use crate::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
@@ -143,9 +143,7 @@ pub type OwnedDeliveryResult = Result<(i32, i64), (KafkaError, OwnedMessage)>;
 
 // Delegates all the methods calls to the wrapped context.
 impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
-    fn enable_refresh_oauth_token(&self) -> bool {
-        self.wrapped_context.enable_refresh_oauth_token()
-    }
+    const ENABLE_REFRESH_OAUTH_TOKEN: bool = C::ENABLE_REFRESH_OAUTH_TOKEN;
 
     fn log(&self, level: RDKafkaLogLevel, fac: &str, log_message: &str) {
         self.wrapped_context.log(level, fac, log_message);
@@ -161,10 +159,6 @@ impl<C: ClientContext + 'static> ClientContext for FutureProducerContext<C> {
 
     fn error(&self, error: KafkaError, reason: &str) {
         self.wrapped_context.error(error, reason);
-    }
-
-    fn rewrite_broker_addr(&self, addr: BrokerAddr) -> BrokerAddr {
-        self.wrapped_context.rewrite_broker_addr(addr)
     }
 
     fn generate_oauth_token(
@@ -229,33 +223,28 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<R> FromClientConfig for FutureProducer<DefaultClientContext, R>
 where
     R: AsyncRuntime,
 {
-    async fn from_config(
-        config: &ClientConfig,
-    ) -> KafkaResult<FutureProducer<DefaultClientContext, R>> {
-        FutureProducer::from_config_and_context(config, DefaultClientContext).await
+    fn from_config(config: &ClientConfig) -> KafkaResult<FutureProducer<DefaultClientContext, R>> {
+        FutureProducer::from_config_and_context(config, DefaultClientContext)
     }
 }
 
-#[async_trait::async_trait]
 impl<C, R> FromClientConfigAndContext<C> for FutureProducer<C, R>
 where
     C: ClientContext + 'static,
     R: AsyncRuntime,
 {
-    async fn from_config_and_context(
+    fn from_config_and_context(
         config: &ClientConfig,
         context: C,
     ) -> KafkaResult<FutureProducer<C, R>> {
         let future_context = FutureProducerContext {
             wrapped_context: context,
         };
-        let threaded_producer =
-            ThreadedProducer::from_config_and_context(config, future_context).await?;
+        let threaded_producer = ThreadedProducer::from_config_and_context(config, future_context)?;
         Ok(FutureProducer {
             producer: Arc::new(threaded_producer),
             _runtime: PhantomData,
@@ -357,6 +346,7 @@ where
 
     /// Like [`FutureProducer::send`], but if enqueuing fails, an error will be
     /// returned immediately, alongside the [`FutureRecord`] provided.
+    #[allow(clippy::result_large_err)]
     pub fn send_result<'a, K, P>(
         &self,
         record: FutureRecord<'a, K, P>,
@@ -377,12 +367,11 @@ where
     ///
     /// This is not normally required since the `FutureProducer` has a thread
     /// dedicated to calling `poll` regularly.
-    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) {
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
         self.producer.poll(timeout);
     }
 }
 
-#[async_trait::async_trait]
 impl<C, R, Part> Producer<FutureProducerContext<C>, Part> for FutureProducer<C, R, Part>
 where
     C: ClientContext + 'static,
@@ -393,8 +382,8 @@ where
         self.producer.client()
     }
 
-    async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.flush(timeout).await
+    fn flush<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.flush(timeout)
     }
 
     fn purge(&self, flags: PurgeConfig) {
@@ -405,15 +394,15 @@ where
         self.producer.in_flight_count()
     }
 
-    async fn init_transactions<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.init_transactions(timeout).await
+    fn init_transactions<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.init_transactions(timeout)
     }
 
     fn begin_transaction(&self) -> KafkaResult<()> {
         self.producer.begin_transaction()
     }
 
-    async fn send_offsets_to_transaction<T: Into<Timeout> + Send>(
+    fn send_offsets_to_transaction<T: Into<Timeout>>(
         &self,
         offsets: &TopicPartitionList,
         cgm: &ConsumerGroupMetadata,
@@ -421,15 +410,14 @@ where
     ) -> KafkaResult<()> {
         self.producer
             .send_offsets_to_transaction(offsets, cgm, timeout)
-            .await
     }
 
-    async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.commit_transaction(timeout).await
+    fn commit_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.commit_transaction(timeout)
     }
 
-    async fn abort_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        self.producer.abort_transaction(timeout).await
+    fn abort_transaction<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        self.producer.abort_transaction(timeout)
     }
 }
 
@@ -452,23 +440,21 @@ mod tests {
     }
 
     // Verify that the future producer is clone, according to documentation.
-    #[tokio::test]
-    async fn test_future_producer_clone() {
-        let producer = ClientConfig::new()
-            .create::<FutureProducer>()
-            .await
-            .unwrap();
+    #[test]
+    fn test_future_producer_clone() {
+        let producer = ClientConfig::new().create::<FutureProducer>().unwrap();
+        #[allow(clippy::redundant_clone)]
         let _producer_clone = producer.clone();
     }
 
     // Test that the future producer can be cloned even if the context is not Clone.
-    #[tokio::test]
-    async fn test_base_future_topic_send_sync() {
+    #[test]
+    fn test_base_future_topic_send_sync() {
         let test_context = TestContext;
         let producer = ClientConfig::new()
             .create_with_context::<_, FutureProducer<TestContext>>(test_context)
-            .await
             .unwrap();
+        #[allow(clippy::redundant_clone)]
         let _producer_clone = producer.clone();
     }
 }
