@@ -40,6 +40,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     parse(input, args, false, false).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
+#[allow(clippy::doc_overindented_list_items)]
 /// Marks async function to be executed by runtime, suitable to test environment.
 ///
 /// # Example

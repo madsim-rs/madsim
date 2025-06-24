@@ -21,6 +21,7 @@ pub struct Builder {
     pub allow_system_thread: bool,
 }
 
+#[allow(clippy::doc_overindented_list_items)]
 impl Builder {
     /// Create a new builder from the following environment variables:
     ///
