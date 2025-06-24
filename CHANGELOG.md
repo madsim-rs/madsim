@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.32] - 2025-06-24
+
+- Fix the problem where `random` is not deterministic on OSX (#244).
+
 ## madsim [0.2.31] - 2024-10-17
 
 ### Fixed
