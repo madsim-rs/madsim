@@ -5,7 +5,7 @@ use spin::Mutex;
 use tracing::*;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -21,6 +21,7 @@ use crate::{
     message::{BorrowedMessage, OwnedMessage},
     metadata::Metadata,
     sim_broker::Request,
+    topic_partition_list::Elem,
     util::Timeout,
     ClientConfig, Offset, TopicPartitionList,
 };
@@ -125,16 +126,16 @@ where
             self.reset_offset(e);
         }
 
-        let current_tpl = self.tpl.lock();
+        let mut current_tpl = self.tpl.lock();
 
         let existing_partitions: HashSet<_> = current_tpl
             .list
             .iter()
-            .map(|elem| (elem.topic().to_string(), elem.partition()))
+            .map(|elem| (elem.topic.to_string(), elem.partition))
             .collect();
 
         for new_elem in new_tpl.list {
-            let partition_key = (new_elem.topic().to_string(), new_elem.partition());
+            let partition_key = (new_elem.topic.to_string(), new_elem.partition);
             if !existing_partitions.contains(&partition_key) {
                 // The partition is new, so add it to the current assignment.
                 current_tpl.list.push(new_elem);
@@ -156,7 +157,7 @@ where
         let partitions_to_remove: HashSet<_> = unassignment
             .list
             .iter()
-            .map(|elem| (elem.topic().to_string(), elem.partition()))
+            .map(|elem| (elem.topic.to_string(), elem.partition))
             .collect();
 
         if partitions_to_remove.is_empty() {
@@ -164,14 +165,14 @@ where
         }
 
         current_tpl.list.retain(|elem| {
-            let partition_key = (elem.topic().to_string(), elem.partition());
+            let partition_key = (elem.topic.to_string(), elem.partition);
             !partitions_to_remove.contains(&partition_key)
         });
 
         Ok(())
     }
 
-    fn reset_offset(&self, e: &mut TopicPartitionListElem<'_>) {
+    fn reset_offset(&self, e: &mut Elem) {
         if e.offset == Offset::Invalid {
             match self.config.auto_offset_reset {
                 AutoOffsetResetStrategy::Latest => e.offset = Offset::End,

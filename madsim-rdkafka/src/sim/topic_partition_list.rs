@@ -1,5 +1,4 @@
 use crate::error::KafkaResult;
-use std::slice;
 
 /// A Kafka offset.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
