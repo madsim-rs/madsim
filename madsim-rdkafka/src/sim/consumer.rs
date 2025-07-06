@@ -112,16 +112,73 @@ where
         let mut tpl = assignment.clone();
         // auto offset reset
         for e in &mut tpl.list {
-            if e.offset == Offset::Invalid {
-                match self.config.auto_offset_reset {
-                    AutoOffsetResetStrategy::Latest => e.offset = Offset::End,
-                    AutoOffsetResetStrategy::Earliest => e.offset = Offset::Beginning,
-                    AutoOffsetResetStrategy::None => {}
-                }
-            }
+            self.reset_offset(e);
         }
         *self.tpl.lock() = tpl;
         Ok(())
+    }
+
+    pub fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        let mut new_tpl = assignment.clone();
+
+        for e in &mut new_tpl.list {
+            self.reset_offset(e);
+        }
+
+        let current_tpl = self.tpl.lock();
+
+        let existing_partitions: HashSet<_> = current_tpl
+            .list
+            .iter()
+            .map(|elem| (elem.topic().to_string(), elem.partition()))
+            .collect();
+
+        for new_elem in new_tpl.list {
+            let partition_key = (new_elem.topic().to_string(), new_elem.partition());
+            if !existing_partitions.contains(&partition_key) {
+                // The partition is new, so add it to the current assignment.
+                current_tpl.list.push(new_elem);
+            }
+            // If the partition already exists, we simply do nothing,
+            // which makes the operation idempotent.
+        }
+
+        Ok(())
+    }
+
+    pub fn incremental_unassign(&self, unassignment: &TopicPartitionList) -> KafkaResult<()> {
+        let mut current_tpl = self.tpl.lock();
+
+        if current_tpl.list.is_empty() {
+            return Ok(());
+        }
+
+        let partitions_to_remove: HashSet<_> = unassignment
+            .list
+            .iter()
+            .map(|elem| (elem.topic().to_string(), elem.partition()))
+            .collect();
+
+        if partitions_to_remove.is_empty() {
+            return Ok(());
+        }
+
+        current_tpl.list.retain(|elem| {
+            let partition_key = (elem.topic().to_string(), elem.partition());
+            !partitions_to_remove.contains(&partition_key)
+        });
+
+        Ok(())
+    }
+
+    fn reset_offset(&self, e: &mut TopicPartitionListElem<'_>) {
+        if e.offset == Offset::Invalid {
+            match self.config.auto_offset_reset {
+                AutoOffsetResetStrategy::Latest => e.offset = Offset::End,
+                AutoOffsetResetStrategy::Earliest => e.offset = Offset::Beginning,
+                AutoOffsetResetStrategy::None => {}
+            }
+        }
     }
 
     /// Returns the low and high watermarks for a specific topic and partition.
@@ -261,6 +318,14 @@ where
 {
     pub fn assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
         self.base.assign(assignment)
+    }
+
+    pub fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.incremental_assign(assignment)
+    }
+
+    pub fn incremental_unassign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.incremental_unassign(assignment)
     }
 
     pub async fn fetch_watermarks(

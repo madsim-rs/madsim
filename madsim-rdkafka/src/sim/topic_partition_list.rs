@@ -1,4 +1,5 @@
 use crate::error::KafkaResult;
+use std::slice;
 
 /// A Kafka offset.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -82,6 +83,14 @@ impl TopicPartitionList {
             offset,
         });
         Ok(())
+    }
+
+    /// Returns all the elements of the list.
+    pub fn elements<'a>(&'a self) -> Vec<TopicPartitionListElem<'a>> {
+        self.list
+            .iter()
+            .map(|e| TopicPartitionListElem { e })
+            .collect()
     }
 
     /// Returns all the elements of the list that belong to the specified topic.
