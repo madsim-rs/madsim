@@ -43,7 +43,7 @@ panic-message = "0.3"
 rand_xoshiro = "0.6"
 rustversion = "1"
 tokio = { version = "1", features = ["rt", "sync"] }
-toml = "0.8"
+toml = { version = "0.9" }
 
 [target.'cfg(not(madsim))'.dependencies]
 async-ucx = { version = "0.1", features = ["event"], optional = true }
