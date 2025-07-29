@@ -112,7 +112,7 @@ impl Greeter for MyGreeter {
         let stream = try_stream! {
             let mut stream = request.into_inner();
             while let Some(request) = stream.message().await? {
-                println!("-> {:?}", request);
+                println!("-> {request:?}");
                 yield HelloReply {
                     message: format!("Hello {}! ({})", request.name, remote_addr.ip()),
                 };
