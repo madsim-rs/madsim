@@ -6,7 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.33] - 2025-07-31
+
+### Changed
+
+- Update dependency `toml` to v0.9.
+
 ## madsim [0.2.32] - 2025-06-24
+
+### Fixed
 
 - Fix the problem where `random` is not deterministic on OSX (#244).
 
