@@ -820,6 +820,7 @@ unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) ->
             std::ptr::write(name.add(len), 0);
         } else {
             *libc::__error() = libc::ENAMETOOLONG;
+            return -1;
         }
         return 0;
     }
