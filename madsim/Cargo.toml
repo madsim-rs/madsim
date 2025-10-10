@@ -61,6 +61,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 
 [dev-dependencies]
 criterion = "0.5"
+hostname = "0.4.1"
 structopt = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }
 getrandom = "=0.2.13"
