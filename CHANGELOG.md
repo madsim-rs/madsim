@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## madsim [0.2.34] - 2025-10-10
+
+### Changed
+
+- Name of the default node is changed from `main` to `madsim-main`.
+- `libc::gethostname` now returns the name of the current node, or `madsim-node-{id}` if it's unnamed.
+
 ## madsim [0.2.33] - 2025-07-31
 
 ### Changed
