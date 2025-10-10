@@ -815,9 +815,9 @@ unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) ->
             &format!("madsim-node-{}", info.node.id)
         };
 
-        let len = std::cmp::min(node_name.len(), size as usize);
+        let len = std::cmp::min(node_name.len(), size);
         std::ptr::copy_nonoverlapping(node_name.as_ptr() as *const libc::c_char, name, len);
-        if len < size as usize {
+        if len < size {
             // Write a null terminator.
             std::ptr::write(name.add(len), 0);
         } else {
