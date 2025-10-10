@@ -798,12 +798,14 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
 #[inline(never)]
 unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) -> libc::c_int {
     if let Some(info) = crate::context::try_current_task() {
+        let set_errno = |x| errno::set_errno(errno::Errno(x));
+
         if name.is_null() {
-            *libc::__error() = libc::EFAULT;
+            set_errno(libc::EFAULT);
             return -1;
         }
         if size == 0 {
-            *libc::__error() = libc::EINVAL;
+            set_errno(libc::EINVAL);
             return -1;
         }
 
@@ -819,7 +821,7 @@ unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) ->
             // Write a null terminator.
             std::ptr::write(name.add(len), 0);
         } else {
-            *libc::__error() = libc::ENAMETOOLONG;
+            set_errno(libc::ENAMETOOLONG);
             return -1;
         }
         return 0;
