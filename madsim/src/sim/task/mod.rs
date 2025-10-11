@@ -186,11 +186,11 @@ impl Executor {
                 next_node_id: Arc::new(AtomicU64::new(1)),
                 main_info: Arc::new(NodeInfo {
                     id: NodeId::zero(),
-                    name: Some("main".into()),
+                    name: Some("madsim-main".into()),
                     cores: 1,
                     restart_on_panic: false,
                     restart_on_panic_matching: vec![],
-                    span: error_span!("node", id = %NodeId::zero(), name = "main"),
+                    span: error_span!("node", id = %NodeId::zero(), name = "madsim-main"),
                     paused: AtomicBool::new(false),
                     killed: AtomicBool::new(false),
                     tasks: Mutex::new(vec![]),
@@ -791,6 +791,51 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
     PTHREAD_ATTR_INIT(attr)
 }
 
+/// Override `gethostname` to return the node name, if specified.
+///
+/// Ref: <https://man7.org/linux/man-pages/man2/gethostname.2.html>
+#[no_mangle]
+#[inline(never)]
+unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) -> libc::c_int {
+    if let Some(info) = crate::context::try_current_task() {
+        let set_errno = |x| errno::set_errno(errno::Errno(x));
+
+        if name.is_null() {
+            set_errno(libc::EFAULT);
+            return -1;
+        }
+        if size == 0 {
+            set_errno(libc::EINVAL);
+            return -1;
+        }
+
+        let node_name = if let Some(node_name) = &info.node.name {
+            node_name
+        } else {
+            &format!("madsim-node-{}", info.node.id)
+        };
+
+        let len = std::cmp::min(node_name.len(), size);
+        std::ptr::copy_nonoverlapping(node_name.as_ptr() as *const libc::c_char, name, len);
+        if len < size {
+            // Write a null terminator.
+            std::ptr::write(name.add(len), 0);
+        } else {
+            set_errno(libc::ENAMETOOLONG);
+            return -1;
+        }
+        return 0;
+    }
+    lazy_static::lazy_static! {
+        static ref GETHOSTNAME: unsafe extern "C" fn(name: *mut libc::c_char, size: libc::size_t) -> libc::c_int = unsafe {
+            let ptr = libc::dlsym(libc::RTLD_NEXT, c"gethostname".as_ptr() as _);
+            assert!(!ptr.is_null());
+            std::mem::transmute(ptr)
+        };
+    }
+    GETHOSTNAME(name, size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -799,7 +844,7 @@ mod tests {
         runtime::{init_logger, Handle, Runtime},
         time,
     };
-    use std::{collections::HashSet, sync::atomic::AtomicUsize, time::Duration};
+    use std::{collections::HashSet, ffi::OsStr, sync::atomic::AtomicUsize, time::Duration};
 
     #[test]
     fn spawn_in_block_on() {
@@ -1034,6 +1079,34 @@ mod tests {
             });
             recv.await.unwrap();
         });
+    }
+
+    #[test]
+    fn gethostname_override() {
+        let runtime = Runtime::new();
+        runtime.block_on(async move {
+            assert_eq!(hostname::get().unwrap(), OsStr::new("madsim-main"));
+        });
+        let f1 = runtime.create_node().build().spawn(async move {
+            assert_eq!(hostname::get().unwrap(), OsStr::new("madsim-node-1"));
+        });
+        let f2 = runtime.create_node().name("foo").build().spawn(async move {
+            assert_eq!(hostname::get().unwrap(), OsStr::new("foo"));
+        });
+        let f3 = runtime
+            .create_node()
+            .name("bad\0name")
+            .build()
+            .spawn(async move {
+                assert_eq!(hostname::get().unwrap(), OsStr::new("bad"));
+            });
+        let f4 = runtime.create_node().build().spawn(async move {
+            assert_eq!(hostname::get().unwrap(), OsStr::new("madsim-node-4"));
+        });
+        runtime.block_on(f1).unwrap();
+        runtime.block_on(f2).unwrap();
+        runtime.block_on(f3).unwrap();
+        runtime.block_on(f4).unwrap();
     }
 
     #[test]
