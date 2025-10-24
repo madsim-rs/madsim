@@ -48,10 +48,12 @@ pub type Payload = Box<dyn Any + Send + Sync>;
 
 mod config;
 mod listener;
+mod split;
 mod stream;
 
 pub use self::config::*;
 pub use self::listener::*;
+pub use self::split::*;
 pub use self::stream::*;
 
 #[cfg(test)]
