@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use super::*;
 
 /// An owned permission to join on a task (await its termination).
@@ -99,6 +101,23 @@ impl JoinError {
     /// Returns true if the error was caused by the task panicking.
     pub fn is_panic(&self) -> bool {
         self.is_panic
+    }
+
+    /// Consumes the join error, returning the object with which the task panicked.
+    pub fn into_panic(self) -> Box<dyn Any + Send + 'static> {
+        self.try_into_panic()
+            .expect("`JoinError` reason is not a panic.")
+    }
+
+    /// Consumes the join error, returning the object with which the task
+    /// panicked if the task terminated due to a panic. Otherwise, `self` is
+    /// returned.
+    pub fn try_into_panic(self) -> Result<Box<dyn Any + Send + 'static>, JoinError> {
+        if self.is_panic {
+            Ok(Box::new("task panicked"))
+        } else {
+            Err(self)
+        }
     }
 }
 
