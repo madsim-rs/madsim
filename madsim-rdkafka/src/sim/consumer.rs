@@ -5,7 +5,7 @@ use spin::Mutex;
 use tracing::*;
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -133,20 +133,14 @@ where
 
         let mut current_tpl = self.tpl.lock();
 
-        let existing_partitions: HashSet<_> = current_tpl
-            .list
-            .iter()
-            .map(|elem| (elem.topic.to_string(), elem.partition))
-            .collect();
-
         for new_elem in new_tpl.list {
-            let partition_key = (new_elem.topic.to_string(), new_elem.partition);
-            if !existing_partitions.contains(&partition_key) {
-                // The partition is new, so add it to the current assignment.
+            let already_assigned = current_tpl.list.iter().any(|elem| {
+                elem.topic == new_elem.topic && elem.partition == new_elem.partition
+            });
+
+            if !already_assigned {
                 current_tpl.list.push(new_elem);
             }
-            // If the partition already exists, we simply do nothing,
-            // which makes the operation idempotent.
         }
 
         Ok(())
@@ -162,19 +156,10 @@ where
             return Ok(());
         }
 
-        let partitions_to_remove: HashSet<_> = unassignment
-            .list
-            .iter()
-            .map(|elem| (elem.topic.to_string(), elem.partition))
-            .collect();
-
-        if partitions_to_remove.is_empty() {
-            return Ok(());
-        }
-
         current_tpl.list.retain(|elem| {
-            let partition_key = (elem.topic.to_string(), elem.partition);
-            !partitions_to_remove.contains(&partition_key)
+            !unassignment.list.iter().any(|candidate| {
+                candidate.topic == elem.topic && candidate.partition == elem.partition
+            })
         });
 
         Ok(())
@@ -202,43 +187,55 @@ where
         // Seek is instantaneous in the simulator, so the timeout is ignored.
         let _ = timeout.into();
 
+        {
+            let current_tpl = self.tpl.lock();
+            for requested in &topic_partition_list.list {
+                match requested.offset {
+                    Offset::Invalid => {
+                        return Err(KafkaError::Seek(format!(
+                            "invalid offset for {}:{}",
+                            requested.topic, requested.partition
+                        )));
+                    }
+                    Offset::Stored => {
+                        return Err(KafkaError::Seek(format!(
+                            "stored offset is not supported for {}:{}",
+                            requested.topic, requested.partition
+                        )));
+                    }
+                    Offset::OffsetTail(_) => {
+                        return Err(KafkaError::Seek(format!(
+                            "offset tail is not supported for {}:{}",
+                            requested.topic, requested.partition
+                        )));
+                    }
+                    _ => {}
+                }
+
+                current_tpl
+                    .list
+                    .iter()
+                    .find(|elem| {
+                        elem.topic == requested.topic && elem.partition == requested.partition
+                    })
+                    .ok_or_else(|| {
+                        KafkaError::Seek(format!(
+                            "partition {}:{} is not currently assigned",
+                            requested.topic, requested.partition
+                        ))
+                    })?;
+            }
+        }
+
         self.msgs.lock().clear();
         let mut current_tpl = self.tpl.lock();
 
         for requested in &topic_partition_list.list {
-            match requested.offset {
-                Offset::Invalid => {
-                    return Err(KafkaError::Seek(format!(
-                        "invalid offset for {}:{}",
-                        requested.topic, requested.partition
-                    )));
-                }
-                Offset::Stored => {
-                    return Err(KafkaError::Seek(format!(
-                        "stored offset is not supported for {}:{}",
-                        requested.topic, requested.partition
-                    )));
-                }
-                Offset::OffsetTail(_) => {
-                    return Err(KafkaError::Seek(format!(
-                        "offset tail is not supported for {}:{}",
-                        requested.topic, requested.partition
-                    )));
-                }
-                _ => {}
-            }
-
             let current = current_tpl
                 .list
                 .iter_mut()
                 .find(|elem| elem.topic == requested.topic && elem.partition == requested.partition)
-                .ok_or_else(|| {
-                    KafkaError::Seek(format!(
-                        "partition {}:{} is not currently assigned",
-                        requested.topic, requested.partition
-                    ))
-                })?;
-
+                .expect("partition must exist after validation");
             current.offset = requested.offset;
         }
 
@@ -674,6 +671,57 @@ mod tests {
     }
 
     #[madsim::test]
+    async fn seek_partitions_error_preserves_buffer() {
+        setup_cluster("topic", 1).await;
+        produce(&[1, 2]).await;
+
+        Handle::current()
+            .create_node()
+            .name("test-consumer-error-buffer")
+            .ip("10.0.2.12".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let consumer = make_consumer().await;
+                let mut assignment = TopicPartitionList::new();
+                assignment.add_partition("topic", 0);
+                consumer.assign(&assignment).unwrap();
+
+                assert_eq!(poll_payload(&consumer).await, 1);
+                assert!(!consumer.msgs.lock().is_empty());
+                let before_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("topic", 0, Offset::Invalid)
+                    .unwrap();
+                let err = consumer
+                    .seek_partitions(tpl, Duration::from_secs(1))
+                    .await
+                    .unwrap_err();
+                assert!(matches!(err, KafkaError::Seek(_)));
+                assert!(!consumer.msgs.lock().is_empty());
+
+                let after_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+                assert_eq!(before_offset, after_offset);
+            })
+            .await
+            .unwrap();
+    }
+
+    #[madsim::test]
     async fn seek_partitions_multiple_partitions() {
         setup_cluster("topic", 2).await;
         produce(&[1, 2, 3, 4]).await;
@@ -699,6 +747,59 @@ mod tests {
                     .seek_partitions(tpl, Duration::from_secs(1))
                     .await
                     .unwrap();
+            })
+            .await
+            .unwrap();
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_partial_failure_keeps_state() {
+        setup_cluster("topic", 2).await;
+        produce(&[1, 2, 3]).await;
+
+        Handle::current()
+            .create_node()
+            .name("test-consumer-partial-failure")
+            .ip("10.0.2.13".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let consumer = make_consumer().await;
+                let mut assignment = TopicPartitionList::new();
+                assignment.add_partition("topic", 0);
+                consumer.assign(&assignment).unwrap();
+
+                assert_eq!(poll_payload(&consumer).await, 1);
+                assert!(!consumer.msgs.lock().is_empty());
+                let before_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("topic", 0, Offset::Offset(0))
+                    .unwrap();
+                tpl.add_partition_offset("topic", 1, Offset::Offset(0))
+                    .unwrap();
+                let err = consumer
+                    .seek_partitions(tpl, Duration::from_secs(1))
+                    .await
+                    .unwrap_err();
+                assert!(matches!(err, KafkaError::Seek(_)));
+                assert!(!consumer.msgs.lock().is_empty());
+
+                let after_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+                assert_eq!(before_offset, after_offset);
             })
             .await
             .unwrap();
