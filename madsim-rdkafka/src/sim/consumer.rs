@@ -189,7 +189,7 @@ where
         let _ = timeout.into();
 
         {
-            let current_tpl = self.tpl.lock();
+            let mut current_tpl = self.tpl.lock();
             for requested in &topic_partition_list.list {
                 match requested.offset {
                     Offset::Invalid => {
@@ -226,18 +226,19 @@ where
                         ))
                     })?;
             }
-        }
 
-        self.msgs.lock().clear();
-        let mut current_tpl = self.tpl.lock();
+            self.msgs.lock().clear();
 
-        for requested in &topic_partition_list.list {
-            let current = current_tpl
-                .list
-                .iter_mut()
-                .find(|elem| elem.topic == requested.topic && elem.partition == requested.partition)
-                .expect("partition must exist after validation");
-            current.offset = requested.offset;
+            for requested in &topic_partition_list.list {
+                let current = current_tpl
+                    .list
+                    .iter_mut()
+                    .find(|elem| {
+                        elem.topic == requested.topic && elem.partition == requested.partition
+                    })
+                    .expect("partition must exist after validation");
+                current.offset = requested.offset;
+            }
         }
 
         Ok(topic_partition_list)
