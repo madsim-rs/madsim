@@ -134,9 +134,10 @@ where
         let mut current_tpl = self.tpl.lock();
 
         for new_elem in new_tpl.list {
-            let already_assigned = current_tpl.list.iter().any(|elem| {
-                elem.topic == new_elem.topic && elem.partition == new_elem.partition
-            });
+            let already_assigned = current_tpl
+                .list
+                .iter()
+                .any(|elem| elem.topic == new_elem.topic && elem.partition == new_elem.partition);
 
             if !already_assigned {
                 current_tpl.list.push(new_elem);
