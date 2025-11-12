@@ -139,7 +139,7 @@ where
             .map(|elem| (elem.topic.clone(), elem.partition))
             .collect();
 
-        for mut new_elem in new_tpl.list {
+        for new_elem in new_tpl.list {
             let key = (new_elem.topic.clone(), new_elem.partition);
             if assigned.insert(key) {
                 current_tpl.list.push(new_elem);
@@ -205,6 +205,7 @@ where
                 .enumerate()
                 .map(|(idx, elem)| ((elem.topic.as_str(), elem.partition), idx))
                 .collect();
+            let mut target_indices = Vec::with_capacity(topic_partition_list.list.len());
 
             for requested in &topic_partition_list.list {
                 match requested.offset {
@@ -229,17 +230,6 @@ where
                     _ => {}
                 }
 
-                if !index_by_key.contains_key(&(requested.topic.as_str(), requested.partition)) {
-                    return Err(KafkaError::Seek(format!(
-                        "partition {}:{} is not currently assigned",
-                        requested.topic, requested.partition
-                    )));
-                }
-            }
-
-            self.msgs.lock().clear();
-
-            for requested in &topic_partition_list.list {
                 let key = (requested.topic.as_str(), requested.partition);
                 let idx = *index_by_key.get(&key).ok_or_else(|| {
                     KafkaError::Seek(format!(
@@ -247,6 +237,16 @@ where
                         requested.topic, requested.partition
                     ))
                 })?;
+                target_indices.push(idx);
+            }
+
+            self.msgs.lock().clear();
+
+            for (requested, idx) in topic_partition_list
+                .list
+                .iter()
+                .zip(target_indices.into_iter())
+            {
                 current_tpl.list[idx].offset = requested.offset;
             }
         }
