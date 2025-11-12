@@ -5,7 +5,7 @@ use spin::Mutex;
 use tracing::*;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -122,6 +122,7 @@ where
     /// Incrementally adds partitions to the current assignment.
     ///
     /// Existing partitions are left untouched, including their offsets.
+    /// Buffered messages from existing partitions are preserved.
     /// To adjust offsets for partitions that are already assigned, call
     /// [`BaseConsumer::seek_partitions`] instead.
     pub fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
@@ -132,14 +133,15 @@ where
         }
 
         let mut current_tpl = self.tpl.lock();
+        let mut assigned: HashSet<(String, i32)> = current_tpl
+            .list
+            .iter()
+            .map(|elem| (elem.topic.clone(), elem.partition))
+            .collect();
 
-        for new_elem in new_tpl.list {
-            let already_assigned = current_tpl
-                .list
-                .iter()
-                .any(|elem| elem.topic == new_elem.topic && elem.partition == new_elem.partition);
-
-            if !already_assigned {
+        for mut new_elem in new_tpl.list {
+            let key = (new_elem.topic.clone(), new_elem.partition);
+            if assigned.insert(key) {
                 current_tpl.list.push(new_elem);
             }
         }
@@ -150,6 +152,9 @@ where
     /// Incrementally removes partitions from the current assignment.
     ///
     /// Partitions not present in the current assignment are ignored.
+    /// Note: Buffered messages are not cleared. Any messages already
+    /// fetched from removed partitions may still be returned by subsequent
+    /// poll operations until the buffer is exhausted.
     pub fn incremental_unassign(&self, unassignment: &TopicPartitionList) -> KafkaResult<()> {
         let mut current_tpl = self.tpl.lock();
 
@@ -157,11 +162,15 @@ where
             return Ok(());
         }
 
-        current_tpl.list.retain(|elem| {
-            !unassignment.list.iter().any(|candidate| {
-                candidate.topic == elem.topic && candidate.partition == elem.partition
-            })
-        });
+        let to_remove: HashSet<(&str, i32)> = unassignment
+            .list
+            .iter()
+            .map(|candidate| (candidate.topic.as_str(), candidate.partition))
+            .collect();
+
+        current_tpl
+            .list
+            .retain(|elem| !to_remove.contains(&(elem.topic.as_str(), elem.partition)));
 
         Ok(())
     }
@@ -190,6 +199,13 @@ where
 
         {
             let mut current_tpl = self.tpl.lock();
+            let index_by_key: HashMap<(&str, i32), usize> = current_tpl
+                .list
+                .iter()
+                .enumerate()
+                .map(|(idx, elem)| ((elem.topic.as_str(), elem.partition), idx))
+                .collect();
+
             for requested in &topic_partition_list.list {
                 match requested.offset {
                     Offset::Invalid => {
@@ -213,31 +229,25 @@ where
                     _ => {}
                 }
 
-                current_tpl
-                    .list
-                    .iter()
-                    .find(|elem| {
-                        elem.topic == requested.topic && elem.partition == requested.partition
-                    })
-                    .ok_or_else(|| {
-                        KafkaError::Seek(format!(
-                            "partition {}:{} is not currently assigned",
-                            requested.topic, requested.partition
-                        ))
-                    })?;
+                if !index_by_key.contains_key(&(requested.topic.as_str(), requested.partition)) {
+                    return Err(KafkaError::Seek(format!(
+                        "partition {}:{} is not currently assigned",
+                        requested.topic, requested.partition
+                    )));
+                }
             }
 
             self.msgs.lock().clear();
 
             for requested in &topic_partition_list.list {
-                let current = current_tpl
-                    .list
-                    .iter_mut()
-                    .find(|elem| {
-                        elem.topic == requested.topic && elem.partition == requested.partition
-                    })
-                    .expect("partition must exist after validation");
-                current.offset = requested.offset;
+                let key = (requested.topic.as_str(), requested.partition);
+                let idx = *index_by_key.get(&key).ok_or_else(|| {
+                    KafkaError::Seek(format!(
+                        "partition {}:{} is not currently assigned",
+                        requested.topic, requested.partition
+                    ))
+                })?;
+                current_tpl.list[idx].offset = requested.offset;
             }
         }
 
@@ -393,11 +403,15 @@ where
         self.base.assign(assignment)
     }
 
+    /// Incrementally adds partitions to the current assignment.
+    ///
     /// Delegates to [`BaseConsumer::incremental_assign`].
     pub fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
         self.base.incremental_assign(assignment)
     }
 
+    /// Incrementally removes partitions from the current assignment.
+    ///
     /// Delegates to [`BaseConsumer::incremental_unassign`].
     pub fn incremental_unassign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
         self.base.incremental_unassign(assignment)
