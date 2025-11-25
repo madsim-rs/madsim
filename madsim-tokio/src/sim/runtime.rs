@@ -166,6 +166,29 @@ impl Handle {
     }
 }
 
+/// Dummy tokio runtime metrics.
+///
+/// This is only provided to provide API compatibility. Metric values are always zero.
+#[derive(Clone)]
+pub struct RuntimeMetrics;
+
+impl RuntimeMetrics {
+    /// Returns the number of worker threads used by the runtime.
+    pub fn num_workers(&self) -> usize {
+        0
+    }
+
+    /// Returns the current number of alive tasks in the runtime.
+    pub fn num_alive_tasks(&self) -> usize {
+        0
+    }
+
+    /// Returns the number of tasks currently scheduled in the runtime’s global queue.
+    pub fn global_queue_depth(&self) -> usize {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
