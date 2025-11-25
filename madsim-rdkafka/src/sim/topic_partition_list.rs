@@ -84,6 +84,14 @@ impl TopicPartitionList {
         Ok(())
     }
 
+    /// Returns all the elements of the list.
+    pub fn elements<'a>(&'a self) -> Vec<TopicPartitionListElem<'a>> {
+        self.list
+            .iter()
+            .map(|e| TopicPartitionListElem { e })
+            .collect()
+    }
+
     /// Returns all the elements of the list that belong to the specified topic.
     pub fn elements_for_topic<'a>(&'a self, topic: &str) -> Vec<TopicPartitionListElem<'a>> {
         self.list

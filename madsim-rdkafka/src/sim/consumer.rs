@@ -5,7 +5,7 @@ use spin::Mutex;
 use tracing::*;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -21,6 +21,7 @@ use crate::{
     message::{BorrowedMessage, OwnedMessage},
     metadata::Metadata,
     sim_broker::Request,
+    topic_partition_list::Elem,
     util::Timeout,
     ClientConfig, Offset, TopicPartitionList,
 };
@@ -112,16 +113,155 @@ where
         let mut tpl = assignment.clone();
         // auto offset reset
         for e in &mut tpl.list {
-            if e.offset == Offset::Invalid {
-                match self.config.auto_offset_reset {
-                    AutoOffsetResetStrategy::Latest => e.offset = Offset::End,
-                    AutoOffsetResetStrategy::Earliest => e.offset = Offset::Beginning,
-                    AutoOffsetResetStrategy::None => {}
-                }
-            }
+            self.reset_offset(e);
         }
         *self.tpl.lock() = tpl;
         Ok(())
+    }
+
+    /// Incrementally adds partitions to the current assignment.
+    ///
+    /// Existing partitions are left untouched, including their offsets.
+    /// Buffered messages from existing partitions are preserved.
+    /// To adjust offsets for partitions that are already assigned, call
+    /// [`BaseConsumer::seek_partitions`] instead.
+    pub fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        let mut new_tpl = assignment.clone();
+
+        for e in &mut new_tpl.list {
+            self.reset_offset(e);
+        }
+
+        let mut current_tpl = self.tpl.lock();
+        let mut assigned: HashSet<(String, i32)> = current_tpl
+            .list
+            .iter()
+            .map(|elem| (elem.topic.clone(), elem.partition))
+            .collect();
+
+        for new_elem in new_tpl.list {
+            let key = (new_elem.topic.clone(), new_elem.partition);
+            if assigned.insert(key) {
+                current_tpl.list.push(new_elem);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Incrementally removes partitions from the current assignment.
+    ///
+    /// Partitions not present in the current assignment are ignored.
+    /// Note: Buffered messages are not cleared. Any messages already
+    /// fetched from removed partitions may still be returned by subsequent
+    /// poll operations until the buffer is exhausted.
+    pub fn incremental_unassign(&self, unassignment: &TopicPartitionList) -> KafkaResult<()> {
+        let mut current_tpl = self.tpl.lock();
+
+        if current_tpl.list.is_empty() {
+            return Ok(());
+        }
+
+        let to_remove: HashSet<(&str, i32)> = unassignment
+            .list
+            .iter()
+            .map(|candidate| (candidate.topic.as_str(), candidate.partition))
+            .collect();
+
+        current_tpl
+            .list
+            .retain(|elem| !to_remove.contains(&(elem.topic.as_str(), elem.partition)));
+
+        Ok(())
+    }
+
+    /// Adjusts offsets for the partitions that are currently assigned.
+    ///
+    /// This clears the buffered messages and writes the offsets provided in
+    /// `topic_partition_list` back to the internal `TopicPartitionList`.
+    /// Only partitions that are already assigned may be updated. The
+    /// simulation backend currently rejects `Offset::Stored` and
+    /// `Offset::OffsetTail`.
+    ///
+    /// Returns the provided `TopicPartitionList` so the caller can keep using it.
+    ///
+    /// # Errors
+    ///
+    /// * [`KafkaError::Seek`] - Returned when a partition is not assigned or the
+    ///   offset value is unsupported/invalid.
+    pub async fn seek_partitions(
+        &self,
+        topic_partition_list: TopicPartitionList,
+        timeout: impl Into<Timeout>,
+    ) -> KafkaResult<TopicPartitionList> {
+        // Seek is instantaneous in the simulator, so the timeout is ignored.
+        let _ = timeout.into();
+
+        {
+            let mut current_tpl = self.tpl.lock();
+            let index_by_key: HashMap<(&str, i32), usize> = current_tpl
+                .list
+                .iter()
+                .enumerate()
+                .map(|(idx, elem)| ((elem.topic.as_str(), elem.partition), idx))
+                .collect();
+            let mut target_indices = Vec::with_capacity(topic_partition_list.list.len());
+
+            for requested in &topic_partition_list.list {
+                match requested.offset {
+                    Offset::Invalid => {
+                        return Err(KafkaError::Seek(format!(
+                            "invalid offset for {}:{}",
+                            requested.topic, requested.partition
+                        )));
+                    }
+                    Offset::Stored => {
+                        return Err(KafkaError::Seek(format!(
+                            "stored offset is not supported for {}:{}",
+                            requested.topic, requested.partition
+                        )));
+                    }
+                    Offset::OffsetTail(_) => {
+                        return Err(KafkaError::Seek(format!(
+                            "offset tail is not supported for {}:{}",
+                            requested.topic, requested.partition
+                        )));
+                    }
+                    _ => {}
+                }
+
+                let key = (requested.topic.as_str(), requested.partition);
+                let idx = *index_by_key.get(&key).ok_or_else(|| {
+                    KafkaError::Seek(format!(
+                        "partition {}:{} is not currently assigned",
+                        requested.topic, requested.partition
+                    ))
+                })?;
+                target_indices.push(idx);
+            }
+
+            self.msgs.lock().clear();
+
+            for (requested, idx) in topic_partition_list
+                .list
+                .iter()
+                .zip(target_indices.into_iter())
+            {
+                current_tpl.list[idx].offset = requested.offset;
+            }
+        }
+
+        Ok(topic_partition_list)
+    }
+
+    fn reset_offset(&self, e: &mut Elem) {
+        if e.offset == Offset::Invalid {
+            match self.config.auto_offset_reset {
+                AutoOffsetResetStrategy::Latest => e.offset = Offset::End,
+                AutoOffsetResetStrategy::Earliest => e.offset = Offset::Beginning,
+                AutoOffsetResetStrategy::None => {}
+            }
+        }
     }
 
     /// Returns the low and high watermarks for a specific topic and partition.
@@ -263,6 +403,31 @@ where
         self.base.assign(assignment)
     }
 
+    /// Incrementally adds partitions to the current assignment.
+    ///
+    /// Delegates to [`BaseConsumer::incremental_assign`].
+    pub fn incremental_assign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.incremental_assign(assignment)
+    }
+
+    /// Incrementally removes partitions from the current assignment.
+    ///
+    /// Delegates to [`BaseConsumer::incremental_unassign`].
+    pub fn incremental_unassign(&self, assignment: &TopicPartitionList) -> KafkaResult<()> {
+        self.base.incremental_unassign(assignment)
+    }
+
+    /// Batch seek that mirrors [`BaseConsumer::seek_partitions`].
+    pub async fn seek_partitions(
+        &self,
+        topic_partition_list: TopicPartitionList,
+        timeout: impl Into<Timeout>,
+    ) -> KafkaResult<TopicPartitionList> {
+        self.base
+            .seek_partitions(topic_partition_list, timeout)
+            .await
+    }
+
     pub async fn fetch_watermarks(
         &self,
         topic: &str,
@@ -318,6 +483,400 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.rx.poll_next_unpin(cx).map_ok(|msg| msg.borrow())
+    }
+}
+
+#[cfg(all(test, madsim))]
+mod tests {
+    use super::*;
+    use crate::{
+        admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
+        message::Message,
+        producer::{BaseProducer, BaseRecord},
+        sim_broker::SimBroker,
+    };
+    use madsim::{net::NetSim, runtime::Handle};
+    use std::convert::TryFrom;
+    use std::{net::SocketAddr, time::Duration};
+
+    const BROKER_ADDR: &str = "10.0.0.1:50051";
+    const BROKER_IP: &str = "10.0.0.1";
+
+    async fn setup_cluster(topic: &str, partitions: usize) {
+        let handle = Handle::current();
+        let broker_addr = BROKER_ADDR.parse::<SocketAddr>().unwrap();
+        NetSim::current().add_dns_record("broker", broker_addr.ip());
+
+        handle
+            .create_node()
+            .name("test-broker")
+            .ip(BROKER_IP.parse().unwrap())
+            .build()
+            .spawn(async move {
+                SimBroker::default().serve(broker_addr).await.unwrap();
+            });
+
+        madsim::time::sleep(Duration::from_millis(500)).await;
+
+        let topic = topic.to_string();
+        handle
+            .create_node()
+            .name("test-admin")
+            .ip("10.0.0.2".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let partitions = i32::try_from(partitions).expect("partition count overflow");
+                let admin = ClientConfig::new()
+                    .set("bootstrap.servers", "broker:50051")
+                    .create::<AdminClient<_>>()
+                    .await
+                    .expect("failed to create admin");
+                admin
+                    .create_topics(
+                        &[NewTopic::new(
+                            &topic,
+                            partitions,
+                            TopicReplication::Fixed(1),
+                        )],
+                        &AdminOptions::new(),
+                    )
+                    .await
+                    .expect("failed to create topic");
+            })
+            .await
+            .unwrap();
+
+        madsim::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    async fn make_consumer() -> BaseConsumer {
+        ClientConfig::new()
+            .set("bootstrap.servers", "broker:50051")
+            .set("enable.auto.commit", "false")
+            .set("auto.offset.reset", "earliest")
+            .create::<BaseConsumer>()
+            .await
+            .expect("failed to create consumer")
+    }
+
+    async fn produce(values: &[u8]) {
+        let handle = Handle::current();
+        let values = values.to_vec();
+        handle
+            .create_node()
+            .name("test-producer")
+            .ip("10.0.1.10".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let producer = ClientConfig::new()
+                    .set("bootstrap.servers", "broker:50051")
+                    .create::<BaseProducer>()
+                    .await
+                    .expect("failed to create producer");
+
+                for v in values {
+                    let payload = [v];
+                    producer
+                        .send(BaseRecord::<(), [u8; 1]>::to("topic").payload(&payload))
+                        .expect("send failed");
+                }
+                producer.flush(None).await.expect("flush failed");
+            })
+            .await
+            .unwrap();
+    }
+
+    async fn poll_payload(consumer: &BaseConsumer) -> u8 {
+        loop {
+            if let Some(res) = consumer.poll(None).await {
+                let msg = res.expect("message error");
+                if let Some(payload) = msg.payload() {
+                    return payload[0];
+                }
+            }
+            madsim::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_basic() {
+        setup_cluster("topic", 1).await;
+        produce(&[1, 2, 3]).await;
+
+        Handle::current()
+            .create_node()
+            .name("test-consumer-basic")
+            .ip("10.0.2.10".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let consumer = make_consumer().await;
+                let mut assignment = TopicPartitionList::new();
+                assignment.add_partition("topic", 0);
+                consumer.assign(&assignment).unwrap();
+
+                assert_eq!(poll_payload(&consumer).await, 1);
+                assert!(!consumer.msgs.lock().is_empty());
+
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("topic", 0, Offset::Offset(2))
+                    .unwrap();
+                consumer
+                    .seek_partitions(tpl, Duration::from_secs(1))
+                    .await
+                    .unwrap();
+
+                assert!(consumer.msgs.lock().is_empty());
+                assert_eq!(poll_payload(&consumer).await, 3);
+            })
+            .await
+            .unwrap();
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_rejects_invalid_offset() {
+        setup_cluster("topic", 1).await;
+        let consumer = make_consumer().await;
+        let mut assignment = TopicPartitionList::new();
+        assignment.add_partition("topic", 0);
+        consumer.assign(&assignment).unwrap();
+
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset("topic", 0, Offset::Invalid)
+            .unwrap();
+        let err = consumer
+            .seek_partitions(tpl, Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, KafkaError::Seek(_)));
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_rejects_stored_offset() {
+        setup_cluster("topic", 1).await;
+        let consumer = make_consumer().await;
+        let mut assignment = TopicPartitionList::new();
+        assignment.add_partition("topic", 0);
+        consumer.assign(&assignment).unwrap();
+
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset("topic", 0, Offset::Stored)
+            .unwrap();
+        let err = consumer
+            .seek_partitions(tpl, Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, KafkaError::Seek(_)));
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_rejects_unassigned_partition() {
+        setup_cluster("topic", 2).await;
+        let consumer = make_consumer().await;
+        let mut assignment = TopicPartitionList::new();
+        assignment.add_partition("topic", 0);
+        consumer.assign(&assignment).unwrap();
+
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset("topic", 1, Offset::Offset(0))
+            .unwrap();
+        let err = consumer
+            .seek_partitions(tpl, Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, KafkaError::Seek(_)));
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_error_preserves_buffer() {
+        setup_cluster("topic", 1).await;
+        produce(&[1, 2]).await;
+
+        Handle::current()
+            .create_node()
+            .name("test-consumer-error-buffer")
+            .ip("10.0.2.12".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let consumer = make_consumer().await;
+                let mut assignment = TopicPartitionList::new();
+                assignment.add_partition("topic", 0);
+                consumer.assign(&assignment).unwrap();
+
+                assert_eq!(poll_payload(&consumer).await, 1);
+                assert!(!consumer.msgs.lock().is_empty());
+                let before_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("topic", 0, Offset::Invalid)
+                    .unwrap();
+                let err = consumer
+                    .seek_partitions(tpl, Duration::from_secs(1))
+                    .await
+                    .unwrap_err();
+                assert!(matches!(err, KafkaError::Seek(_)));
+                assert!(!consumer.msgs.lock().is_empty());
+
+                let after_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+                assert_eq!(before_offset, after_offset);
+            })
+            .await
+            .unwrap();
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_multiple_partitions() {
+        setup_cluster("topic", 2).await;
+        produce(&[1, 2, 3, 4]).await;
+
+        Handle::current()
+            .create_node()
+            .name("test-consumer-multi")
+            .ip("10.0.2.11".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let consumer = make_consumer().await;
+                let mut assignment = TopicPartitionList::new();
+                assignment.add_partition("topic", 0);
+                assignment.add_partition("topic", 1);
+                consumer.assign(&assignment).unwrap();
+
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("topic", 0, Offset::Beginning)
+                    .unwrap();
+                tpl.add_partition_offset("topic", 1, Offset::Offset(0))
+                    .unwrap();
+                consumer
+                    .seek_partitions(tpl, Duration::from_secs(1))
+                    .await
+                    .unwrap();
+            })
+            .await
+            .unwrap();
+    }
+
+    #[madsim::test]
+    async fn seek_partitions_partial_failure_keeps_state() {
+        setup_cluster("topic", 2).await;
+        produce(&[1, 2, 3]).await;
+
+        Handle::current()
+            .create_node()
+            .name("test-consumer-partial-failure")
+            .ip("10.0.2.13".parse().unwrap())
+            .build()
+            .spawn(async move {
+                let consumer = make_consumer().await;
+                let mut assignment = TopicPartitionList::new();
+                assignment.add_partition("topic", 0);
+                consumer.assign(&assignment).unwrap();
+
+                assert_eq!(poll_payload(&consumer).await, 1);
+                assert!(!consumer.msgs.lock().is_empty());
+                let before_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+
+                let mut tpl = TopicPartitionList::new();
+                tpl.add_partition_offset("topic", 0, Offset::Offset(0))
+                    .unwrap();
+                tpl.add_partition_offset("topic", 1, Offset::Offset(0))
+                    .unwrap();
+                let err = consumer
+                    .seek_partitions(tpl, Duration::from_secs(1))
+                    .await
+                    .unwrap_err();
+                assert!(matches!(err, KafkaError::Seek(_)));
+                assert!(!consumer.msgs.lock().is_empty());
+
+                let after_offset = {
+                    let tpl = consumer.tpl.lock();
+                    tpl.list
+                        .iter()
+                        .find(|elem| elem.topic == "topic" && elem.partition == 0)
+                        .map(|elem| elem.offset)
+                        .unwrap()
+                };
+                assert_eq!(before_offset, after_offset);
+            })
+            .await
+            .unwrap();
+    }
+
+    #[madsim::test]
+    async fn incremental_assign_adds_unique_partitions() {
+        setup_cluster("topic", 2).await;
+        let consumer = make_consumer().await;
+
+        let mut initial = TopicPartitionList::new();
+        initial.add_partition("topic", 0);
+        consumer.assign(&initial).unwrap();
+        assert_eq!(consumer.tpl.lock().count(), 1);
+
+        let mut to_add = TopicPartitionList::new();
+        to_add.add_partition("topic", 1);
+        consumer.incremental_assign(&to_add).unwrap();
+
+        {
+            let tpl = consumer.tpl.lock();
+            assert_eq!(tpl.count(), 2);
+            let added = tpl
+                .list
+                .iter()
+                .find(|elem| elem.topic == "topic" && elem.partition == 1)
+                .expect("partition 1 missing");
+            assert_eq!(added.offset, Offset::Beginning);
+        }
+
+        consumer.incremental_assign(&to_add).unwrap();
+        assert_eq!(consumer.tpl.lock().count(), 2);
+    }
+
+    #[madsim::test]
+    async fn incremental_unassign_removes_partitions() {
+        setup_cluster("topic", 2).await;
+        let consumer = make_consumer().await;
+
+        let mut initial = TopicPartitionList::new();
+        initial.add_partition("topic", 0);
+        initial.add_partition("topic", 1);
+        consumer.assign(&initial).unwrap();
+        assert_eq!(consumer.tpl.lock().count(), 2);
+
+        let mut to_remove = TopicPartitionList::new();
+        to_remove.add_partition("topic", 1);
+        consumer.incremental_unassign(&to_remove).unwrap();
+
+        {
+            let tpl = consumer.tpl.lock();
+            assert_eq!(tpl.count(), 1);
+            assert!(tpl
+                .list
+                .iter()
+                .all(|elem| !(elem.topic == "topic" && elem.partition == 1)));
+        }
+
+        // Removing a non-existent partition should be a no-op.
+        consumer.incremental_unassign(&to_remove).unwrap();
+        assert_eq!(consumer.tpl.lock().count(), 1);
     }
 }
 
