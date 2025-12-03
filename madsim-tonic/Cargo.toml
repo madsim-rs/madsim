@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic"
-version = "0.5.1+0.12.0"
+version = "0.5.2+0.12.0"
 edition = "2021"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The `tonic` simulator on madsim."
@@ -13,6 +13,8 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+gzip = ["tonic/gzip"]
+zstd = ["tonic/zstd"]
 tls = ["tonic/tls"]
 
 [target.'cfg(not(madsim))'.dependencies]

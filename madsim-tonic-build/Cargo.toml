@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic-build"
-version = "0.5.1+0.12.3"
+version = "0.5.2+0.12.3"
 edition = "2021"
 authors = [
     "Lucio Franco <luciofranco14@gmail.com>",
@@ -24,7 +24,6 @@ syn = "2"
 tonic-build = "0.12.3"
 
 [features]
-compression = []
 default = ["transport", "prost"]
 prost = ["prost-build"]
 transport = []

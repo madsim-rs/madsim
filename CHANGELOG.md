@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic [0.5.2] - 2025-12-03
+
+### Changed
+- Aligned compression API with latest tonic.
+
 ## madsim [0.2.34] - 2025-10-10
 
 ### Changed
