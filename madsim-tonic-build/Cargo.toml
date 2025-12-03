@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic-build"
-version = "0.5.1+0.12.3"
+version = "0.5.2+0.12.3"
 edition = "2021"
 authors = [
     "Lucio Franco <luciofranco14@gmail.com>",
