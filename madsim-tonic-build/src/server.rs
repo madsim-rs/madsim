@@ -39,31 +39,20 @@ pub fn generate<T: Service>(
     // let mod_attributes = attributes.for_mod(package);
     // let struct_attributes = attributes.for_struct(&path);
 
-    let compression_enabled = cfg!(feature = "compression");
-
-    // let compression_config_ty = if compression_enabled {
-    //     quote! { EnabledCompressionEncodings }
-    // } else {
-    //     quote! { () }
-    // };
-
-    let configure_compression_methods = if compression_enabled {
-        quote! {
-            /// Enable decompressing requests with the given encoding.
-            #[must_use]
-            pub fn accept_compressed(self, _encoding: CompressionEncoding) -> Self {
-                // self.accept_compression_encodings.enable(encoding);
-                self
-            }
-            /// Compress responses with the given encoding, if the client supports it.
-            #[must_use]
-            pub fn send_compressed(self, _encoding: CompressionEncoding) -> Self {
-                // self.send_compression_encodings.enable(encoding);
-                self
-            }
+    let configure_compression_methods = quote! {
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(self, _encoding: CompressionEncoding) -> Self {
+            // self.accept_compression_encodings.enable(encoding);
+            self
         }
-    } else {
-        quote! {}
+
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(self, _encoding: CompressionEncoding) -> Self {
+            // self.send_compression_encodings.enable(encoding);
+            self
+        }
     };
 
     let configure_max_message_size_methods = quote! {
@@ -92,8 +81,6 @@ pub fn generate<T: Service>(
                 dead_code,
                 missing_docs,
                 unused_mut,
-                // will trigger if compression is disabled
-                clippy::let_unit_value,
             )]
             use tonic::codegen::{http::uri::PathAndQuery, futures::{stream::{self, Stream, StreamExt}, future::FutureExt}, *};
 

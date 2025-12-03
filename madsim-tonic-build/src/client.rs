@@ -40,8 +40,6 @@ pub fn generate<T: Service>(
                 unused_variables,
                 dead_code,
                 missing_docs,
-                // will trigger if compression is disabled
-                clippy::let_unit_value,
             )]
             use tonic::codegen::*;
 
