@@ -23,16 +23,13 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
         0
     } else {
         // not in madsim, call the original function.
-        lazy_static::lazy_static! {
-            static ref GETTIMEOFDAY: unsafe extern "C" fn(
-                tp: *mut libc::timeval,
-                tz: *mut libc::c_void,
-            ) -> libc::c_int = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, c"gettimeofday".as_ptr() as _);
-                assert!(!ptr.is_null());
-                std::mem::transmute(ptr)
-            };
-        }
+        static GETTIMEOFDAY: std::sync::LazyLock<
+            unsafe extern "C" fn(tp: *mut libc::timeval, tz: *mut libc::c_void) -> libc::c_int,
+        > = std::sync::LazyLock::new(|| unsafe {
+            let ptr = libc::dlsym(libc::RTLD_NEXT, c"gettimeofday".as_ptr() as _);
+            assert!(!ptr.is_null());
+            std::mem::transmute(ptr)
+        });
         GETTIMEOFDAY(tp, tz)
     }
 }
@@ -73,16 +70,13 @@ unsafe extern "C" fn clock_gettime(
         });
         0
     } else {
-        lazy_static::lazy_static! {
-            static ref CLOCK_GETTIME: unsafe extern "C" fn(
-                clockid: libc::clockid_t,
-                tp: *mut libc::timespec,
-            ) -> libc::c_int = unsafe {
-                let ptr = libc::dlsym(libc::RTLD_NEXT, c"clock_gettime".as_ptr() as _);
-                assert!(!ptr.is_null());
-                std::mem::transmute(ptr)
-            };
-        }
+        static CLOCK_GETTIME: std::sync::LazyLock<
+            unsafe extern "C" fn(clockid: libc::clockid_t, tp: *mut libc::timespec) -> libc::c_int,
+        > = std::sync::LazyLock::new(|| unsafe {
+            let ptr = libc::dlsym(libc::RTLD_NEXT, c"clock_gettime".as_ptr() as _);
+            assert!(!ptr.is_null());
+            std::mem::transmute(ptr)
+        });
         CLOCK_GETTIME(clockid, tp)
     }
 }
@@ -101,13 +95,12 @@ extern "C" fn mach_absolute_time() -> u64 {
         let instant = time.now_instant();
         unsafe { std::mem::transmute(instant) }
     } else {
-        lazy_static::lazy_static! {
-            static ref MACH_ABSOLUTE_TIME: extern "C" fn() -> u64 = unsafe {
+        static MACH_ABSOLUTE_TIME: std::sync::LazyLock<extern "C" fn() -> u64> =
+            std::sync::LazyLock::new(|| unsafe {
                 let ptr = libc::dlsym(libc::RTLD_NEXT, c"mach_absolute_time".as_ptr() as _);
                 assert!(!ptr.is_null());
                 std::mem::transmute(ptr)
-            };
-        }
+            });
         MACH_ABSOLUTE_TIME()
     }
 }
