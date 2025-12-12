@@ -25,6 +25,9 @@ thiserror = "1"
 tokio = { version = "1", features = ["sync"] }
 tracing = "0.1"
 
+[dependencies]
+rdkafka-sys = { version = "4.9.0", default-features = false, optional = true }
+
 [target.'cfg(not(madsim))'.dependencies]
 async-trait = "0.1"
 rdkafka-sys = { version = "4.9.0", default-features = false }
@@ -56,26 +59,27 @@ tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time"] }
 
 # These features are re-exports of the features that the rdkafka-sys crate
 # provides. See the rdkafka-sys documentation for details.
+# In madsim mode, these features are no-ops since rdkafka-sys is not used.
 [features]
-default = ["libz", "tokio"]
+default = ["tokio", "libz"]
 naive-runtime = ["futures-executor"]
-cmake-build = ["rdkafka-sys/cmake-build"]
-cmake_build = ["rdkafka-sys/cmake_build"]
-dynamic-linking = ["rdkafka-sys/dynamic-linking"]
-dynamic_linking = ["rdkafka-sys/dynamic_linking"]
-ssl = ["rdkafka-sys/ssl"]
-ssl-vendored = ["rdkafka-sys/ssl-vendored"]
-gssapi = ["rdkafka-sys/gssapi"]
-gssapi-vendored = ["rdkafka-sys/gssapi-vendored"]
-sasl = ["rdkafka-sys/sasl"]
-libz = ["rdkafka-sys/libz"]
-libz-static = ["rdkafka-sys/libz-static"]
-curl = ["rdkafka-sys/curl"]
-curl-static = ["rdkafka-sys/curl-static"]
-zstd = ["rdkafka-sys/zstd"]
-zstd-pkg-config = ["rdkafka-sys/zstd-pkg-config"]
-external-lz4 = ["rdkafka-sys/external-lz4"]
-external_lz4 = ["rdkafka-sys/external_lz4"]
+cmake-build = ["rdkafka-sys?/cmake-build"]
+cmake_build = ["rdkafka-sys?/cmake_build"]
+dynamic-linking = ["rdkafka-sys?/dynamic-linking"]
+dynamic_linking = ["rdkafka-sys?/dynamic_linking"]
+ssl = ["rdkafka-sys?/ssl"]
+ssl-vendored = ["rdkafka-sys?/ssl-vendored"]
+gssapi = ["rdkafka-sys?/gssapi"]
+gssapi-vendored = ["rdkafka-sys?/gssapi-vendored"]
+sasl = ["rdkafka-sys?/sasl"]
+libz = ["rdkafka-sys?/libz"]
+libz-static = ["rdkafka-sys?/libz-static"]
+curl = ["rdkafka-sys?/curl"]
+curl-static = ["rdkafka-sys?/curl-static"]
+zstd = ["rdkafka-sys?/zstd"]
+zstd-pkg-config = ["rdkafka-sys?/zstd-pkg-config"]
+external-lz4 = ["rdkafka-sys?/external-lz4"]
+external_lz4 = ["rdkafka-sys?/external_lz4"]
 
 [lints]
 workspace = true
