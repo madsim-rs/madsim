@@ -1,3 +1,4 @@
+use crate::net::unix::split;
 use bytes::BufMut;
 use std::{
     io::{self, Result},
@@ -45,8 +46,20 @@ impl UnixStream {
         todo!();
     }
 
-    pub fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
+    pub fn try_read_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize> {
         unimplemented!();
+    }
+
+    /// Splits a `UnixStream` into a read half and a write half, which can be used
+    /// to read and write the stream concurrently.
+    pub fn split(&mut self) -> (split::ReadHalf<'_>, split::WriteHalf<'_>) {
+        split::split(self)
+    }
+
+    /// Splits a `UnixStream` into a read half and a write half, which can be
+    /// used to read and write the stream concurrently.
+    pub fn into_split(self) -> (split::OwnedReadHalf, split::OwnedWriteHalf) {
+        split::split_owned(self)
     }
 }
 

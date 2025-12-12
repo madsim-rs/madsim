@@ -1,5 +1,6 @@
-use crate::net::{IpProtocol::Tcp, *};
+use crate::net::{tcp::split, IpProtocol::Tcp, *};
 use bytes::{Buf, BufMut, BytesMut};
+use spin::Mutex;
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::{
@@ -17,10 +18,10 @@ pub struct TcpStream {
     pub(super) addr: SocketAddr,
     pub(super) peer: SocketAddr,
     /// Buffer write data to be flushed.
-    pub(super) write_buf: BytesMut,
-    pub(super) read_buf: Bytes,
+    pub(super) write_buf: Mutex<BytesMut>,
+    pub(super) read_buf: Mutex<Bytes>,
     pub(super) tx: PayloadSender,
-    pub(super) rx: PayloadReceiver,
+    pub(super) rx: Mutex<PayloadReceiver>,
 }
 
 impl fmt::Debug for TcpStream {
@@ -80,7 +81,7 @@ impl TcpStream {
             write_buf: Default::default(),
             read_buf: Default::default(),
             tx,
-            rx,
+            rx: Mutex::new(rx),
         };
         Ok(stream)
     }
@@ -108,18 +109,80 @@ impl TcpStream {
     /// to arrive. On success, returns the number of bytes read. Because
     /// `try_read_buf()` is non-blocking, the buffer does not have to be stored
     /// by the async task and can exist entirely on the stack.
-    pub fn try_read_buf<B: BufMut>(&mut self, buf: &mut B) -> io::Result<usize> {
+    pub fn try_read_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize> {
         // read the buffer if not empty
-        if !self.read_buf.is_empty() {
-            let len = self.read_buf.len().min(buf.remaining_mut());
-            buf.put_slice(&self.read_buf[..len]);
-            self.read_buf.advance(len);
+        let mut read_buf = self.read_buf.lock();
+        if !read_buf.is_empty() {
+            let len = read_buf.len().min(buf.remaining_mut());
+            buf.put_slice(&read_buf[..len]);
+            read_buf.advance(len);
             return Ok(len);
         }
         Err(io::Error::new(
             io::ErrorKind::WouldBlock,
             "read buffer is empty",
         ))
+    }
+
+    /// Splits a `TcpStream` into a read half and a write half, which can be used
+    /// to read and write the stream concurrently.
+    pub fn split(&mut self) -> (split::ReadHalf<'_>, split::WriteHalf<'_>) {
+        split::split(self)
+    }
+
+    /// Splits a `TcpStream` into a read half and a write half, which can be
+    /// used to read and write the stream concurrently.
+    pub fn into_split(self) -> (split::OwnedReadHalf, split::OwnedWriteHalf) {
+        split::split_owned(self)
+    }
+
+    /// `poll_read` that takes `&self`.
+    pub(super) fn poll_read_priv(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<()>> {
+        // read the buffer if not empty
+        if self.try_read_buf(buf).is_ok() {
+            return Poll::Ready(Ok(()));
+        }
+
+        // otherwise wait on channel
+        let poll_res = { self.rx.lock().poll_next_unpin(cx) };
+        match poll_res {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Some(data)) => {
+                *self.read_buf.lock() = *data.downcast::<Bytes>().unwrap();
+                self.poll_read_priv(cx, buf)
+            }
+            // ref: https://man7.org/linux/man-pages/man2/recv.2.html
+            // > When a stream socket peer has performed an orderly shutdown, the
+            // > return value will be 0 (the traditional "end-of-file" return).
+            Poll::Ready(None) => Poll::Ready(Ok(())),
+        }
+    }
+
+    /// `poll_write` that takes `&self`.
+    pub(super) fn poll_write_priv(&self, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
+        self.write_buf.lock().extend_from_slice(buf);
+        // TODO: simulate buffer full, partial write
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    /// `poll_flush` that takes `&self`.
+    pub(super) fn poll_flush_priv(&self, _cx: &mut Context<'_>) -> Poll<Result<()>> {
+        // send data
+        let data = self.write_buf.lock().split().freeze();
+        self.tx
+            .send(Box::new(data))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))?;
+        Poll::Ready(Ok(()))
+    }
+
+    /// `poll_shutdown` that takes `&self`.
+    pub(super) fn poll_shutdown_priv(&self, _: &mut Context<'_>) -> Poll<Result<()>> {
+        // TODO: simulate shutdown
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -132,56 +195,25 @@ impl AsRawFd for TcpStream {
 
 impl AsyncRead for TcpStream {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<()>> {
-        // read the buffer if not empty
-        if !self.read_buf.is_empty() {
-            let len = self.read_buf.len().min(buf.remaining());
-            buf.put_slice(&self.read_buf[..len]);
-            self.read_buf.advance(len);
-            return Poll::Ready(Ok(()));
-        }
-        // otherwise wait on channel
-        let poll_res = { self.rx.poll_next_unpin(cx) };
-        match poll_res {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Some(data)) => {
-                self.read_buf = *data.downcast::<Bytes>().unwrap();
-                self.poll_read(cx, buf)
-            }
-            // ref: https://man7.org/linux/man-pages/man2/recv.2.html
-            // > When a stream socket peer has performed an orderly shutdown, the
-            // > return value will be 0 (the traditional "end-of-file" return).
-            Poll::Ready(None) => Poll::Ready(Ok(())),
-        }
+        self.poll_read_priv(cx, buf)
     }
 }
 
 impl AsyncWrite for TcpStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize>> {
-        self.write_buf.extend_from_slice(buf);
-        // TODO: simulate buffer full, partial write
-        Poll::Ready(Ok(buf.len()))
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize>> {
+        self.poll_write_priv(cx, buf)
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
-        // send data
-        let data = self.write_buf.split().freeze();
-        self.tx
-            .send(Box::new(data))
-            .ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"))?;
-        Poll::Ready(Ok(()))
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        self.poll_flush_priv(cx)
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<()>> {
-        // TODO: simulate shutdown
-        Poll::Ready(Ok(()))
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        self.poll_shutdown_priv(cx)
     }
 }
 
