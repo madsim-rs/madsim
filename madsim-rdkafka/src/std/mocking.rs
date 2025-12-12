@@ -38,9 +38,10 @@ use crate::ClientContext;
 ///
 ///   In this case, we **must neither** destroy the mock cluster in `MockCluster`'s `drop()`,
 ///   **nor** outlive the `Client` from which the reference is obtained, hence the lifetime.
-#[allow(dead_code)]
 enum MockClusterClient<'c, C: ClientContext> {
+    #[allow(dead_code)]
     Owned(Client<C>),
+    #[allow(dead_code)]
     Borrowed(&'c Client<C>),
 }
 
@@ -138,7 +139,7 @@ where
     pub fn bootstrap_servers(&self) -> String {
         let bootstrap =
             unsafe { CStr::from_ptr(rdsys::rd_kafka_mock_cluster_bootstraps(self.mock_cluster)) };
-        bootstrap.to_string_lossy().to_string()
+        bootstrap.to_string_lossy().into_owned()
     }
 
     /// Clear the cluster's error state for the given ApiKey.
@@ -382,7 +383,7 @@ where
     }
 }
 
-impl<'c, C> Drop for MockCluster<'c, C>
+impl<C> Drop for MockCluster<'_, C>
 where
     C: ClientContext,
 {

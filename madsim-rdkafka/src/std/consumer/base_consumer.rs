@@ -1,16 +1,17 @@
 //! Low-level consumers.
 
-use std::cmp;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::mem::ManuallyDrop;
 use std::os::raw::c_void;
 use std::ptr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use log::{error, warn};
 use rdkafka_sys as rdsys;
 use rdkafka_sys::types::*;
 
-use crate::client::{Client, NativeClient, NativeQueue};
+use crate::client::{Client, EventPollResult, NativeClient, NativeQueue};
 use crate::config::{
     ClientConfig, FromClientConfig, FromClientConfigAndContext, NativeClientConfig,
 };
@@ -26,41 +27,6 @@ use crate::metadata::Metadata;
 use crate::topic_partition_list::{Offset, TopicPartitionList};
 use crate::util::{cstr_to_owned, NativePtr, Timeout};
 
-pub(crate) unsafe extern "C" fn native_commit_cb<C: ConsumerContext>(
-    _conf: *mut RDKafka,
-    err: RDKafkaRespErr,
-    offsets: *mut RDKafkaTopicPartitionList,
-    opaque_ptr: *mut c_void,
-) {
-    let context = &mut *(opaque_ptr as *mut C);
-    let commit_error = if err.is_error() {
-        Err(KafkaError::ConsumerCommit(err.into()))
-    } else {
-        Ok(())
-    };
-    if offsets.is_null() {
-        let tpl = TopicPartitionList::new();
-        context.commit_callback(commit_error, &tpl);
-    } else {
-        let tpl = ManuallyDrop::new(TopicPartitionList::from_ptr(offsets));
-        context.commit_callback(commit_error, &tpl);
-    }
-}
-
-/// Native rebalance callback. This callback will run on every rebalance, and it will call the
-/// rebalance method defined in the current `Context`.
-unsafe extern "C" fn native_rebalance_cb<C: ConsumerContext>(
-    rk: *mut RDKafka,
-    err: RDKafkaRespErr,
-    native_tpl: *mut RDKafkaTopicPartitionList,
-    opaque_ptr: *mut c_void,
-) {
-    let context = &mut *(opaque_ptr as *mut C);
-    let native_client = ManuallyDrop::new(NativeClient::from_ptr(rk));
-    let mut tpl = ManuallyDrop::new(TopicPartitionList::from_ptr(native_tpl));
-    context.rebalance(&native_client, err, &mut tpl);
-}
-
 /// A low-level consumer that requires manual polling.
 ///
 /// This consumer must be periodically polled to make progress on rebalancing,
@@ -70,7 +36,9 @@ where
     C: ConsumerContext,
 {
     client: Client<C>,
-    main_queue_min_poll_interval: Timeout,
+    queue: NativeQueue,
+    group_id: Option<String>,
+    nonempty_callback: Option<Box<Box<dyn Fn() + Send + Sync>>>,
 }
 
 #[async_trait::async_trait]
@@ -101,48 +69,43 @@ where
         context: C,
     ) -> KafkaResult<BaseConsumer<C>> {
         unsafe {
-            rdsys::rd_kafka_conf_set_rebalance_cb(
+            rdsys::rd_kafka_conf_set_events(
                 native_config.ptr(),
-                Some(native_rebalance_cb::<C>),
-            );
-            rdsys::rd_kafka_conf_set_offset_commit_cb(
-                native_config.ptr(),
-                Some(native_commit_cb::<C>),
-            );
-        }
-        let main_queue_min_poll_interval = context.main_queue_min_poll_interval();
+                rdsys::RD_KAFKA_EVENT_REBALANCE
+                    | rdsys::RD_KAFKA_EVENT_OFFSET_COMMIT
+                    | rdsys::RD_KAFKA_EVENT_STATS
+                    | rdsys::RD_KAFKA_EVENT_ERROR
+                    | rdsys::RD_KAFKA_EVENT_OAUTHBEARER_TOKEN_REFRESH,
+            )
+        };
         let client = Client::new(
             config,
             native_config,
             RDKafkaType::RD_KAFKA_CONSUMER,
             context,
         )?;
+
+        let group_id = config.get("group.id").map(|s| s.to_string());
+        // If a group.id is not specified, we won't redirect the main queue to the consumer queue,
+        // allowing continued use of the consumer for fetching metadata and watermarks without the
+        // need to specify a group.id
+        let queue = if group_id.is_some() {
+            // Redirect rdkafka's main queue to the consumer queue so that we only need to listen
+            // to the consumer queue to observe events like rebalancings and stats.
+            unsafe { rdsys::rd_kafka_poll_set_consumer(client.native_ptr()) };
+            client.consumer_queue().ok_or_else(|| {
+                KafkaError::ClientCreation("rdkafka consumer queue not available".to_string())
+            })?
+        } else {
+            client.main_queue()
+        };
+
         Ok(BaseConsumer {
             client,
-            main_queue_min_poll_interval,
+            queue,
+            group_id,
+            nonempty_callback: None,
         })
-    }
-
-    /// Polls the consumer for messages and returns a pointer to the native rdkafka-sys struct.
-    /// This method is for internal use only. Use poll instead.
-    pub(crate) fn poll_raw(&self, mut timeout: Timeout) -> Option<NativePtr<RDKafkaMessage>> {
-        loop {
-            unsafe { rdsys::rd_kafka_poll(self.client.native_ptr(), 0) };
-            let op_timeout = cmp::min(timeout, self.main_queue_min_poll_interval);
-            let message_ptr = unsafe {
-                NativePtr::from_ptr(rdsys::rd_kafka_consumer_poll(
-                    self.client.native_ptr(),
-                    op_timeout.as_millis(),
-                ))
-            };
-            if let Some(message_ptr) = message_ptr {
-                break Some(message_ptr);
-            }
-            if op_timeout >= timeout {
-                break None;
-            }
-            timeout -= op_timeout;
-        }
     }
 
     /// Polls the consumer for new messages.
@@ -151,7 +114,7 @@ where
     /// call. With no timeout it blocks until an event is received.
     ///
     /// This method should be called at regular intervals, even if no message is expected,
-    /// to serve any queued callbacks waiting to be called. This is especially important for
+    /// to serve any queued events waiting to be handled. This is especially important for
     /// automatic consumer rebalance, as the rebalance function will be executed by the thread
     /// calling the poll() function.
     ///
@@ -159,8 +122,143 @@ where
     ///
     /// The returned message lives in the memory of the consumer and cannot outlive it.
     pub fn poll<T: Into<Timeout>>(&self, timeout: T) -> Option<KafkaResult<BorrowedMessage<'_>>> {
-        self.poll_raw(timeout.into())
-            .map(|ptr| unsafe { BorrowedMessage::from_consumer(ptr, self) })
+        self.poll_queue(self.get_queue(), timeout).into()
+    }
+
+    pub(crate) fn poll_queue<T: Into<Timeout>>(
+        &self,
+        queue: &NativeQueue,
+        timeout: T,
+    ) -> EventPollResult<KafkaResult<BorrowedMessage<'_>>> {
+        let now = Instant::now();
+        let initial_timeout = timeout.into();
+        let mut timeout = initial_timeout;
+        let min_poll_interval = self.context().main_queue_min_poll_interval();
+        loop {
+            let op_timeout = std::cmp::min(timeout, min_poll_interval);
+            let maybe_event = self.client().poll_event(queue, op_timeout);
+            match maybe_event {
+                EventPollResult::Event(event) => {
+                    let evtype = unsafe { rdsys::rd_kafka_event_type(event.ptr()) };
+                    match evtype {
+                        rdsys::RD_KAFKA_EVENT_FETCH => {
+                            if let Some(result) = self.handle_fetch_event(event) {
+                                return EventPollResult::Event(result);
+                            }
+                        }
+                        rdsys::RD_KAFKA_EVENT_ERROR => {
+                            if let Some(err) = self.handle_error_event(event) {
+                                return EventPollResult::Event(Err(err));
+                            }
+                        }
+                        rdsys::RD_KAFKA_EVENT_REBALANCE => {
+                            self.handle_rebalance_event(event);
+                            if timeout != Timeout::Never {
+                                return EventPollResult::EventConsumed;
+                            }
+                        }
+                        rdsys::RD_KAFKA_EVENT_OFFSET_COMMIT => {
+                            self.handle_offset_commit_event(event);
+                            if timeout != Timeout::Never {
+                                return EventPollResult::EventConsumed;
+                            }
+                        }
+                        _ => {
+                            let evname = unsafe {
+                                let evname = rdsys::rd_kafka_event_name(event.ptr());
+                                CStr::from_ptr(evname).to_string_lossy()
+                            };
+                            warn!("Ignored event '{evname}' on consumer poll");
+                        }
+                    }
+                }
+                EventPollResult::None => {
+                    timeout = initial_timeout.saturating_sub(now.elapsed());
+                    if timeout.is_zero() {
+                        return EventPollResult::None;
+                    }
+                }
+                EventPollResult::EventConsumed => {
+                    timeout = initial_timeout.saturating_sub(now.elapsed());
+                    if timeout.is_zero() {
+                        return EventPollResult::EventConsumed;
+                    }
+                }
+            };
+        }
+    }
+
+    fn handle_fetch_event(
+        &self,
+        event: NativePtr<RDKafkaEvent>,
+    ) -> Option<KafkaResult<BorrowedMessage<'_>>> {
+        unsafe {
+            NativePtr::from_ptr(rdsys::rd_kafka_event_message_next(event.ptr()) as *mut _)
+                .map(|ptr| BorrowedMessage::from_client(ptr, Arc::new(event), self.client()))
+        }
+    }
+
+    fn handle_rebalance_event(&self, event: NativePtr<RDKafkaEvent>) {
+        let err = unsafe { rdsys::rd_kafka_event_error(event.ptr()) };
+        match err {
+            rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS
+            | rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS => {
+                let tpl = unsafe {
+                    let native_tpl = rdsys::rd_kafka_event_topic_partition_list(event.ptr());
+                    TopicPartitionList::from_ptr(native_tpl)
+                };
+                // The TPL is owned by the Event and will be destroyed when the event is destroyed.
+                // Dropping it here will lead to double free.
+                let mut tpl = ManuallyDrop::new(tpl);
+                self.context().rebalance(self, err, &mut tpl);
+            }
+            _ => {
+                let err = unsafe {
+                    let err_name =
+                        rdsys::rd_kafka_err2name(rdsys::rd_kafka_event_error(event.ptr()));
+                    CStr::from_ptr(err_name).to_string_lossy()
+                };
+                warn!("invalid rebalance event: {err}");
+            }
+        }
+    }
+
+    fn handle_offset_commit_event(&self, event: NativePtr<RDKafkaEvent>) {
+        let err = unsafe { rdsys::rd_kafka_event_error(event.ptr()) };
+        let commit_error = if err.is_error() {
+            Err(KafkaError::ConsumerCommit(err.into()))
+        } else {
+            Ok(())
+        };
+
+        let offsets = unsafe { rdsys::rd_kafka_event_topic_partition_list(event.ptr()) };
+        if offsets.is_null() {
+            let tpl = TopicPartitionList::new();
+            self.context().commit_callback(commit_error, &tpl);
+        } else {
+            // The TPL is owned by the Event and will be destroyed when the event is destroyed.
+            // Dropping it here will lead to double free.
+            let tpl = ManuallyDrop::new(unsafe { TopicPartitionList::from_ptr(offsets) });
+            self.context().commit_callback(commit_error, &tpl);
+        }
+    }
+
+    fn handle_error_event(&self, event: NativePtr<RDKafkaEvent>) -> Option<KafkaError> {
+        let rdkafka_err = unsafe { rdsys::rd_kafka_event_error(event.ptr()) };
+        if rdkafka_err.is_error() {
+            if rdkafka_err == rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__PARTITION_EOF {
+                let tp_ptr = unsafe { rdsys::rd_kafka_event_topic_partition(event.ptr()) };
+                let partition = unsafe { (*tp_ptr).partition };
+                unsafe { rdsys::rd_kafka_topic_partition_destroy(tp_ptr) };
+                Some(KafkaError::PartitionEOF(partition))
+            } else if unsafe { rdsys::rd_kafka_event_error_is_fatal(event.ptr()) } != 0 {
+                Some(KafkaError::MessageConsumptionFatal(rdkafka_err.into()))
+            } else {
+                Some(KafkaError::MessageConsumption(rdkafka_err.into()))
+            }
+        } else {
+            None
+        }
     }
 
     /// Returns an iterator over the available messages.
@@ -210,6 +308,10 @@ where
         Iter(self)
     }
 
+    pub(crate) fn get_queue(&self) -> &NativeQueue {
+        &self.queue
+    }
+
     /// Splits messages for the specified partition into their own queue.
     ///
     /// If the `topic` or `partition` is invalid, returns `None`.
@@ -254,7 +356,61 @@ where
         })
     }
 
-    fn offsets_for_times_sync<T: Into<Timeout>>(
+    /// Close the queue used by a consumer.
+    /// Only exposed for advanced usage of this API and should not be used under normal circumstances.
+    pub fn close_queue(&self) -> KafkaResult<()> {
+        let err = unsafe {
+            RDKafkaError::from_ptr(rdsys::rd_kafka_consumer_close_queue(
+                self.client.native_ptr(),
+                self.queue.ptr(),
+            ))
+        };
+        if err.is_error() {
+            Err(KafkaError::ConsumerQueueClose(err.code()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Returns true if the consumer is closed, else false.
+    pub fn closed(&self) -> bool {
+        unsafe { rdsys::rd_kafka_consumer_closed(self.client.native_ptr()) == 1 }
+    }
+
+    pub(crate) fn native_client(&self) -> &NativeClient {
+        self.client.native_client()
+    }
+
+    /// Sets a callback that will be invoked whenever the queue becomes
+    /// nonempty.
+    pub fn set_nonempty_callback<F>(&mut self, f: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        // SAFETY: we keep `F` alive until the next call to
+        // `rd_kafka_queue_cb_event_enable`. That might be the next call to
+        // `set_nonempty_callback` or it might be when the queue is dropped. The
+        // double indirection is required because `&dyn Fn` is a fat pointer.
+
+        unsafe extern "C" fn native_message_queue_nonempty_cb(
+            _: *mut RDKafka,
+            opaque_ptr: *mut c_void,
+        ) {
+            let f = opaque_ptr as *const *const (dyn Fn() + Send + Sync);
+            (**f)();
+        }
+
+        let f: Box<Box<dyn Fn() + Send + Sync>> = Box::new(Box::new(f));
+        unsafe {
+            rdsys::rd_kafka_queue_cb_event_enable(
+                self.queue.ptr(),
+                Some(native_message_queue_nonempty_cb),
+                &*f as *const _ as *mut c_void,
+            )
+        }
+        self.nonempty_callback = Some(f);
+    }
+fn offsets_for_times_sync<T: Into<Timeout>>(
         &self,
         timestamps: TopicPartitionList,
         timeout: T,
@@ -278,9 +434,21 @@ where
 
     /// A private clone so that we can move it to another thread.
     fn clone(&self) -> Self {
+        // Re-acquire the queue from the client since NativeQueue doesn't implement Clone.
+        // This is safe because we only use this clone for calling offsets_for_times_sync
+        // which only needs the client, not the specific consumer queue.
+        let queue = if self.group_id.is_some() {
+            self.client
+                .consumer_queue()
+                .expect("consumer queue should be available")
+        } else {
+            self.client.main_queue()
+        };
         Self {
             client: self.client.clone(),
-            main_queue_min_poll_interval: self.main_queue_min_poll_interval,
+            queue,
+            group_id: self.group_id.clone(),
+            nonempty_callback: None,
         }
     }
 }
@@ -648,8 +816,18 @@ where
     C: ConsumerContext,
 {
     fn drop(&mut self) {
-        trace!("Destroying consumer: {:?}", self.client.native_ptr()); // TODO: fix me (multiple executions ?)
-        unsafe { rdsys::rd_kafka_consumer_close(self.client.native_ptr()) };
+        unsafe { rdsys::rd_kafka_queue_cb_event_enable(self.queue.ptr(), None, ptr::null_mut()) }
+
+        trace!("Destroying consumer: {:?}", self.client.native_ptr());
+        if self.group_id.is_some() {
+            if let Err(err) = self.close_queue() {
+                error!("Failed to close consumer queue on drop: {}", err);
+            } else {
+                while !self.closed() {
+                    self.poll(Duration::from_millis(100));
+                }
+            }
+        }
         trace!("Consumer destroyed: {:?}", self.client.native_ptr());
     }
 }
@@ -695,7 +873,7 @@ where
     C: ConsumerContext,
 {
     consumer: Arc<BaseConsumer<C>>,
-    queue: NativeQueue,
+    pub(crate) queue: NativeQueue,
     nonempty_callback: Option<Box<Box<dyn Fn() + Send + Sync>>>,
 }
 
@@ -718,18 +896,9 @@ where
     ///
     /// Remember that you must also call [`BaseConsumer::poll`] on the
     /// associated consumer regularly, even if no messages are expected, to
-    /// serve callbacks.
-    pub async fn poll<T: Into<Timeout>>(
-        &self,
-        timeout: T,
-    ) -> Option<KafkaResult<BorrowedMessage<'_>>> {
-        unsafe {
-            NativePtr::from_ptr(rdsys::rd_kafka_consume_queue(
-                self.queue.ptr(),
-                timeout.into().as_millis(),
-            ))
-        }
-        .map(|ptr| unsafe { BorrowedMessage::from_consumer(ptr, &self.consumer) })
+    /// serve events.
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) -> Option<KafkaResult<BorrowedMessage<'_>>> {
+        self.consumer.poll_queue(&self.queue, timeout).into()
     }
 
     /// Sets a callback that will be invoked whenever the queue becomes

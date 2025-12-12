@@ -57,7 +57,7 @@ use rdkafka_sys as rdsys;
 use rdkafka_sys::rd_kafka_vtype_t::*;
 use rdkafka_sys::types::*;
 
-use crate::client::Client;
+use crate::client::{Client, EventPollResult, NativeQueue};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext};
 use crate::consumer::ConsumerGroupMetadata;
 use crate::error::{IsError, KafkaError, KafkaResult, RDKafkaError};
@@ -67,32 +67,11 @@ use crate::producer::{
     DefaultProducerContext, Partitioner, Producer, ProducerContext, PurgeConfig,
 };
 use crate::topic_partition_list::TopicPartitionList;
-use crate::util::{IntoOpaque, Timeout};
+use crate::util::{Deadline, IntoOpaque, NativePtr, Timeout};
 
 pub use crate::message::DeliveryResult;
 
 use super::NoCustomPartitioner;
-
-/// Callback that gets called from librdkafka every time a message succeeds or fails to be
-/// delivered.
-unsafe extern "C" fn delivery_cb<Part: Partitioner, C: ProducerContext<Part>>(
-    _client: *mut RDKafka,
-    msg: *const RDKafkaMessage,
-    opaque: *mut c_void,
-) {
-    let producer_context = &mut *(opaque as *mut C);
-    let delivery_opaque = C::DeliveryOpaque::from_ptr((*msg)._private);
-    let owner = 42u8;
-    // Wrap the message pointer into a BorrowedMessage that will only live for the body of this
-    // function.
-    let delivery_result = BorrowedMessage::from_dr_callback(msg as *mut RDKafkaMessage, &owner);
-    trace!("Delivery event received: {:?}", delivery_result);
-    producer_context.delivery(&delivery_result, delivery_opaque);
-    match delivery_result {
-        // Do not free the message, librdkafka will do it for us
-        Ok(message) | Err((_, message)) => mem::forget(message),
-    }
-}
 
 //
 // ********** BASE PRODUCER **********
@@ -110,8 +89,8 @@ unsafe extern "C" fn delivery_cb<Part: Partitioner, C: ProducerContext<Part>>(
 /// [`DeliveryOpaque`](ProducerContext::DeliveryOpaque):
 ///
 /// ```rust,no_run
-/// # use madsim_rdkafka::producer::BaseRecord;
-/// # use madsim_rdkafka::message::ToBytes;
+/// # use rdkafka::producer::BaseRecord;
+/// # use rdkafka::message::ToBytes;
 /// let record = BaseRecord::to("topic_name")  // destination topic
 ///     .key(&[1, 2, 3, 4])                    // message key
 ///     .payload("content")                    // message payload
@@ -122,8 +101,8 @@ unsafe extern "C" fn delivery_cb<Part: Partitioner, C: ProducerContext<Part>>(
 /// as the `DeliveryOpaque` for the message:
 ///
 /// ```rust,no_run
-/// # use madsim_rdkafka::producer::BaseRecord;
-/// # use madsim_rdkafka::message::ToBytes;
+/// # use rdkafka::producer::BaseRecord;
+/// # use rdkafka::message::ToBytes;
 /// let record = BaseRecord::with_opaque_to("topic_name", 123) // destination topic and message id
 ///     .key(&[1, 2, 3, 4])                                    // message key
 ///     .payload("content")                                    // message payload
@@ -298,7 +277,13 @@ where
         }
 
         unsafe {
-            rdsys::rd_kafka_conf_set_dr_msg_cb(native_config.ptr(), Some(delivery_cb::<Part, C>))
+            rdsys::rd_kafka_conf_set_events(
+                native_config.ptr(),
+                rdsys::RD_KAFKA_EVENT_DR
+                    | rdsys::RD_KAFKA_EVENT_STATS
+                    | rdsys::RD_KAFKA_EVENT_ERROR
+                    | rdsys::RD_KAFKA_EVENT_OAUTHBEARER_TOKEN_REFRESH,
+            )
         };
         let client = Client::new_context_arc(
             config,
@@ -345,7 +330,7 @@ where
 /// }
 ///
 /// // And/or flush the producer before dropping it.
-/// producer.flush(Duration::from_secs(1));
+/// producer.flush(Duration::from_secs(1)).await;
 /// ```
 ///
 /// [`examples`]: https://github.com/fede1024/rust-rdkafka/blob/master/examples/
@@ -356,6 +341,7 @@ where
     C: ProducerContext<Part>,
 {
     client: Client<C>,
+    queue: NativeQueue,
     _partitioner: PhantomData<Part>,
 }
 
@@ -366,18 +352,91 @@ where
 {
     /// Creates a base producer starting from a Client.
     fn from_client(client: Client<C>) -> BaseProducer<C, Part> {
+        let queue = client.main_queue();
         BaseProducer {
             client,
+            queue,
             _partitioner: PhantomData,
         }
     }
 
-    /// Polls the producer, returning the number of events served.
+    /// Polls the producer
     ///
     /// Regular calls to `poll` are required to process the events and execute
     /// the message delivery callbacks.
-    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) -> i32 {
-        unsafe { rdsys::rd_kafka_poll(self.native_ptr(), timeout.into().as_millis()) }
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
+        let deadline: Deadline = timeout.into().into();
+        loop {
+            let event = self.client().poll_event(&self.queue, &deadline);
+            if let EventPollResult::Event(ev) = event {
+                let evtype = unsafe { rdsys::rd_kafka_event_type(ev.ptr()) };
+                match evtype {
+                    rdsys::RD_KAFKA_EVENT_DR => self.handle_delivery_report_event(ev),
+                    rdsys::RD_KAFKA_EVENT_ERROR => self.handle_error_event(ev),
+                    _ => {
+                        let evname = unsafe {
+                            let evname = rdsys::rd_kafka_event_name(ev.ptr());
+                            CStr::from_ptr(evname).to_string_lossy()
+                        };
+                        warn!("Ignored event '{}' on base producer poll", evname);
+                    }
+                }
+            }
+            if deadline.elapsed() {
+                break;
+            }
+        }
+    }
+
+    fn handle_delivery_report_event(&self, event: NativePtr<RDKafkaEvent>) {
+        let max_messages = unsafe { rdsys::rd_kafka_event_message_count(event.ptr()) };
+        let messages: Vec<*const RDKafkaMessage> = Vec::with_capacity(max_messages);
+
+        let mut messages = mem::ManuallyDrop::new(messages);
+        let messages = unsafe {
+            let msgs_cnt = rdsys::rd_kafka_event_message_array(
+                event.ptr(),
+                messages.as_mut_ptr(),
+                max_messages,
+            );
+            Vec::from_raw_parts(messages.as_mut_ptr(), msgs_cnt, max_messages)
+        };
+
+        let ev = Arc::new(event);
+        for msg in messages {
+            let delivery_result =
+                unsafe { BorrowedMessage::from_dr_event(msg as *mut _, ev.clone(), self.client()) };
+            let delivery_opaque = unsafe { C::DeliveryOpaque::from_ptr((*msg)._private) };
+            self.context().delivery(&delivery_result, delivery_opaque);
+        }
+    }
+
+    fn handle_error_event(&self, event: NativePtr<RDKafkaEvent>) {
+        let rdkafka_err = unsafe { rdsys::rd_kafka_event_error(event.ptr()) };
+        let error = KafkaError::Global(rdkafka_err.into());
+        let reason = unsafe {
+            CStr::from_ptr(rdsys::rd_kafka_event_error_string(event.ptr())).to_string_lossy()
+        };
+        self.context().error(error, reason.trim());
+    }
+
+    /// Synchronous flush for use in drop and other non-async contexts.
+    fn flush_sync<T: Into<Timeout>>(&self, timeout: T) -> KafkaResult<()> {
+        let deadline: Deadline = timeout.into().into();
+        loop {
+            match unsafe { rdsys::rd_kafka_flush(self.native_ptr(), 0) } {
+                rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR_NO_ERROR => {
+                    return Ok(());
+                }
+                to @ rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__TIMED_OUT => {
+                    if deadline.elapsed() {
+                        return Err(KafkaError::Flush(to.into()));
+                    }
+                    self.poll(deadline.remaining().min(Duration::from_millis(100)));
+                }
+                e => return Err(KafkaError::Flush(e.into())),
+            };
+        }
     }
 
     /// Returns a pointer to the native Kafka client.
@@ -404,6 +463,7 @@ where
     /// Note that this method will never block.
     // Simplifying the return type requires generic associated types, which are
     // unstable.
+    #[allow(clippy::result_large_err)]
     pub fn send<'a, K, P>(
         &self,
         mut record: BaseRecord<'a, K, P, C::DeliveryOpaque>,
@@ -420,7 +480,7 @@ where
         }
         let (payload_ptr, payload_len) = as_bytes(record.payload);
         let (key_ptr, key_len) = as_bytes(record.key);
-        let topic_cstring = CString::new(record.topic.to_owned()).unwrap();
+        let topic_cstring = CString::new(record.topic).unwrap();
         let opaque_ptr = record.delivery_opaque.into_ptr();
         let produce_error = unsafe {
             rdsys::rd_kafka_producev(
@@ -470,12 +530,25 @@ where
         &self.client
     }
 
+    // As this library uses the rdkafka Event API, flush will not call rd_kafka_poll() but instead wait for
+    // the librdkafka-handled message count to reach zero. Runs until value reaches zero or timeout.
+    // https://github.com/confluentinc/librdkafka/blob/c024ac13daf98667de2b8724986e97f489644c15/src/rdkafka.c#L4542-L4551
     async fn flush<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
-        let ret = unsafe { rdsys::rd_kafka_flush(self.native_ptr(), timeout.into().as_millis()) };
-        if ret.is_error() {
-            Err(KafkaError::Flush(ret.into()))
-        } else {
-            Ok(())
+        let deadline: Deadline = timeout.into().into();
+        loop {
+            match unsafe { rdsys::rd_kafka_flush(self.native_ptr(), 0) } {
+                rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR_NO_ERROR => {
+                    // Flush completed
+                    return Ok(());
+                }
+                to @ rdsys::rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__TIMED_OUT => {
+                    if deadline.elapsed() {
+                        return Err(KafkaError::Flush(to.into()));
+                    }
+                    self.poll(deadline.remaining().min(Duration::from_millis(100)));
+                }
+                e => return Err(KafkaError::Flush(e.into())),
+            };
         }
     }
 
@@ -540,10 +613,17 @@ where
     }
 
     async fn commit_transaction<T: Into<Timeout> + Send>(&self, timeout: T) -> KafkaResult<()> {
+        // rd_kafka_commit_transaction will call flush but the user must call poll in order to
+        // server the event queue. In order to avoid blocking here forever on the base producer,
+        // we call Flush that will flush the outstanding messages and serve the event queue.
+        // https://github.com/confluentinc/librdkafka/blob/95a542c87c61d2c45b445f91c73dd5442eb04f3c/src/rdkafka.h#L10231
+        // The recommended timeout here is -1 (never, i.e, infinite).
+        let timeout = timeout.into();
+        self.flush(timeout).await?;
         let ret = unsafe {
             RDKafkaError::from_ptr(rdsys::rd_kafka_commit_transaction(
                 self.native_ptr(),
-                timeout.into().as_millis(),
+                timeout.as_millis(),
             ))
         };
         if ret.is_error() {
@@ -574,8 +654,14 @@ where
 {
     fn drop(&mut self) {
         self.purge(PurgeConfig::default().queue().inflight());
-        // Still have to poll after purging to get the results that have been made ready by the purge
-        self.poll(Timeout::After(Duration::ZERO));
+        // Still have to flush after purging to get the results that have been made ready by the purge
+        // Use flush_sync since we can't call async flush in drop
+        if let Err(err) = self.flush_sync(Timeout::After(Duration::from_millis(500))) {
+            warn!(
+                "Failed to flush outstanding messages while dropping the producer: {:?}",
+                err
+            );
+        }
     }
 }
 
@@ -596,7 +682,7 @@ where
 {
     producer: Arc<BaseProducer<C, Part>>,
     should_stop: Arc<AtomicBool>,
-    handle: Option<JoinHandle<()>>,
+    handle: Option<Arc<JoinHandle<()>>>,
 }
 
 #[async_trait::async_trait]
@@ -628,15 +714,11 @@ where
                 .spawn(move || {
                     trace!("Polling thread loop started");
                     loop {
-                        let n = producer.poll(Duration::from_millis(100));
-                        if n == 0 {
-                            if should_stop.load(Ordering::Relaxed) {
-                                // We received nothing and the thread should
-                                // stop, so break the loop.
-                                break;
-                            }
-                        } else {
-                            trace!("Received {} events", n);
+                        producer.poll(Duration::from_millis(100));
+                        if should_stop.load(Ordering::Relaxed) {
+                            // We received nothing and the thread should
+                            // stop, so break the loop.
+                            break;
                         }
                     }
                     trace!("Polling thread loop terminated");
@@ -646,7 +728,7 @@ where
         Ok(ThreadedProducer {
             producer,
             should_stop,
-            handle: Some(thread),
+            handle: Some(Arc::new(thread)),
         })
     }
 }
@@ -661,6 +743,7 @@ where
     /// See the documentation for [`BaseProducer::send`] for details.
     // Simplifying the return type requires generic associated types, which are
     // unstable.
+    #[allow(clippy::result_large_err)]
     pub fn send<'a, K, P>(
         &self,
         record: BaseRecord<'a, K, P, C::DeliveryOpaque>,
@@ -676,7 +759,7 @@ where
     ///
     /// This is not normally required since the `ThreadedProducer` has a thread
     /// dedicated to calling `poll` regularly.
-    pub fn poll<T: Into<Timeout> + Send>(&self, timeout: T) {
+    pub fn poll<T: Into<Timeout>>(&self, timeout: T) {
         self.producer.poll(timeout);
     }
 }
@@ -731,6 +814,16 @@ where
     }
 }
 
+impl<C: ProducerContext + 'static> Clone for ThreadedProducer<C> {
+    fn clone(&self) -> Self {
+        Self {
+            producer: Arc::clone(&self.producer),
+            should_stop: Arc::clone(&self.should_stop),
+            handle: self.handle.clone(),
+        }
+    }
+}
+
 impl<C, Part> Drop for ThreadedProducer<C, Part>
 where
     Part: Partitioner,
@@ -738,7 +831,7 @@ where
 {
     fn drop(&mut self) {
         trace!("Destroy ThreadedProducer");
-        if let Some(handle) = self.handle.take() {
+        if let Some(handle) = self.handle.take().and_then(Arc::into_inner) {
             trace!("Stopping polling");
             self.should_stop.store(true, Ordering::Relaxed);
             trace!("Waiting for polling thread termination");
