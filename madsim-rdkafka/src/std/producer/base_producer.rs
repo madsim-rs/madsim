@@ -89,8 +89,8 @@ use super::NoCustomPartitioner;
 /// [`DeliveryOpaque`](ProducerContext::DeliveryOpaque):
 ///
 /// ```rust,no_run
-/// # use rdkafka::producer::BaseRecord;
-/// # use rdkafka::message::ToBytes;
+/// # use madsim_rdkafka::producer::BaseRecord;
+/// # use madsim_rdkafka::message::ToBytes;
 /// let record = BaseRecord::to("topic_name")  // destination topic
 ///     .key(&[1, 2, 3, 4])                    // message key
 ///     .payload("content")                    // message payload
@@ -101,8 +101,8 @@ use super::NoCustomPartitioner;
 /// as the `DeliveryOpaque` for the message:
 ///
 /// ```rust,no_run
-/// # use rdkafka::producer::BaseRecord;
-/// # use rdkafka::message::ToBytes;
+/// # use madsim_rdkafka::producer::BaseRecord;
+/// # use madsim_rdkafka::message::ToBytes;
 /// let record = BaseRecord::with_opaque_to("topic_name", 123) // destination topic and message id
 ///     .key(&[1, 2, 3, 4])                                    // message key
 ///     .payload("content")                                    // message payload
