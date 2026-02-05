@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - tonic: Update `tonic` and `tonic-build` to v0.14.
-- etcd-client: Update upstream `etcd-client` to v0.17.x (aligns tonic to v0.14.x).
+- etcd-client: Update upstream `etcd-client` to v0.18.x (aligns tonic to v0.14.x).
 - prost: Update to v0.14.
 
 ## tonic [0.5.2] - 2025-12-03
