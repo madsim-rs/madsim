@@ -16,7 +16,12 @@ use std::{
     time::Duration,
 };
 use tonic::codegen::{http::uri::PathAndQuery, BoxFuture, Service};
-#[cfg(feature = "tls")]
+#[cfg(any(
+    feature = "tls-native-roots",
+    feature = "tls-webpki-roots",
+    feature = "tls-ring",
+    feature = "tls-aws-lc"
+))]
 use tonic::transport::ServerTlsConfig;
 use tracing::*;
 
@@ -61,6 +66,31 @@ impl<L> Server<L> {
         router.add_service(svc)
     }
 
+    /// Create a router with the optional `S` typed service as the first service.
+    ///
+    /// When `None`, this returns an empty router (requests will return Unimplemented).
+    pub fn add_optional_service<S>(&mut self, svc: Option<S>) -> Router<L>
+    where
+        S: Service<
+                (PathAndQuery, Request<BoxMessageStream>),
+                Response = Response<BoxMessageStream>,
+                Error = Status,
+                Future = BoxFuture<Response<BoxMessageStream>, Status>,
+            > + NamedService
+            + Send
+            + 'static,
+        L: Clone,
+    {
+        let router = Router {
+            server: self.clone(),
+            services: Default::default(),
+        };
+        match svc {
+            Some(svc) => router.add_service(svc),
+            None => router,
+        }
+    }
+
     /// Set the Tower Layer all services will be wrapped in.
     pub fn layer<NewLayer>(self, _new_layer: NewLayer) -> Server<Stack<NewLayer, L>> {
         tracing::warn!("layer is unimplemented and ignored");
@@ -68,8 +98,21 @@ impl<L> Server<L> {
     }
 
     /// Configure TLS for this server.
-    #[cfg(feature = "tls")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+    #[cfg(any(
+        feature = "tls-native-roots",
+        feature = "tls-webpki-roots",
+        feature = "tls-ring",
+        feature = "tls-aws-lc"
+    ))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(
+            feature = "tls-native-roots",
+            feature = "tls-webpki-roots",
+            feature = "tls-ring",
+            feature = "tls-aws-lc"
+        )))
+    )]
     pub fn tls_config(self, _tls_config: ServerTlsConfig) -> Result<Self, Error> {
         // ignore this setting
         Ok(self)
@@ -138,6 +181,20 @@ impl<L> Server<L> {
         self
     }
 
+    /// Sets the maximum time a connection may exist.
+    #[must_use]
+    pub fn max_connection_age(self, _max_connection_age: Duration) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Sets the max size of received header frames.
+    #[must_use]
+    pub fn http2_max_header_list_size(self, _max: impl Into<Option<u32>>) -> Self {
+        // ignore this setting
+        self
+    }
+
     /// Set whether TCP keepalive messages are enabled on accepted connections.
     #[must_use]
     pub fn tcp_keepalive(self, _tcp_keepalive: Option<Duration>) -> Self {
@@ -162,6 +219,16 @@ impl<L> Server<L> {
     /// Allow this server to accept http1 requests.
     #[must_use]
     pub fn accept_http1(self, _accept_http1: bool) -> Self {
+        // ignore this setting
+        self
+    }
+
+    /// Intercept inbound headers and add a tracing span to each response future.
+    #[must_use]
+    pub fn trace_fn<FN>(self, _f: FN) -> Self
+    where
+        FN: Fn(&tonic::codegen::http::Request<()>) -> tracing::Span + Send + Sync + 'static,
+    {
         // ignore this setting
         self
     }
@@ -203,6 +270,24 @@ impl<L> Router<L> {
     {
         self.services.insert(S::NAME, Box::new(svc));
         self
+    }
+
+    /// Add an optional service to this router.
+    pub fn add_optional_service<S>(self, svc: Option<S>) -> Self
+    where
+        S: Service<
+                (PathAndQuery, Request<BoxMessageStream>),
+                Response = Response<BoxMessageStream>,
+                Error = Status,
+                Future = BoxFuture<Response<BoxMessageStream>, Status>,
+            > + NamedService
+            + Send
+            + 'static,
+    {
+        match svc {
+            Some(svc) => self.add_service(svc),
+            None => self,
+        }
     }
 
     /// Consume this [`Server`] creating a future that will execute the server

@@ -7,6 +7,7 @@ use std::{
     fmt,
     hash::Hash,
     io,
+    net::IpAddr,
     net::SocketAddr,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -18,6 +19,13 @@ use tonic::{
     transport::Uri,
 };
 use tower::discover::Change;
+#[cfg(any(
+    feature = "tls-native-roots",
+    feature = "tls-webpki-roots",
+    feature = "tls-ring",
+    feature = "tls-aws-lc"
+))]
+use tonic::transport::ClientTlsConfig;
 
 /// Channel builder.
 #[derive(Debug, Clone)]
@@ -25,6 +33,9 @@ pub struct Endpoint {
     uri: Uri,
     timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
+    buffer_size: Option<usize>,
+    http2_max_header_list_size: Option<u32>,
+    local_address: Option<IpAddr>,
 }
 
 impl Endpoint {
@@ -69,6 +80,14 @@ impl Endpoint {
         }
     }
 
+    /// Sets the tower service default internal buffer size.
+    pub fn buffer_size(self, sz: impl Into<Option<usize>>) -> Self {
+        Endpoint {
+            buffer_size: sz.into(),
+            ..self
+        }
+    }
+
     /// Create a channel from this config.
     pub async fn connect(&self) -> Result<Channel, Error> {
         if let Some(dur) = self.connect_timeout {
@@ -88,6 +107,21 @@ impl Endpoint {
             ep: MultiEndpoint::new_one(self.clone()),
             timeout: self.timeout,
         })
+    }
+
+    /// Create a channel that connects lazily.
+    pub fn connect_lazy(&self) -> Channel {
+        Channel {
+            ep: MultiEndpoint::new_one(self.clone()),
+            timeout: self.timeout,
+        }
+    }
+
+    /// Create a channel that connects lazily using a custom connector.
+    ///
+    /// The connector is ignored in simulation mode.
+    pub fn connect_with_connector_lazy<C>(&self, _connector: C) -> Channel {
+        self.connect_lazy()
     }
 
     /// Connect to a madsim Endpoint.
@@ -123,6 +157,18 @@ impl Endpoint {
     pub fn origin(self, _origin: Uri) -> Self {
         // ignore this setting
         self
+    }
+
+    /// Configures TLS for the endpoint.
+    #[cfg(any(
+        feature = "tls-native-roots",
+        feature = "tls-webpki-roots",
+        feature = "tls-ring",
+        feature = "tls-aws-lc"
+    ))]
+    pub fn tls_config(self, _tls_config: ClientTlsConfig) -> Result<Self, Error> {
+        // ignore this setting
+        Ok(self)
     }
 
     /// Set whether TCP keepalive messages are enabled on accepted connections.
@@ -185,6 +231,52 @@ impl Endpoint {
         // ignore this setting
         self
     }
+
+    /// Sets the max size of received header frames.
+    pub fn http2_max_header_list_size(self, size: u32) -> Self {
+        Endpoint {
+            http2_max_header_list_size: Some(size),
+            ..self
+        }
+    }
+
+    /// Sets the executor used to spawn async tasks.
+    ///
+    /// The executor is ignored in simulation mode.
+    pub fn executor<E>(self, _executor: E) -> Self
+    where
+        E: Clone + Send + Sync + 'static,
+    {
+        self
+    }
+
+    /// Sets the local address used when connecting.
+    ///
+    /// The address is ignored in simulation mode.
+    pub fn local_address(self, addr: Option<IpAddr>) -> Self {
+        Endpoint {
+            local_address: addr,
+            ..self
+        }
+    }
+
+    /// Get a reference to the configured URI.
+    pub fn uri(&self) -> &Uri {
+        &self.uri
+    }
+
+    pub fn get_tcp_nodelay(&self) -> bool {
+        // We don't store this option; tonic defaults to true.
+        true
+    }
+
+    pub fn get_connect_timeout(&self) -> Option<Duration> {
+        self.connect_timeout
+    }
+
+    pub fn get_tcp_keepalive(&self) -> Option<Duration> {
+        None
+    }
 }
 
 impl From<Uri> for Endpoint {
@@ -193,6 +285,9 @@ impl From<Uri> for Endpoint {
             uri,
             timeout: None,
             connect_timeout: None,
+            buffer_size: None,
+            http2_max_header_list_size: None,
+            local_address: None,
         }
     }
 }

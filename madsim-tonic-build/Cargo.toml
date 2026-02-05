@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic-build"
-version = "0.5.2+0.12.3"
+version = "0.6.0+0.13"
 edition = "2021"
 authors = [
     "Lucio Franco <luciofranco14@gmail.com>",
@@ -21,7 +21,7 @@ proc-macro2 = "1"
 prost-build = { version = "0.13", optional = true }
 quote = "1"
 syn = "2"
-tonic-build = "0.12.3"
+tonic-build = "0.13"
 
 [features]
 default = ["transport", "prost"]

@@ -1,7 +1,7 @@
 pub use self::codec::Streaming;
 pub use tonic::{
-    async_trait, body, metadata, service, Code, Extensions, IntoRequest, IntoStreamingRequest,
-    Request, Response, Status,
+    body, metadata, service, Code, Extensions, IntoRequest, IntoStreamingRequest, Request, Response,
+    Status,
 };
 
 #[macro_export]
@@ -15,6 +15,8 @@ pub mod client;
 pub mod codec;
 pub(crate) mod tower;
 pub mod transport;
+
+pub use tonic::async_trait;
 
 /// Append header to metadata.
 trait AppendMetadata {
@@ -50,6 +52,8 @@ pub mod codegen {
 
     pub use futures_util as futures;
     pub use tonic::codegen::*;
+    // Generated code does `use tonic::codegen::*;` and then uses `#[async_trait]`.
+    pub use tonic::async_trait;
 
     /// A type-erased message.
     pub type BoxMessage = Box<dyn Any + Send + Sync>;

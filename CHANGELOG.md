@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## tonic [0.6.0] - 2026-02-05
+
+### Changed
+- tonic: Update `tonic` and `tonic-build` to v0.13.
+- Align `tls` feature mapping with tonic v0.13 (`tls-native-roots`).
+
 ## tonic [0.5.2] - 2025-12-03
 
 ### Changed
