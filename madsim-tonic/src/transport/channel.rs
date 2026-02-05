@@ -7,7 +7,6 @@ use std::{
     fmt,
     hash::Hash,
     io,
-    net::IpAddr,
     net::SocketAddr,
     str::FromStr,
     sync::{Arc, Mutex},
@@ -33,9 +32,6 @@ pub struct Endpoint {
     uri: Uri,
     timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
-    buffer_size: Option<usize>,
-    http2_max_header_list_size: Option<u32>,
-    local_address: Option<IpAddr>,
 }
 
 impl Endpoint {
@@ -82,10 +78,9 @@ impl Endpoint {
 
     /// Sets the tower service default internal buffer size.
     pub fn buffer_size(self, sz: impl Into<Option<usize>>) -> Self {
-        Endpoint {
-            buffer_size: sz.into(),
-            ..self
-        }
+        // ignore this setting
+        let _ = sz.into();
+        self
     }
 
     /// Create a channel from this config.
@@ -234,10 +229,9 @@ impl Endpoint {
 
     /// Sets the max size of received header frames.
     pub fn http2_max_header_list_size(self, size: u32) -> Self {
-        Endpoint {
-            http2_max_header_list_size: Some(size),
-            ..self
-        }
+        // ignore this setting
+        let _ = size;
+        self
     }
 
     /// Sets the executor used to spawn async tasks.
@@ -253,11 +247,10 @@ impl Endpoint {
     /// Sets the local address used when connecting.
     ///
     /// The address is ignored in simulation mode.
-    pub fn local_address(self, addr: Option<IpAddr>) -> Self {
-        Endpoint {
-            local_address: addr,
-            ..self
-        }
+    pub fn local_address(self, addr: Option<std::net::IpAddr>) -> Self {
+        // ignore this setting
+        let _ = addr;
+        self
     }
 
     /// Get a reference to the configured URI.
@@ -285,9 +278,6 @@ impl From<Uri> for Endpoint {
             uri,
             timeout: None,
             connect_timeout: None,
-            buffer_size: None,
-            http2_max_header_list_size: None,
-            local_address: None,
         }
     }
 }
