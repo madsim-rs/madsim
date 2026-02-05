@@ -68,7 +68,8 @@ impl<L> Server<L> {
 
     /// Create a router with the optional `S` typed service as the first service.
     ///
-    /// When `None`, this returns an empty router (requests will return Unimplemented).
+    /// When `None`, this returns an empty router (requests will return
+    /// [`Code::Unimplemented`]).
     pub fn add_optional_service<S>(&mut self, svc: Option<S>) -> Router<L>
     where
         S: Service<
@@ -182,6 +183,8 @@ impl<L> Server<L> {
     }
 
     /// Sets the maximum time a connection may exist.
+    ///
+    /// Note: this setting is currently ignored by the madsim transport implementation.
     #[must_use]
     pub fn max_connection_age(self, _max_connection_age: Duration) -> Self {
         // ignore this setting
@@ -189,6 +192,8 @@ impl<L> Server<L> {
     }
 
     /// Sets the max size of received header frames.
+    ///
+    /// Note: this setting is currently ignored by the madsim transport implementation.
     #[must_use]
     pub fn http2_max_header_list_size(self, _max: impl Into<Option<u32>>) -> Self {
         // ignore this setting
@@ -224,6 +229,8 @@ impl<L> Server<L> {
     }
 
     /// Intercept inbound headers and add a tracing span to each response future.
+    ///
+    /// Note: this setting is currently ignored by the madsim transport implementation.
     #[must_use]
     pub fn trace_fn<FN>(self, _f: FN) -> Self
     where
@@ -273,6 +280,8 @@ impl<L> Router<L> {
     }
 
     /// Add an optional service to this router.
+    ///
+    /// When `None`, this leaves the router unchanged.
     pub fn add_optional_service<S>(self, svc: Option<S>) -> Self
     where
         S: Service<

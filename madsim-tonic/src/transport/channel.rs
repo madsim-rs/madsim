@@ -77,6 +77,8 @@ impl Endpoint {
     }
 
     /// Sets the tower service default internal buffer size.
+    ///
+    /// Note: this setting is currently ignored by the madsim transport implementation.
     pub fn buffer_size(self, sz: impl Into<Option<usize>>) -> Self {
         // ignore this setting
         let _ = sz.into();
@@ -105,6 +107,8 @@ impl Endpoint {
     }
 
     /// Create a channel that connects lazily.
+    ///
+    /// Note: madsim transport is not backed by a real HTTP/2 connection pool.
     pub fn connect_lazy(&self) -> Channel {
         Channel {
             ep: MultiEndpoint::new_one(self.clone()),
@@ -114,7 +118,7 @@ impl Endpoint {
 
     /// Create a channel that connects lazily using a custom connector.
     ///
-    /// The connector is ignored in simulation mode.
+    /// Note: the connector is currently ignored by the madsim transport implementation.
     pub fn connect_with_connector_lazy<C>(&self, _connector: C) -> Channel {
         self.connect_lazy()
     }
@@ -155,6 +159,8 @@ impl Endpoint {
     }
 
     /// Configures TLS for the endpoint.
+    ///
+    /// Note: TLS is currently ignored by the madsim transport implementation.
     #[cfg(any(
         feature = "tls-native-roots",
         feature = "tls-webpki-roots",
@@ -228,6 +234,8 @@ impl Endpoint {
     }
 
     /// Sets the max size of received header frames.
+    ///
+    /// Note: this setting is currently ignored by the madsim transport implementation.
     pub fn http2_max_header_list_size(self, size: u32) -> Self {
         // ignore this setting
         let _ = size;
@@ -236,7 +244,7 @@ impl Endpoint {
 
     /// Sets the executor used to spawn async tasks.
     ///
-    /// The executor is ignored in simulation mode.
+    /// Note: the executor is currently ignored by the madsim transport implementation.
     pub fn executor<E>(self, _executor: E) -> Self
     where
         E: Clone + Send + Sync + 'static,
@@ -246,7 +254,7 @@ impl Endpoint {
 
     /// Sets the local address used when connecting.
     ///
-    /// The address is ignored in simulation mode.
+    /// Note: the address is currently ignored by the madsim transport implementation.
     pub fn local_address(self, addr: Option<std::net::IpAddr>) -> Self {
         // ignore this setting
         let _ = addr;
@@ -258,15 +266,22 @@ impl Endpoint {
         &self.uri
     }
 
+    /// Returns whether `TCP_NODELAY` is enabled.
+    ///
+    /// Note: this always returns `true` for API compatibility.
     pub fn get_tcp_nodelay(&self) -> bool {
         // We don't store this option; tonic defaults to true.
         true
     }
 
+    /// Returns the configured connect timeout.
     pub fn get_connect_timeout(&self) -> Option<Duration> {
         self.connect_timeout
     }
 
+    /// Returns the configured TCP keepalive setting.
+    ///
+    /// Note: this always returns `None` for API compatibility.
     pub fn get_tcp_keepalive(&self) -> Option<Duration> {
         None
     }
