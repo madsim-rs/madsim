@@ -1,7 +1,7 @@
 pub use self::codec::Streaming;
 pub use tonic::{
-    body, metadata, service, Code, Extensions, IntoRequest, IntoStreamingRequest, Request, Response,
-    Status,
+    body, metadata, service, Code, Extensions, IntoRequest, IntoStreamingRequest, Request,
+    Response, Status,
 };
 
 #[macro_export]

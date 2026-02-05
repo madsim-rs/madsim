@@ -13,11 +13,6 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tonic::{
-    codegen::{http::HeaderValue, Bytes, StdError},
-    transport::Uri,
-};
-use tower::discover::Change;
 #[cfg(any(
     feature = "tls-native-roots",
     feature = "tls-webpki-roots",
@@ -25,6 +20,11 @@ use tower::discover::Change;
     feature = "tls-aws-lc"
 ))]
 use tonic::transport::ClientTlsConfig;
+use tonic::{
+    codegen::{http::HeaderValue, Bytes, StdError},
+    transport::Uri,
+};
+use tower::discover::Change;
 
 /// Channel builder.
 #[derive(Debug, Clone)]
