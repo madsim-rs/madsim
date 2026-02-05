@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tonic: Update `tonic` and `tonic-build` to v0.13.
 - Align `tls` feature mapping with tonic v0.13 (`tls-native-roots`).
 
+## etcd-client [0.7.0] - 2026-02-05
+
+### Changed
+- etcd-client: Update upstream `etcd-client` to v0.16.x (aligns tonic to v0.13.x).
+
 ## tonic [0.5.2] - 2025-12-03
 
 ### Changed
