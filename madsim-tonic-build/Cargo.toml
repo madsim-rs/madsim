@@ -1,6 +1,6 @@
 [package]
 name = "madsim-tonic-build"
-version = "0.6.0+0.13"
+version = "0.6.0+0.14"
 edition = "2021"
 authors = [
     "Lucio Franco <luciofranco14@gmail.com>",
@@ -18,14 +18,15 @@ license = "MIT"
 [dependencies]
 prettyplease = "0.2"
 proc-macro2 = "1"
-prost-build = { version = "0.13", optional = true }
+prost-build = { version = "0.14", optional = true }
 quote = "1"
 syn = "2"
-tonic-build = "0.13"
+tonic-build = "0.14"
+tonic-prost-build = { version = "0.14", optional = true }
 
 [features]
 default = ["transport", "prost"]
-prost = ["prost-build"]
+prost = ["prost-build", "tonic-prost-build"]
 transport = []
 
 [lints]

@@ -39,7 +39,7 @@ pub fn configure() -> Builder {
         disable_comments: HashSet::default(),
         use_arc_self: false,
         generate_default_stubs: false,
-        builder: tonic_build::configure(),
+        builder: tonic_prost_build::configure(),
     }
 }
 
@@ -293,7 +293,7 @@ pub struct Builder {
     out_dir: Option<PathBuf>,
 
     // The original builder.
-    builder: tonic_build::Builder,
+    builder: tonic_prost_build::Builder,
 }
 
 impl Builder {
@@ -514,7 +514,7 @@ impl Builder {
 
     /// Disable service and rpc comments emission.
     pub fn disable_comments(mut self, path: impl AsRef<str>) -> Self {
-        self.builder = self.builder.disable_comments(path.as_ref());
+        self.builder = self.builder.disable_comments([path.as_ref()]);
         self.disable_comments.insert(path.as_ref().to_string());
         self
     }
@@ -530,7 +530,7 @@ impl Builder {
     ///
     /// This effectively sets prost's exported package to an empty string.
     pub fn disable_package_emission(mut self) -> Self {
-        self.builder = self.builder.disable_package_emission();
+        self.builder = self.builder.emit_package(false);
         self.emit_package = false;
         self
     }
@@ -602,7 +602,7 @@ impl Builder {
         protos: &[impl AsRef<Path>],
         includes: &[impl AsRef<Path>],
     ) -> io::Result<()> {
-        let builder = std::mem::replace(&mut self.builder, tonic_build::configure());
+        let builder = std::mem::replace(&mut self.builder, tonic_prost_build::configure());
 
         let out_dir = if let Some(out_dir) = self.out_dir.as_ref() {
             out_dir.clone()
@@ -674,7 +674,10 @@ impl Builder {
 
         // generate origin
         config.out_dir(out_dir);
-        builder.compile_protos_with_config(config, protos, includes)?;
+        // tonic-prost-build expects `protos`/`includes` to have the same element type.
+        let protos: Vec<PathBuf> = protos.iter().map(|p| p.as_ref().to_path_buf()).collect();
+        let includes: Vec<PathBuf> = includes.iter().map(|p| p.as_ref().to_path_buf()).collect();
+        builder.compile_with_config(config, &protos, &includes)?;
 
         Ok(())
     }
