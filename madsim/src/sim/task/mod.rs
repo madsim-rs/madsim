@@ -730,17 +730,17 @@ unsafe extern "C" fn sched_getaffinity(
         }
         return 0;
     }
-    lazy_static::lazy_static! {
-        static ref SCHED_GETAFFINITY: unsafe extern "C" fn(
+    static SCHED_GETAFFINITY: std::sync::LazyLock<
+        unsafe extern "C" fn(
             pid: libc::pid_t,
             cpusetsize: libc::size_t,
             cpuset: *mut libc::cpu_set_t,
-        ) -> libc::c_int = unsafe {
-            let ptr = libc::dlsym(libc::RTLD_NEXT, c"sched_getaffinity".as_ptr() as _);
-            assert!(!ptr.is_null());
-            std::mem::transmute(ptr)
-        };
-    }
+        ) -> libc::c_int,
+    > = std::sync::LazyLock::new(|| unsafe {
+        let ptr = libc::dlsym(libc::RTLD_NEXT, c"sched_getaffinity".as_ptr() as _);
+        assert!(!ptr.is_null());
+        std::mem::transmute(ptr)
+    });
     SCHED_GETAFFINITY(pid, cpusetsize, cpuset)
 }
 
@@ -755,13 +755,12 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
             return info.node.cores as _;
         }
     }
-    lazy_static::lazy_static! {
-        static ref SYSCONF: unsafe extern "C" fn(name: libc::c_int) -> libc::c_long = unsafe {
+    static SYSCONF: std::sync::LazyLock<unsafe extern "C" fn(name: libc::c_int) -> libc::c_long> =
+        std::sync::LazyLock::new(|| unsafe {
             let ptr = libc::dlsym(libc::RTLD_NEXT, c"sysconf".as_ptr() as _);
             assert!(!ptr.is_null());
             std::mem::transmute(ptr)
-        };
-    }
+        });
     SYSCONF(name)
 }
 
@@ -781,13 +780,13 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
             return -1;
         }
     }
-    lazy_static::lazy_static! {
-        static ref PTHREAD_ATTR_INIT: unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int = unsafe {
-            let ptr = libc::dlsym(libc::RTLD_NEXT, c"pthread_attr_init".as_ptr() as _);
-            assert!(!ptr.is_null());
-            std::mem::transmute(ptr)
-        };
-    }
+    static PTHREAD_ATTR_INIT: std::sync::LazyLock<
+        unsafe extern "C" fn(attr: *mut libc::pthread_attr_t) -> libc::c_int,
+    > = std::sync::LazyLock::new(|| unsafe {
+        let ptr = libc::dlsym(libc::RTLD_NEXT, c"pthread_attr_init".as_ptr() as _);
+        assert!(!ptr.is_null());
+        std::mem::transmute(ptr)
+    });
     PTHREAD_ATTR_INIT(attr)
 }
 
@@ -826,13 +825,13 @@ unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) ->
         }
         return 0;
     }
-    lazy_static::lazy_static! {
-        static ref GETHOSTNAME: unsafe extern "C" fn(name: *mut libc::c_char, size: libc::size_t) -> libc::c_int = unsafe {
-            let ptr = libc::dlsym(libc::RTLD_NEXT, c"gethostname".as_ptr() as _);
-            assert!(!ptr.is_null());
-            std::mem::transmute(ptr)
-        };
-    }
+    static GETHOSTNAME: std::sync::LazyLock<
+        unsafe extern "C" fn(name: *mut libc::c_char, size: libc::size_t) -> libc::c_int,
+    > = std::sync::LazyLock::new(|| unsafe {
+        let ptr = libc::dlsym(libc::RTLD_NEXT, c"gethostname".as_ptr() as _);
+        assert!(!ptr.is_null());
+        std::mem::transmute(ptr)
+    });
     GETHOSTNAME(name, size)
 }
 

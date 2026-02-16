@@ -14,9 +14,8 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use tracing::*;
 
-lazy_static::lazy_static! {
-    static ref CONTEXT: Arc<ucp::Context> = ucp::Context::new().expect("failed to initialize UCX context");
-}
+static CONTEXT: std::sync::LazyLock<Arc<ucp::Context>> =
+    std::sync::LazyLock::new(|| ucp::Context::new().expect("failed to initialize UCX context"));
 
 /// An endpoint.
 #[derive(Clone)]
