@@ -4,12 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## tonic [0.6.0] tonic-build [0.6.0] - 2026-02-16
 
 ### Changed
-- tonic: Update `tonic` and `tonic-build` to v0.14.
-- etcd-client: Update upstream `etcd-client` to v0.18.x (aligns tonic to v0.14.x).
-- prost: Update to v0.14.
+- Update upstream `tonic` to v0.14.
+- Update upstream `tonic-build` to v0.14.
+- Update upstream `prost` to v0.14.
+
+## etcd-client [0.7.0] - 2026-02-16
+
+### Changed
+- Update upstream `etcd-client` to v0.18 (aligned with tonic v0.14).
 
 ## tonic [0.5.2] - 2025-12-03
 
