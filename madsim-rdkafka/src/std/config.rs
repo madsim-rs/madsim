@@ -13,17 +13,17 @@
 //!
 //! - `client.id`: Client identifier. Default: `rdkafka`.
 //! - `bootstrap.servers`: Initial list of brokers as a CSV list of broker host
-//!    or host:port. Default: empty.
+//!   or host:port. Default: empty.
 //! - `message.max.bytes`: Maximum message size. Default: 1000000.
 //! - `debug`: A comma-separated list of debug contexts to enable. Use 'all' to
-//!    print all the debugging information. Default: empty (off).
+//!   print all the debugging information. Default: empty (off).
 //! - `statistics.interval.ms`: how often the statistic callback
-//!    specified in the [`ClientContext`] will be called. Default: 0 (disabled).
+//!   specified in the [`ClientContext`] will be called. Default: 0 (disabled).
 //!
 //! [librdkafka-config]: https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
 
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::iter::FromIterator;
 use std::os::raw::c_char;
 use std::ptr;
@@ -150,10 +150,33 @@ impl NativeClientConfig {
         }
 
         // Convert the C string to a Rust string.
-        Ok(CStr::from_bytes_with_nul(&buf)
-            .unwrap()
-            .to_string_lossy()
-            .into())
+        Ok(String::from_utf8_lossy(&buf)
+            .trim_matches(char::from(0))
+            .to_string())
+    }
+
+    pub(crate) fn set(&self, key: &str, value: &str) -> KafkaResult<()> {
+        let mut err_buf = ErrBuf::new();
+        let key_c = CString::new(key)?;
+        let value_c = CString::new(value)?;
+        let ret = unsafe {
+            rdsys::rd_kafka_conf_set(
+                self.ptr(),
+                key_c.as_ptr(),
+                value_c.as_ptr(),
+                err_buf.as_mut_ptr(),
+                err_buf.capacity(),
+            )
+        };
+        if ret.is_error() {
+            return Err(KafkaError::ClientConfig(
+                ret,
+                err_buf.to_string(),
+                key.to_string(),
+                value.to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -228,27 +251,8 @@ impl ClientConfig {
     /// Builds a native librdkafka configuration.
     pub fn create_native_config(&self) -> KafkaResult<NativeClientConfig> {
         let conf = unsafe { NativeClientConfig::from_ptr(rdsys::rd_kafka_conf_new()) };
-        let mut err_buf = ErrBuf::new();
         for (key, value) in &self.conf_map {
-            let key_c = CString::new(key.to_string())?;
-            let value_c = CString::new(value.to_string())?;
-            let ret = unsafe {
-                rdsys::rd_kafka_conf_set(
-                    conf.ptr(),
-                    key_c.as_ptr(),
-                    value_c.as_ptr(),
-                    err_buf.as_mut_ptr(),
-                    err_buf.capacity(),
-                )
-            };
-            if ret.is_error() {
-                return Err(KafkaError::ClientConfig(
-                    ret,
-                    err_buf.to_string(),
-                    key.to_string(),
-                    value.to_string(),
-                ));
-            }
+            conf.set(key, value)?;
         }
         Ok(conf)
     }

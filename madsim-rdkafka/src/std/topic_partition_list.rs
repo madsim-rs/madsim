@@ -78,7 +78,6 @@ impl Offset {
     }
 }
 
-// TODO: implement Debug
 /// One element of the topic partition list.
 pub struct TopicPartitionListElem<'a> {
     ptr: &'a mut RDKafkaTopicPartition,
@@ -165,6 +164,18 @@ impl<'a> PartialEq for TopicPartitionListElem<'a> {
             && self.partition() == other.partition()
             && self.offset() == other.offset()
             && self.metadata() == other.metadata()
+    }
+}
+
+impl fmt::Debug for TopicPartitionListElem<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TopicPartitionListElem")
+            .field("topic", &self.topic())
+            .field("partition", &self.partition())
+            .field("offset", &self.offset())
+            .field("metadata", &self.metadata())
+            .field("error", &self.error())
+            .finish()
     }
 }
 
@@ -320,7 +331,10 @@ impl TopicPartitionList {
 
     /// Sets all partitions in the list to the specified offset.
     pub fn set_all_offsets(&mut self, offset: Offset) -> Result<(), KafkaError> {
-        let slice = unsafe { slice::from_raw_parts_mut((*self.ptr).elems, self.count()) };
+        if self.count() == 0 {
+            return Ok(());
+        }
+        let slice = unsafe { slice::from_raw_parts_mut(self.ptr.elems, self.count()) };
         for elem_ptr in slice {
             let mut elem = TopicPartitionListElem::from_ptr(self, &mut *elem_ptr);
             elem.set_offset(offset)?;
@@ -330,8 +344,11 @@ impl TopicPartitionList {
 
     /// Returns all the elements of the list.
     pub fn elements(&self) -> Vec<TopicPartitionListElem<'_>> {
-        let slice = unsafe { slice::from_raw_parts_mut((*self.ptr).elems, self.count()) };
-        let mut vec = Vec::with_capacity(slice.len());
+        let mut vec = Vec::with_capacity(self.count());
+        if self.count() == 0 {
+            return vec;
+        }
+        let slice = unsafe { slice::from_raw_parts_mut(self.ptr.elems, self.count()) };
         for elem_ptr in slice {
             vec.push(TopicPartitionListElem::from_ptr(self, &mut *elem_ptr));
         }
@@ -340,8 +357,11 @@ impl TopicPartitionList {
 
     /// Returns all the elements of the list that belong to the specified topic.
     pub fn elements_for_topic<'a>(&'a self, topic: &str) -> Vec<TopicPartitionListElem<'a>> {
-        let slice = unsafe { slice::from_raw_parts_mut((*self.ptr).elems, self.count()) };
-        let mut vec = Vec::with_capacity(slice.len());
+        let mut vec = Vec::with_capacity(self.count());
+        if self.count() == 0 {
+            return vec;
+        }
+        let slice = unsafe { slice::from_raw_parts_mut(self.ptr.elems, self.count()) };
         for elem_ptr in slice {
             let tp = TopicPartitionListElem::from_ptr(self, &mut *elem_ptr);
             if tp.topic() == topic {
@@ -383,22 +403,7 @@ impl Default for TopicPartitionList {
 
 impl fmt::Debug for TopicPartitionList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "TPL {{")?;
-        for (i, elem) in self.elements().iter().enumerate() {
-            if i > 0 {
-                write!(f, "; ")?;
-            }
-            write!(
-                f,
-                "{}/{}: offset={:?} metadata={:?}, error={:?}",
-                elem.topic(),
-                elem.partition(),
-                elem.offset(),
-                elem.metadata(),
-                elem.error(),
-            )?;
-        }
-        write!(f, "}}")
+        f.debug_list().entries(self.elements()).finish()
     }
 }
 
