@@ -3,7 +3,7 @@ use crate::{rand::*, task::NodeId};
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     hash::{Hash, Hasher},
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -240,7 +240,7 @@ impl Network {
                 return Err(io::Error::new(
                     io::ErrorKind::AddrInUse,
                     format!("address already in use: {addr}"),
-                ))
+                ));
             }
             Entry::Vacant(o) => {
                 o.insert(socket);

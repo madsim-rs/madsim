@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 /// Override the libc `gettimeofday` function. For `SystemTime` on macOS.
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void) -> libc::c_int {
     // NOTE: tz should be NULL.
@@ -39,7 +39,7 @@ unsafe extern "C" fn gettimeofday(tp: *mut libc::timeval, tz: *mut libc::c_void)
 
 /// Override the libc `clock_gettime` function.
 /// For Linux, ARM64 macOS (since 1.67) and x86_64 macOS (since 1.75).
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn clock_gettime(
     clockid: libc::clockid_t,
@@ -88,7 +88,7 @@ unsafe extern "C" fn clock_gettime(
 }
 
 /// Override the `mach_absolute_time` function. For `Instant` on macOS before Rust 1.75.
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 #[cfg(target_os = "macos")]
 // not used on ARM64 macOS after https://github.com/rust-lang/rust/pull/103594

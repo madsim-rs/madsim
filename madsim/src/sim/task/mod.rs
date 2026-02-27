@@ -18,14 +18,14 @@ use std::{
     panic::Location,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     task::{Context, Poll, Waker},
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
-use tracing::{debug, error, error_span, trace, Span};
+use tracing::{Span, debug, error, error_span, trace};
 
 pub use tokio::task::yield_now;
 
@@ -714,7 +714,7 @@ impl fmt::Display for Id {
 /// For `std::thread::available_parallelism` on Linux.
 ///
 /// Ref: <https://man7.org/linux/man-pages/man2/sched_setaffinity.2.html>
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 #[cfg(target_os = "linux")]
 unsafe extern "C" fn sched_getaffinity(
@@ -747,7 +747,7 @@ unsafe extern "C" fn sched_getaffinity(
 /// For `std::thread::available_parallelism` on macOS.
 ///
 /// Ref: <https://man7.org/linux/man-pages/man3/sysconf.3.html>
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
     if name == libc::_SC_NPROCESSORS_ONLN {
@@ -766,7 +766,7 @@ unsafe extern "C" fn sysconf(name: libc::c_int) -> libc::c_long {
 }
 
 /// Forbid creating system thread in simulation.
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc::c_int {
     if let Some(allowed) = crate::context::try_current(|h| h.allow_system_thread) {
@@ -777,7 +777,9 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
         } else {
             eprintln!("attempt to spawn a system thread in simulation.");
             eprintln!("note: try to use tokio tasks instead.");
-            eprintln!("note: if you really need to spawn a system thread, set the environment variable `MADSIM_ALLOW_SYSTEM_THREAD` to `1`.");
+            eprintln!(
+                "note: if you really need to spawn a system thread, set the environment variable `MADSIM_ALLOW_SYSTEM_THREAD` to `1`."
+            );
             return -1;
         }
     }
@@ -794,7 +796,7 @@ unsafe extern "C" fn pthread_attr_init(attr: *mut libc::pthread_attr_t) -> libc:
 /// Override `gethostname` to return the node name, if specified.
 ///
 /// Ref: <https://man7.org/linux/man-pages/man2/gethostname.2.html>
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn gethostname(name: *mut libc::c_char, size: libc::size_t) -> libc::c_int {
     if let Some(info) = crate::context::try_current_task() {
@@ -841,7 +843,7 @@ mod tests {
     use super::*;
     use crate::{
         context::{current, current_node},
-        runtime::{init_logger, Handle, Runtime},
+        runtime::{Handle, Runtime, init_logger},
         time,
     };
     use std::{collections::HashSet, ffi::OsStr, sync::atomic::AtomicUsize, time::Duration};

@@ -25,7 +25,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 
 pub const MESSAGE_ATTR: &str = "rtype";
 
@@ -43,7 +43,7 @@ pub fn expand(ast: &syn::DeriveInput) -> TokenStream {
                             ty.len()
                         ),
                     )
-                    .to_compile_error()
+                    .to_compile_error();
                 }
             },
             Err(err) => return err.to_compile_error(),
@@ -69,64 +69,74 @@ fn get_attribute_type_multiple(
     ast: &syn::DeriveInput,
     name: &str,
 ) -> syn::Result<Vec<Option<syn::Type>>> {
+    use syn::parse::Parser;
+
     let attr = ast
         .attrs
         .iter()
-        .find_map(|a| {
-            let a = a.parse_meta();
-            match a {
-                Ok(meta) => {
-                    if meta.path().is_ident(name) {
-                        Some(meta)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            }
-        })
+        .find(|a| a.path().is_ident(name))
         .ok_or_else(|| {
             syn::Error::new(Span::call_site(), format!("Expect an attribute `{name}`"))
         })?;
 
-    if let syn::Meta::List(ref list) = attr {
-        Ok(list
-            .nested
-            .iter()
-            .map(|m| meta_item_to_ty(m).ok())
-            .collect())
-    } else {
-        Err(syn::Error::new_spanned(
-            attr,
-            format!("The correct syntax is #[{name}(type, type, ...)]"),
-        ))
-    }
+    // Parse the content inside the parentheses
+    let parser = |input: syn::parse::ParseStream| {
+        let mut types = Vec::new();
+        while !input.is_empty() {
+            let ty = parse_type_arg(input)?;
+            types.push(ty);
+            if input.peek(syn::Token![,]) {
+                input.parse::<syn::Token![,]>()?;
+            }
+        }
+        Ok(types)
+    };
+
+    let tokens = match &attr.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => {
+            return Err(syn::Error::new_spanned(
+                attr,
+                format!("The correct syntax is #[{name}(type, type, ...)]"),
+            ));
+        }
+    };
+
+    parser.parse2(tokens)
 }
 
-fn meta_item_to_ty(meta_item: &syn::NestedMeta) -> syn::Result<syn::Type> {
-    match meta_item {
-        syn::NestedMeta::Meta(syn::Meta::Path(ref path)) => match path.get_ident() {
-            Some(ident) => syn::parse_str::<syn::Type>(&ident.to_string())
-                .map_err(|_| syn::Error::new_spanned(ident, "Expect type")),
-            None => Err(syn::Error::new_spanned(path, "Expect type")),
-        },
-        syn::NestedMeta::Meta(syn::Meta::NameValue(val)) => match val.path.get_ident() {
-            Some(ident) if ident == "result" => {
-                if let syn::Lit::Str(ref s) = val.lit {
-                    if let Ok(ty) = syn::parse_str::<syn::Type>(&s.value()) {
-                        return Ok(ty);
-                    }
-                }
-                Err(syn::Error::new_spanned(&val.lit, "Expect type"))
-            }
-            _ => Err(syn::Error::new_spanned(
-                &val.lit,
+fn parse_type_arg(input: syn::parse::ParseStream) -> syn::Result<Option<syn::Type>> {
+    // Handle `result = "TYPE"` syntax
+    if input.peek(syn::Ident) && input.peek2(syn::Token![=]) {
+        let ident: syn::Ident = input.parse()?;
+        if ident != "result" {
+            return Err(syn::Error::new_spanned(
+                ident,
                 r#"Expect `result = "TYPE"`"#,
-            )),
-        },
-        syn::NestedMeta::Lit(syn::Lit::Str(ref s)) => syn::parse_str::<syn::Type>(&s.value())
-            .map_err(|_| syn::Error::new_spanned(s, "Expect type")),
-
-        meta => Err(syn::Error::new_spanned(meta, "Expect type")),
+            ));
+        }
+        input.parse::<syn::Token![=]>()?;
+        let s: syn::LitStr = input.parse()?;
+        let ty = syn::parse_str::<syn::Type>(&s.value())
+            .map_err(|_| syn::Error::new_spanned(&s, "Expect type"))?;
+        return Ok(Some(ty));
     }
+
+    // Handle string literal like `"String"`
+    if input.peek(syn::LitStr) {
+        let s: syn::LitStr = input.parse()?;
+        let ty = syn::parse_str::<syn::Type>(&s.value())
+            .map_err(|_| syn::Error::new_spanned(&s, "Expect type"))?;
+        return Ok(Some(ty));
+    }
+
+    // Handle plain identifier like `MyType`
+    if input.peek(syn::Ident) {
+        let ident: syn::Ident = input.parse()?;
+        let ty = syn::parse_str::<syn::Type>(&ident.to_string())
+            .map_err(|_| syn::Error::new_spanned(&ident, "Expect type"))?;
+        return Ok(Some(ty));
+    }
+
+    Err(input.error("Expect type"))
 }

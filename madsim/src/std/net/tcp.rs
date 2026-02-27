@@ -4,17 +4,17 @@ use crate::task;
 use bytes::{Buf, Bytes};
 use futures_util::StreamExt;
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     io::{self, IoSlice},
     net::SocketAddr,
     sync::{Arc, Mutex, RwLock},
 };
 use tokio::{
     io::AsyncWriteExt,
-    net::{lookup_host, TcpListener, TcpStream, ToSocketAddrs},
+    net::{TcpListener, TcpStream, ToSocketAddrs, lookup_host},
     sync::{mpsc, oneshot},
 };
-use tokio_util::codec::{length_delimited::LengthDelimitedCodec, FramedRead};
+use tokio_util::codec::{FramedRead, length_delimited::LengthDelimitedCodec};
 use tracing::*;
 
 /// An endpoint.

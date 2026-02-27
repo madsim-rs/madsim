@@ -3,7 +3,7 @@
 //!
 
 use crate::rand::{GlobalRng, Rng};
-use futures_util::{select_biased, FutureExt};
+use futures_util::{FutureExt, select_biased};
 use naive_timer::Timer;
 use spin::Mutex;
 #[doc(no_inline)]
@@ -15,8 +15,8 @@ mod interval;
 mod sleep;
 mod system_time;
 
-pub use self::interval::{interval, interval_at, Interval, MissedTickBehavior};
-pub use self::sleep::{sleep, sleep_until, Sleep};
+pub use self::interval::{Interval, MissedTickBehavior, interval, interval_at};
+pub use self::sleep::{Sleep, sleep, sleep_until};
 
 pub(crate) struct TimeRuntime {
     handle: TimeHandle,

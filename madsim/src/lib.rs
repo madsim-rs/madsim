@@ -6,10 +6,12 @@
 //! - `macros`: Enables `#[madsim::main]` and `#[madsim::test]` macros.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// Allow Rust 2024's stricter unsafe-in-unsafe-fn rules (temporary fix)
+#![allow(unsafe_op_in_unsafe_fn)]
 
 #[cfg(all(feature = "rpc", feature = "macros"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "rpc", feature = "macros"))))]
-pub use madsim_macros::{service, Request};
+pub use madsim_macros::{Request, service};
 
 #[cfg(madsim)]
 mod sim;

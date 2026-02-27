@@ -61,7 +61,7 @@ pub use bytes::Bytes;
 use futures_util::FutureExt;
 use rand::Rng;
 #[doc(no_inline)]
-pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
+pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     any::Any,
     future::Future,
@@ -119,7 +119,7 @@ impl Endpoint {
         data: &[u8],
     ) -> io::Result<(R::Response, Bytes)> {
         let req_tag = R::ID;
-        let rsp_tag = rand::thread_rng().gen::<u64>();
+        let rsp_tag = rand::thread_rng().r#gen::<u64>();
         let rsp_tag_buf = rsp_tag.to_be_bytes();
         let req = bincode::serialize(&request).unwrap();
         let req_len_buf = (req.len() as u32).to_be_bytes();

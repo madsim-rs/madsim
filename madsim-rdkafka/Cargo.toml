@@ -1,7 +1,7 @@
 [package]
 name = "madsim-rdkafka"
 version = "0.4.4+0.34.0"
-edition = "2021"
+edition = "2024"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The rdkafka simulator on madsim."
 homepage = "https://github.com/madsim-rs/madsim"
