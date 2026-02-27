@@ -175,7 +175,13 @@ pub fn timeout<T: Future>(
     future: T,
 ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
     let handle = TimeHandle::current();
-    handle.timeout(duration, future)
+    let timeout = handle.sleep(duration);
+    async move {
+        futures_util::select_biased! {
+            res = future.fuse() => Ok(res),
+            _ = timeout.fuse() => Err(error::Elapsed),
+        }
+    }
 }
 
 /// Require a `Future` to complete before the specified instant in time.
@@ -184,7 +190,13 @@ pub fn timeout_at<T: Future>(
     future: T,
 ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
     let handle = TimeHandle::current();
-    handle.timeout_at(deadline, future)
+    let timeout = handle.sleep_until(deadline);
+    async move {
+        futures_util::select_biased! {
+            res = future.fuse() => Ok(res),
+            _ = timeout.fuse() => Err(error::Elapsed),
+        }
+    }
 }
 
 /// Advances time.
