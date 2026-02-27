@@ -263,7 +263,7 @@ impl<C: ClientContext> Client<C> {
         }
         // XXX(runji): This function exists in librdkafka, but is blocked by rdkafka-sys.
         //             We import it here manually.
-        extern "C" {
+        unsafe extern "C" {
             fn rd_kafka_conf_set_resolve_cb(
                 conf: *mut rdsys::rd_kafka_conf_t,
                 resolve_cb: Option<
@@ -719,7 +719,10 @@ pub(crate) unsafe extern "C" fn native_oauth_refresh_cb<C: ClientContext>(
             let message = match CString::new(e.to_string()) {
                 Ok(message) => message,
                 Err(e) => {
-                    error!("error message generated while refreshing OAuth token has embedded null character: {}", e);
+                    error!(
+                        "error message generated while refreshing OAuth token has embedded null character: {}",
+                        e
+                    );
                     CString::new("error while refreshing OAuth token has embedded null character")
                         .expect("known to be a valid CString")
                 }

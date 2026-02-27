@@ -12,6 +12,9 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+rust-version = "1.85"
+
 [patch.crates-io]
 getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "6c9d9e9" }
 
