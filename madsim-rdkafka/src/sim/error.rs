@@ -61,14 +61,14 @@ impl fmt::Display for KafkaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KafkaError::AdminOp(err) => write!(f, "Admin operation error: {err}"),
-            KafkaError::AdminOpCreation(ref err) => {
+            KafkaError::AdminOpCreation(err) => {
                 write!(f, "Admin operation creation error: {err}")
             }
             KafkaError::Canceled => write!(f, "KafkaError (Client dropped)"),
             // KafkaError::ClientConfig(_, ref desc, ref key, ref value) => {
             //     write!(f, "Client config error: {} {} {}", desc, key, value)
             // }
-            KafkaError::ClientCreation(ref err) => write!(f, "Client creation error: {err}"),
+            KafkaError::ClientCreation(err) => write!(f, "Client creation error: {err}"),
             KafkaError::ConsumerCommit(err) => write!(f, "Consumer commit error: {err}"),
             KafkaError::Flush(err) => write!(f, "KafkaError (Flush error: {err})"),
             KafkaError::Global(err) => write!(f, "Global error: {err}"),
