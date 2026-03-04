@@ -14,6 +14,7 @@ use std::{
 };
 
 use crate::{
+    ClientConfig, Offset, TopicPartitionList,
     broker::FetchOptions,
     client::ClientContext,
     config::{FromClientConfig, FromClientConfigAndContext},
@@ -23,7 +24,6 @@ use crate::{
     sim_broker::Request,
     topic_partition_list::Elem,
     util::Timeout,
-    ClientConfig, Offset, TopicPartitionList,
 };
 
 /// Common trait for all consumers.
@@ -868,10 +868,11 @@ mod tests {
         {
             let tpl = consumer.tpl.lock();
             assert_eq!(tpl.count(), 1);
-            assert!(tpl
-                .list
-                .iter()
-                .all(|elem| !(elem.topic == "topic" && elem.partition == 1)));
+            assert!(
+                tpl.list
+                    .iter()
+                    .all(|elem| !(elem.topic == "topic" && elem.partition == 1))
+            );
         }
 
         // Removing a non-existent partition should be a no-op.

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::{error::KafkaResult, ClientContext};
+use crate::{ClientContext, error::KafkaResult};
 
 /// The log levels supported by librdkafka.
 #[derive(Copy, Clone, Debug)]

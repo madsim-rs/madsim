@@ -6,12 +6,12 @@ use tracing::*;
 
 use super::{DefaultProducerContext, IntoOpaque, ProducerConfig, ProducerContext};
 use crate::{
+    ClientConfig, Timestamp,
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult, RDKafkaError, RDKafkaErrorCode},
     message::{OwnedHeaders, OwnedMessage, ToBytes},
     sim_broker::Request,
     util::Timeout,
-    ClientConfig, Timestamp,
 };
 
 /// A record for the [`BaseProducer`] and [`ThreadedProducer`].

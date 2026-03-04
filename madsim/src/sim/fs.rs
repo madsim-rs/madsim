@@ -11,11 +11,11 @@ use std::{
 use tracing::*;
 
 use crate::{
-    plugin::{node, simulator, Simulator},
+    Config,
+    plugin::{Simulator, node, simulator},
     rand::GlobalRng,
     task::NodeId,
     time::TimeHandle,
-    Config,
 };
 
 /// File system simulator.

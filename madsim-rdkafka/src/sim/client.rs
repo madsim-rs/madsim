@@ -1,6 +1,6 @@
+use crate::Statistics;
 use crate::config::RDKafkaLogLevel;
 use crate::error::KafkaError;
-use crate::Statistics;
 use std::error::Error;
 use tracing::*;
 

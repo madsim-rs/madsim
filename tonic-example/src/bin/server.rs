@@ -1,8 +1,8 @@
 use tonic::transport::Server;
+use tonic_example::MyGreeter;
 use tonic_example::hello_world::{
     another_greeter_server::AnotherGreeterServer, greeter_server::GreeterServer,
 };
-use tonic_example::MyGreeter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

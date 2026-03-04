@@ -5,11 +5,11 @@
 //! [`AdminClient`]: struct.AdminClient.html
 
 use std::collections::HashMap;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_void};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -25,7 +25,7 @@ use crate::client::{Client, ClientContext, DefaultClientContext, NativeQueue};
 use crate::config::{ClientConfig, FromClientConfig, FromClientConfigAndContext};
 use crate::error::{IsError, KafkaError, KafkaResult};
 use crate::log::{trace, warn};
-use crate::util::{cstr_to_owned, AsCArray, ErrBuf, IntoOpaque, KafkaDrop, NativePtr, Timeout};
+use crate::util::{AsCArray, ErrBuf, IntoOpaque, KafkaDrop, NativePtr, Timeout, cstr_to_owned};
 
 //
 // ********** ADMIN CLIENT **********

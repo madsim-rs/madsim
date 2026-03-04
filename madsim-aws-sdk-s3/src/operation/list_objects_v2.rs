@@ -5,7 +5,7 @@ pub use aws_sdk_s3::operation::list_objects_v2::{
 pub mod builders {
     use super::*;
     use crate::server::service::Request;
-    use crate::{error::SdkError, Client};
+    use crate::{Client, error::SdkError};
 
     pub use aws_sdk_s3::operation::list_objects_v2::builders::{
         ListObjectsV2InputBuilder, ListObjectsV2OutputBuilder,

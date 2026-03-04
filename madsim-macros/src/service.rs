@@ -32,11 +32,11 @@ fn take_rpc_attributes(input: &mut ItemImpl) -> Result<Vec<RpcFn>> {
     let mut fns = vec![];
     for item in &mut input.items {
         let method = match item {
-            ImplItem::Method(m) => m,
+            ImplItem::Fn(m) => m,
             _ => continue,
         };
         let rpc_meta = match take_attribute(&mut method.attrs, "rpc") {
-            Some(v) => v.parse_meta().unwrap(),
+            Some(v) => v.meta.clone(),
             _ => continue,
         };
         let mut rpc_fn = RpcFn::try_from(&method.sig)?;
@@ -113,7 +113,7 @@ fn take_attribute(attrs: &mut Vec<Attribute>, path: &str) -> Option<Attribute> {
     attrs
         .iter()
         .position(|attr| {
-            attr.path
+            attr.path()
                 .get_ident()
                 .map(|ident| ident == path)
                 .unwrap_or(false)

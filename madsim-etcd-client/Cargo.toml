@@ -1,7 +1,7 @@
 [package]
 name = "madsim-etcd-client"
 version = "0.7.0+0.18"
-edition = "2021"
+edition = "2024"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 description = "The etcd simulator on madsim."
 homepage = "https://github.com/madsim-rs/madsim"

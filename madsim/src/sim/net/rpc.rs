@@ -66,7 +66,7 @@ use crate::rand::random;
 pub use bytes::Bytes;
 use futures_util::FutureExt;
 #[doc(no_inline)]
-pub use serde::{de::DeserializeOwned, Deserialize, Serialize};
+pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::future::Future;
 
 /// A RPC request.

@@ -1,8 +1,8 @@
 use crate::{
+    TopicPartitionList,
     broker::{Broker, FetchOptions},
     message::OwnedMessage,
     metadata::Metadata,
-    TopicPartitionList,
 };
 use madsim::net::{Endpoint, Payload};
 use spin::Mutex;

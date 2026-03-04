@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use criterion::*;
-use madsim::{net::Endpoint, Request};
+use madsim::{Request, net::Endpoint};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Request)]

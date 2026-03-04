@@ -36,7 +36,7 @@
 //! ```
 
 use bytes::Bytes;
-use futures_util::{stream::BoxStream, StreamExt};
+use futures_util::{StreamExt, stream::BoxStream};
 use spin::Mutex;
 use std::{
     any::Any,
@@ -54,7 +54,7 @@ use crate::{
     plugin,
     rand::{GlobalRng, Rng},
     task::{NodeId, NodeInfo, Spawner},
-    time::{sleep, sleep_until, Duration, TimeHandle},
+    time::{Duration, TimeHandle, sleep, sleep_until},
 };
 
 mod addr;
@@ -69,7 +69,7 @@ pub mod tcp;
 mod udp;
 pub mod unix;
 
-pub use self::addr::{lookup_host, ToSocketAddrs};
+pub use self::addr::{ToSocketAddrs, lookup_host};
 use self::dns::DnsServer;
 pub use self::endpoint::{Endpoint, Receiver, Sender};
 use self::ipvs::{IpVirtualServer, ServiceAddr};
@@ -315,9 +315,8 @@ impl NetSim {
         {
             dst = addr.parse().expect("invalid socket address");
         }
-        if let Some((ip, dst_node, socket, latency)) =
-            self.network.lock().try_send(node, dst, protocol)
-        {
+        let try_result = self.network.lock().try_send(node, dst, protocol);
+        if let Some((ip, dst_node, socket, latency)) = try_result {
             trace!(?latency, "delay");
             let hook = self.hooks_rsp.lock().get(&dst_node).cloned();
             self.time.add_timer(latency, move || {
@@ -466,7 +465,7 @@ impl BindGuard {
                         node,
                         addr,
                         protocol,
-                    })
+                    });
                 }
                 Err(e) => last_err = Some(e),
             }

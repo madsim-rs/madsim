@@ -138,11 +138,23 @@ impl Endpoint {
     /// It is provided for use by other simulators.
     #[cfg_attr(docsrs, doc(cfg(madsim)))]
     pub async fn recv_from_raw(&self, tag: u64) -> io::Result<(Payload, SocketAddr)> {
+        // rand_delay BEFORE consuming from mailbox. This is critical: if this
+        // future is cancelled during the delay (e.g., by a timeout), no message
+        // has been consumed yet, so nothing is lost. Previously the delay was
+        // after consuming, which caused message loss when cancellation happened
+        // during the delay — the message was taken from the mailbox but dropped
+        // with the cancelled future.
+        self.guard.net.rand_delay().await?;
+
         let recver = self.socket.mailbox.lock().recv(tag);
-        let msg = recver
+        // Wrap the receiver in a guard that recovers messages on cancellation.
+        // If the delivery and timeout fire at the same simulated tick, the guard
+        // ensures the message is put back into the mailbox instead of being lost.
+        let mut guard = RecvGuard::new(recver, self.socket.clone());
+        let msg = Pin::new(&mut guard.rx)
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network is down"))?;
-        self.guard.net.rand_delay().await?;
+        guard.consumed = true;
 
         trace!("recv: {} <- {}, tag={}", self.guard.addr, msg.from, msg.tag);
         Ok((msg.data, msg.from))
@@ -359,6 +371,42 @@ impl Mailbox {
             self.registered.push((tag, tx));
         }
         rx
+    }
+}
+
+/// Guard that recovers messages from a oneshot receiver when dropped due to
+/// cancellation (e.g. timeout). Without this, a race condition in simulated time
+/// can lose messages: the delivery timer and recv timeout fire at the same tick,
+/// the oneshot send succeeds, then the timeout drops the receiver before the
+/// message is consumed.
+/// Guard that recovers messages from a oneshot receiver when dropped due to
+/// cancellation (e.g. timeout). Without this, a race condition in simulated time
+/// can lose messages: the delivery timer and recv timeout fire at the same tick,
+/// the oneshot send succeeds, then the timeout drops the receiver before the
+/// message is consumed.
+struct RecvGuard {
+    rx: oneshot::Receiver<Message>,
+    socket: Arc<EndpointSocket>,
+    consumed: bool,
+}
+
+impl RecvGuard {
+    fn new(rx: oneshot::Receiver<Message>, socket: Arc<EndpointSocket>) -> Self {
+        RecvGuard {
+            rx,
+            socket,
+            consumed: false,
+        }
+    }
+}
+
+impl Drop for RecvGuard {
+    fn drop(&mut self) {
+        if !self.consumed {
+            if let Ok(msg) = self.rx.try_recv() {
+                self.socket.mailbox.lock().msgs.push(msg);
+            }
+        }
     }
 }
 

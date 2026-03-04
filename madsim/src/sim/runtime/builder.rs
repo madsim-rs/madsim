@@ -1,5 +1,5 @@
 use super::{Config, Runtime};
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use std::future::Future;
 use std::time::{Duration, SystemTime};
 

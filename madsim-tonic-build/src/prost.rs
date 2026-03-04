@@ -1,4 +1,4 @@
-use super::{client, server, Attributes};
+use super::{Attributes, client, server};
 use proc_macro2::TokenStream;
 use prost_build::{Config, Method, Service};
 use quote::ToTokens;

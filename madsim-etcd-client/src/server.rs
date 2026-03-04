@@ -1,8 +1,8 @@
-use futures_util::{select_biased, FutureExt};
+use futures_util::{FutureExt, select_biased};
 use madsim::net::{Endpoint, Payload};
 use std::{io::Result, net::SocketAddr, sync::Arc};
 
-use super::{election::*, kv::*, service::EtcdService, Bytes};
+use super::{Bytes, election::*, kv::*, service::EtcdService};
 
 /// A simulated etcd server.
 #[derive(Default, Clone)]

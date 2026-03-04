@@ -1,7 +1,7 @@
 pub use self::codec::Streaming;
 pub use tonic::{
-    body, metadata, service, Code, Extensions, IntoRequest, IntoStreamingRequest, Request,
-    Response, Status,
+    Code, Extensions, IntoRequest, IntoStreamingRequest, Request, Response, Status, body, metadata,
+    service,
 };
 
 #[macro_export]
@@ -48,7 +48,7 @@ pub mod codegen {
     use std::any::Any;
     pub use std::net::SocketAddr;
     use std::time::Duration;
-    use tonic::{service::Interceptor, Request, Status};
+    use tonic::{Request, Status, service::Interceptor};
 
     pub use futures_util as futures;
     pub use tonic::codegen::*;

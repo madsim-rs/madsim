@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 #[cfg(any(
     feature = "tls-native-roots",
     feature = "tls-webpki-roots",
@@ -21,7 +21,7 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 ))]
 use tonic::transport::ClientTlsConfig;
 use tonic::{
-    codegen::{http::HeaderValue, Bytes, StdError},
+    codegen::{Bytes, StdError, http::HeaderValue},
     transport::Uri,
 };
 use tower::discover::Change;

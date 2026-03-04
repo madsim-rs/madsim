@@ -33,11 +33,9 @@ pub fn service(args: TokenStream, input: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
+pub fn main(_args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
-
-    parse(input, args, false, false).unwrap_or_else(|e| e.to_compile_error().into())
+    parse(input, false, false).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 #[allow(clippy::doc_overindented_list_items)]
@@ -86,39 +84,28 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 ///     By default, it is disabled.
 #[proc_macro_attribute]
-pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
+pub fn test(_args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
-
-    parse(input, args, true, false).unwrap_or_else(|e| e.to_compile_error().into())
+    parse(input, true, false).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 // This macro is used by madsim-tokio.
 #[doc(hidden)]
 #[proc_macro_attribute]
-pub fn tokio_main(args: TokenStream, item: TokenStream) -> TokenStream {
+pub fn tokio_main(_args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
-
-    parse(input, args, false, true).unwrap_or_else(|e| e.to_compile_error().into())
+    parse(input, false, true).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
 // This macro is used by madsim-tokio.
 #[doc(hidden)]
 #[proc_macro_attribute]
-pub fn tokio_test(args: TokenStream, item: TokenStream) -> TokenStream {
+pub fn tokio_test(_args: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemFn);
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
-
-    parse(input, args, true, true).unwrap_or_else(|e| e.to_compile_error().into())
+    parse(input, true, true).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
-fn parse(
-    mut input: syn::ItemFn,
-    _args: syn::AttributeArgs,
-    is_test: bool,
-    is_tokio: bool,
-) -> Result<TokenStream, syn::Error> {
+fn parse(mut input: syn::ItemFn, is_test: bool, is_tokio: bool) -> Result<TokenStream, syn::Error> {
     if input.sig.asyncness.take().is_none() {
         let msg = "the `async` keyword is missing from the function declaration";
         return Err(syn::Error::new_spanned(input.sig.fn_token, msg));
@@ -133,7 +120,8 @@ fn parse(
     };
     input.block = syn::parse2(quote! {
         {
-            #tokio::madsim::runtime::Builder::from_env().run(|| async #body)
+            async fn __madsim_test_body() #body
+            #tokio::madsim::runtime::Builder::from_env().run(__madsim_test_body)
         }
     })
     .expect("Parsing failure");

@@ -3,7 +3,7 @@
 //!
 
 use crate::rand::{GlobalRng, Rng};
-use futures_util::{select_biased, FutureExt};
+use futures_util::{FutureExt, select_biased};
 use naive_timer::Timer;
 use spin::Mutex;
 #[doc(no_inline)]
@@ -15,8 +15,8 @@ mod interval;
 mod sleep;
 mod system_time;
 
-pub use self::interval::{interval, interval_at, Interval, MissedTickBehavior};
-pub use self::sleep::{sleep, sleep_until, Sleep};
+pub use self::interval::{Interval, MissedTickBehavior, interval, interval_at};
+pub use self::sleep::{Sleep, sleep, sleep_until};
 
 pub(crate) struct TimeRuntime {
     handle: TimeHandle,
@@ -175,7 +175,13 @@ pub fn timeout<T: Future>(
     future: T,
 ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
     let handle = TimeHandle::current();
-    handle.timeout(duration, future)
+    let timeout = handle.sleep(duration);
+    async move {
+        futures_util::select_biased! {
+            res = future.fuse() => Ok(res),
+            _ = timeout.fuse() => Err(error::Elapsed),
+        }
+    }
 }
 
 /// Require a `Future` to complete before the specified instant in time.
@@ -184,7 +190,13 @@ pub fn timeout_at<T: Future>(
     future: T,
 ) -> impl Future<Output = Result<T::Output, error::Elapsed>> {
     let handle = TimeHandle::current();
-    handle.timeout_at(deadline, future)
+    let timeout = handle.sleep_until(deadline);
+    async move {
+        futures_util::select_biased! {
+            res = future.fuse() => Ok(res),
+            _ = timeout.fuse() => Err(error::Elapsed),
+        }
+    }
 }
 
 /// Advances time.

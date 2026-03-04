@@ -1,10 +1,10 @@
 use bytes::Bytes;
 use madsim::export::futures::FutureExt;
-use madsim::rand::{thread_rng, Rng};
+use madsim::rand::{Rng, thread_rng};
 use spin::Mutex;
 use tracing::debug;
 
-use std::collections::{btree_map::Entry::*, BTreeMap};
+use std::collections::{BTreeMap, btree_map::Entry::*};
 
 use crate::operation::abort_multipart_upload::*;
 use crate::operation::complete_multipart_upload::*;
@@ -254,7 +254,7 @@ impl ServiceInner {
             .or_default();
 
         loop {
-            let upload_id = thread_rng().gen::<u32>().to_string();
+            let upload_id = thread_rng().r#gen::<u32>().to_string();
             if object.parts.contains_key(&upload_id) {
                 continue;
             } else {
@@ -288,7 +288,7 @@ impl ServiceInner {
             .get_mut(&upload_id)
             .ok_or_else(|| UploadPartError::unhandled(no_such_upload(&upload_id)))?;
 
-        let e_tag = thread_rng().gen::<u32>().to_string();
+        let e_tag = thread_rng().r#gen::<u32>().to_string();
         let part = ObjectPart {
             part_number,
             body,

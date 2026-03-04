@@ -10,7 +10,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 #[doc(no_inline)]
-pub use rand::{distributions, seq, CryptoRng, Error, Fill, Rng, RngCore, SeedableRng};
+pub use rand::{CryptoRng, Error, Fill, Rng, RngCore, SeedableRng, distributions, seq};
 
 /// Convenience re-export of common members
 pub mod prelude {
@@ -70,7 +70,7 @@ impl GlobalRng {
             fn hash_u128(x: u128) -> u8 {
                 x.to_ne_bytes().iter().fold(0, |a, b| a ^ b)
             }
-            let v = lock.rng.clone().gen::<u8>() ^ hash_u128(t.unwrap_or_default().as_nanos());
+            let v = lock.rng.clone().r#gen::<u8>() ^ hash_u128(t.unwrap_or_default().as_nanos());
             if let Some(log) = &mut lock.log {
                 log.push(v);
             }
@@ -163,7 +163,7 @@ pub fn random<T>() -> T
 where
     Standard: Distribution<T>,
 {
-    thread_rng().gen()
+    thread_rng().r#gen()
 }
 
 /// Random log for determinism check.
@@ -192,7 +192,7 @@ thread_local! {
 /// Input must be a valid buffer.
 ///
 /// Ref: <https://man7.org/linux/man-pages/man2/getrandom.2.html>
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, _flags: u32) -> isize {
     if let Some(seed) = SEED.with(|s| s.get()) {
@@ -247,7 +247,7 @@ unsafe extern "C" fn getrandom(buf: *mut u8, buflen: usize, _flags: u32) -> isiz
 /// Input must be a valid buffer.
 ///
 /// Ref: <https://man7.org/linux/man-pages/man3/getentropy.3.html>
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
     if buflen > 256 {
@@ -273,7 +273,7 @@ unsafe extern "C" fn getentropy(buf: *mut u8, buflen: usize) -> i32 {
 /// - <https://github.com/apple-oss-distributions/CommonCrypto/blob/a0ac082c490b65585ade764511acfdbf1d97bc5e/include/CommonRandom.h#L56>
 /// - <https://github.com/apple-oss-distributions/CommonCrypto/blob/0c0a068edd73f84671f1fba8c0e171caa114ee0a/lib/CommonRandom.c#L65-L85>
 #[cfg(target_os = "macos")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 unsafe extern "C" fn CCRandomGenerateBytes(bytes: *mut u8, count: usize) -> i32 {
     match getrandom(bytes, count, 0) {
