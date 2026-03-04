@@ -1,4 +1,4 @@
-use super::{server::Request, ResponseHeader, Result};
+use super::{ResponseHeader, Result, server::Request};
 use madsim::net::Endpoint;
 use std::net::SocketAddr;
 

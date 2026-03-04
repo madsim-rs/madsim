@@ -4,7 +4,7 @@ use async_stream::stream;
 use futures_core::Stream;
 use madsim::{
     net::NetSim,
-    rand::{thread_rng, Rng},
+    rand::{Rng, thread_rng},
     runtime::Handle,
     time::sleep,
 };
@@ -13,11 +13,12 @@ use std::{
     time::{Duration, Instant},
 };
 use tonic::transport::{Endpoint, Server};
-use tonic_example::hello_world::{
-    another_greeter_client::AnotherGreeterClient, another_greeter_server::AnotherGreeterServer,
-    greeter_client::GreeterClient, greeter_server::GreeterServer, HelloRequest,
-};
 use tonic_example::MyGreeter;
+use tonic_example::hello_world::{
+    HelloRequest, another_greeter_client::AnotherGreeterClient,
+    another_greeter_server::AnotherGreeterServer, greeter_client::GreeterClient,
+    greeter_server::GreeterServer,
+};
 
 #[madsim::test]
 async fn basic() {

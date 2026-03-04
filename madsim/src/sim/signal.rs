@@ -15,8 +15,8 @@ mod tests {
     };
     use futures_util::future::pending;
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     };
     use std::time::Duration;
 

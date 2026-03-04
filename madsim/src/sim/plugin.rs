@@ -5,13 +5,13 @@ use std::{
     sync::Arc,
 };
 
-use downcast_rs::{impl_downcast, DowncastSync};
+use downcast_rs::{DowncastSync, impl_downcast};
 
 use crate::{
+    Config,
     rand::GlobalRng,
     task::{NodeId, Spawner},
     time::TimeHandle,
-    Config,
 };
 
 /// Simulator

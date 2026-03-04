@@ -1,4 +1,4 @@
-use super::{server::Request, ResponseHeader, Result};
+use super::{ResponseHeader, Result, server::Request};
 use futures_util::stream::{Stream, StreamExt};
 use madsim::net::{Endpoint, Receiver, Sender};
 use std::{

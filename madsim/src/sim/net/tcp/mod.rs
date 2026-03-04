@@ -58,7 +58,7 @@ pub use self::stream::*;
 mod tests {
     use super::*;
     use crate::{
-        net::{ipvs::*, NetSim},
+        net::{NetSim, ipvs::*},
         plugin,
         runtime::Runtime,
         time::timeout,

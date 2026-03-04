@@ -1,4 +1,4 @@
-use crate::{codegen::BoxMessage, Status};
+use crate::{Status, codegen::BoxMessage};
 use async_stream::try_stream;
 use futures_util::{Stream, StreamExt};
 use madsim::task::JoinHandle;

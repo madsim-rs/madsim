@@ -1,11 +1,11 @@
 use super::{BaseRecord, DeliveryResult, IntoOpaque, ProducerContext, ThreadedProducer};
 use crate::{
+    ClientConfig, ClientContext, Statistics,
     client::{BrokerAddr, DefaultClientContext, OAuthToken},
     config::{FromClientConfig, FromClientConfigAndContext, RDKafkaLogLevel},
     error::{KafkaError, KafkaResult},
     message::{Message, OwnedHeaders, OwnedMessage, ToBytes},
     util::Timeout,
-    ClientConfig, ClientContext, Statistics,
 };
 use futures_channel::oneshot;
 use futures_util::FutureExt;

@@ -3,7 +3,7 @@ use std::io::Result;
 use std::net::SocketAddr;
 use tracing::instrument;
 
-use super::{lookup_host, Endpoint, ToSocketAddrs};
+use super::{Endpoint, ToSocketAddrs, lookup_host};
 
 /// A UDP socket.
 pub struct UdpSocket {

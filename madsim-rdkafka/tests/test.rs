@@ -4,16 +4,16 @@ use futures_util::StreamExt;
 use madsim::net::NetSim;
 use madsim::runtime::Handle;
 use madsim_rdkafka::{
+    ClientConfig, Message, SimBroker, TopicPartitionList,
     admin::*,
     consumer::{BaseConsumer, StreamConsumer},
     producer::{BaseProducer, BaseRecord, FutureProducer, FutureRecord},
-    ClientConfig, Message, SimBroker, TopicPartitionList,
 };
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };

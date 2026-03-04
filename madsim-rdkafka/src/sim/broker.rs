@@ -1,10 +1,10 @@
 //! A simulated Kafka broker.
 
 use crate::{
+    Message, Offset, TopicPartitionList,
     error::{KafkaError as Error, KafkaResult as Result, RDKafkaErrorCode as ErrorCode},
     message::{OwnedMessage, Timestamp},
     metadata::{Metadata, MetadataPartition, MetadataTopic},
-    Message, Offset, TopicPartitionList,
 };
 use std::collections::HashMap;
 use tracing::*;

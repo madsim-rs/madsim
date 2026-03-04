@@ -6,16 +6,16 @@ use crate::sim::AppendMetadata;
 use crate::tower::layer::util::{Identity, Stack};
 use crate::{Request, Response, Status};
 use async_stream::try_stream;
-use futures_util::{future::poll_fn, select_biased, FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt, future::poll_fn, select_biased};
 use madsim::net::Endpoint;
 use std::{
     collections::HashMap,
-    future::{pending, Future},
+    future::{Future, pending},
     marker::PhantomData,
     net::SocketAddr,
     time::Duration,
 };
-use tonic::codegen::{http::uri::PathAndQuery, BoxFuture, Service};
+use tonic::codegen::{BoxFuture, Service, http::uri::PathAndQuery};
 #[cfg(any(
     feature = "tls-native-roots",
     feature = "tls-webpki-roots",

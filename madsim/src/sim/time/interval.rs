@@ -26,7 +26,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
  */
 
-use crate::time::{sleep_until, Duration, Instant, Sleep};
+use crate::time::{Duration, Instant, Sleep, sleep_until};
 use futures_util::future::poll_fn;
 use futures_util::ready;
 

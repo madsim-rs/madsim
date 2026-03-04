@@ -1,9 +1,10 @@
 use bytes::Buf;
 use madsim::{
-    net::{rpc::Request, Endpoint},
-    task, Request,
+    Request,
+    net::{Endpoint, rpc::Request},
+    task,
 };
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use std::{io::IoSlice, net::SocketAddr};
 use structopt::StructOpt;

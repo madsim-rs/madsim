@@ -3,7 +3,7 @@ pub use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectInput, GetO
 pub mod builders {
     use super::*;
     use crate::server::service::Request;
-    use crate::{error::SdkError, Client};
+    use crate::{Client, error::SdkError};
 
     pub use aws_sdk_s3::operation::get_object::builders::{
         GetObjectInputBuilder, GetObjectOutputBuilder,

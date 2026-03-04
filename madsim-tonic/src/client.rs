@@ -3,15 +3,15 @@
 use std::future::Future;
 use std::time::Duration;
 
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, pin_mut};
 use tonic::codegen::http::uri::PathAndQuery;
 use tracing::{debug, instrument};
 
 use crate::{
+    Request, Response, Status, Streaming,
     codegen::{BoxMessage, IdentityInterceptor, RequestExt},
     service::Interceptor,
     sim::AppendMetadata,
-    Request, Response, Status, Streaming,
 };
 
 #[derive(Debug, Clone)]

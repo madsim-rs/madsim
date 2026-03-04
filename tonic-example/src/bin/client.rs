@@ -6,8 +6,8 @@ use std::time::Duration;
 use async_stream::stream;
 use madsim::time::sleep;
 
-use tonic_example::hello_world::greeter_client::GreeterClient;
 use tonic_example::hello_world::HelloRequest;
+use tonic_example::hello_world::greeter_client::GreeterClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

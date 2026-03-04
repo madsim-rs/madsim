@@ -1,4 +1,4 @@
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::fmt::{self, Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;

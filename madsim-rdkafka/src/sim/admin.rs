@@ -27,13 +27,13 @@ use madsim::net::Endpoint;
 use serde::Deserialize;
 
 use crate::{
+    ClientConfig,
     client::{ClientContext, DefaultClientContext},
     config::{FromClientConfig, FromClientConfigAndContext},
     error::{KafkaError, KafkaResult},
     sim_broker::Request,
     types::RDKafkaErrorCode,
     util::Timeout,
-    ClientConfig,
 };
 
 pub struct AdminClient<C: ClientContext> {
