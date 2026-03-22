@@ -15,3 +15,7 @@ aws-sdk-s3 = { version = "0.5", package = "madsim-aws-sdk-s3" }
 
 The crate's default TLS path uses the AWS SDK's `default-https-client` stack rather
 than the legacy `aws-sdk-s3/rustls` compatibility feature.
+
+The public feature names now follow the upstream `aws-sdk-s3` crate. In particular,
+`default-https-client` and `rustls` keep the same meaning as upstream, while this
+crate's default feature set prefers `default-https-client`.
