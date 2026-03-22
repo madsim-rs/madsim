@@ -14,7 +14,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { version = "1", default-features = false }
 
 [target.'cfg(madsim)'.dependencies]
 madsim = { version = "0.2.15", path = "../madsim" }
@@ -28,9 +28,12 @@ spin = "0.9"
 tracing = "0.1"
 
 [features]
-rustls = ["aws-sdk-s3/rustls"]
+default-https-client = ["aws-sdk-s3/default-https-client"]
+http-1x = ["aws-sdk-s3/http-1x"]
 rt-tokio = ["aws-sdk-s3/rt-tokio"]
-default = ["rustls", "rt-tokio"]
+rustls = ["aws-sdk-s3/rustls"]
+sigv4a = ["aws-sdk-s3/sigv4a"]
+default = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"]
 
 [lints]
 workspace = true
