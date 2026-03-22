@@ -12,3 +12,6 @@ Replace all `aws-sdk-s3` entries in your Cargo.toml:
 [dependencies]
 aws-sdk-s3 = { version = "0.5", package = "madsim-aws-sdk-s3" }
 ```
+
+The crate's default TLS path uses the AWS SDK's `default-https-client` stack rather
+than the legacy `aws-sdk-s3/rustls` compatibility feature.
