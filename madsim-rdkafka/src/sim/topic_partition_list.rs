@@ -59,13 +59,14 @@ impl TopicPartitionList {
         topic: &str,
         partition: i32,
     ) -> TopicPartitionListElem<'a> {
+        let index = self.list.len();
         self.list.push(Elem {
             topic: topic.into(),
             partition,
             offset: Offset::Invalid,
         });
         TopicPartitionListElem {
-            e: self.list.last().unwrap(),
+            e: &self.list[index],
         }
     }
 
