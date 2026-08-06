@@ -18,6 +18,10 @@ ucx = ["async-ucx"]
 rpc = ["bincode"]
 macros = ["madsim-macros", "tokio/macros"]
 # erpc = ["rpc"] # "mad_rpc"
+# Allow `sleep`/`sleep_until` to advance virtual time by less than 1ms.
+# When disabled (the default), sleeps are clamped to a minimum of 1ms to stay
+# consistent with `tokio::time::sleep`.
+sub-ms-sleep = []
 
 [dependencies]
 bincode = { version = "1", optional = true }

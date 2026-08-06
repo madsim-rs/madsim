@@ -107,19 +107,28 @@ impl TimeHandle {
 
     /// Waits until `duration` has elapsed.
     ///
-    /// It will sleep for at least 1ms to be consistent with the behavior of `tokio::time::sleep`.
+    /// By default it will sleep for at least 1ms to be consistent with the behavior of
+    /// `tokio::time::sleep`. Enable the `sub-ms-sleep` feature to allow sub-millisecond sleeps.
     pub fn sleep(&self, duration: Duration) -> Sleep {
         self.sleep_until(self.clock.now_instant() + duration)
     }
 
     /// Waits until `deadline` is reached.
     ///
-    /// It will sleep for at least 1ms to be consistent with the behavior of `tokio::time::sleep_until`.
+    /// By default it will sleep for at least 1ms to be consistent with the behavior of
+    /// `tokio::time::sleep_until`. Enable the `sub-ms-sleep` feature to allow sub-millisecond
+    /// sleeps.
     pub fn sleep_until(&self, deadline: Instant) -> Sleep {
-        let min_deadline = self.clock.now_instant() + Duration::from_millis(1);
+        // Clamp the deadline to a minimum of 1ms to stay consistent with `tokio::time::sleep`.
+        // The `sub-ms-sleep` feature opts out of this floor to allow finer-grained virtual time.
+        #[cfg(not(feature = "sub-ms-sleep"))]
+        let deadline = {
+            let min_deadline = self.clock.now_instant() + Duration::from_millis(1);
+            deadline.max(min_deadline)
+        };
         Sleep {
             handle: self.clone(),
-            deadline: deadline.max(min_deadline),
+            deadline,
         }
     }
 
@@ -263,14 +272,18 @@ mod tests {
     fn time() {
         let runtime = Runtime::new();
         runtime.block_on(async {
-            // sleep for at least 1ms
-            let t0 = Instant::now();
-            sleep(Duration::default()).await;
-            assert!(t0.elapsed() >= Duration::from_millis(1));
+            // By default a sleep is clamped to at least 1ms. With `sub-ms-sleep` the floor is
+            // removed, so these assertions only hold when the feature is disabled.
+            #[cfg(not(feature = "sub-ms-sleep"))]
+            {
+                let t0 = Instant::now();
+                sleep(Duration::default()).await;
+                assert!(t0.elapsed() >= Duration::from_millis(1));
 
-            let t0 = Instant::now();
-            sleep_until(t0).await;
-            assert!(t0.elapsed() >= Duration::from_millis(1));
+                let t0 = Instant::now();
+                sleep_until(t0).await;
+                assert!(t0.elapsed() >= Duration::from_millis(1));
+            }
 
             let t0 = Instant::now();
 
@@ -301,5 +314,29 @@ mod tests {
             advance(Duration::from_secs(1));
             assert!(t0.elapsed() >= Duration::from_secs(1));
         });
+    }
+
+    #[cfg(feature = "sub-ms-sleep")]
+    #[test]
+    fn test_sub_ms_sleep() {
+        // With the `sub-ms-sleep` feature the 1ms floor is removed, so virtual time advances by
+        // exactly the requested sub-millisecond duration.
+        fn run() -> Duration {
+            let runtime = Runtime::new();
+            runtime.block_on(async {
+                let t0 = Instant::now();
+                sleep(Duration::from_micros(500)).await;
+                t0.elapsed()
+            })
+        }
+
+        let elapsed = run();
+        // The sleep is not clamped to the default 1ms floor, but stays at ~500µs. Virtual time
+        // lands slightly past the deadline because `advance_to_next_event` adds a fixed 50ns
+        // epsilon (see its comment), so we assert on the sub-ms range rather than an exact value.
+        assert!(elapsed >= Duration::from_micros(500));
+        assert!(elapsed < Duration::from_millis(1));
+        // Same input yields the same virtual time: the result is deterministic.
+        assert_eq!(run(), elapsed);
     }
 }
