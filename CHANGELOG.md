@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Aligned compression API with latest tonic.
 
+## madsim - Unreleased
+
+### Added
+
+- Add a `sub-ms-sleep` feature that removes the 1ms minimum on `time::sleep`/`time::sleep_until`, allowing virtual time to advance by sub-millisecond durations. Disabled by default, so the existing 1ms floor is preserved.
+
 ## madsim [0.2.34] - 2025-10-10
 
 ### Changed
